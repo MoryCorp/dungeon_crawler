@@ -6,7 +6,14 @@
  *   npx tsx scripts/smoke.ts
  */
 import WebSocket from 'ws'
-import { fromBase64, unpackBits, type ActorView, type ServerMsg } from '@dc/engine'
+import {
+  fromBase64,
+  unpackBits,
+  type ActorView,
+  type ItemView,
+  type ProjectileView,
+  type ServerMsg,
+} from '@dc/engine'
 
 const URL = process.env.SMOKE_URL ?? 'ws://localhost:3000/ws'
 const ROOM = process.env.SMOKE_ROOM ?? 'SMOKE'
@@ -25,6 +32,9 @@ class FakeClient {
   floor = 0
   mapSize = 0
   actors: ActorView[] = []
+  items: ItemView[] = []
+  projectiles: ProjectileView[] = []
+  locked = false
   visibleCount = 0
   stateCount = 0
   ready: Promise<void>
@@ -44,6 +54,9 @@ class FakeClient {
         }
         if (msg.t === 'state') {
           this.actors = msg.actors
+          this.items = msg.items
+          this.projectiles = msg.projectiles
+          this.locked = msg.locked
           this.stateCount++
           // Le brouillard n'accompagne qu'un paquet sur cinq.
           if (this.mapSize && msg.vis) {
@@ -96,6 +109,16 @@ async function run(): Promise<void> {
     alice.visibleCount > 10 && alice.visibleCount < 64 * 64,
     `${alice.visibleCount} cases visibles sur 4096`,
   )
+
+  // --- progression et objectif -------------------------------------------
+  const me = alice.self()!
+  check('le héros a une arme de départ', me.weapon === 'sword', String(me.weapon))
+  check('le héros démarre niveau 1', me.level === 1 && me.xp === 0, `n${me.level}, ${me.xp} xp`)
+  check('le palier de niveau suivant est annoncé', (me.xpNext ?? 0) > 0, `${me.xpNext} xp`)
+  check('l\'escalier est verrouillé au début de l\'étage', alice.locked)
+  check('l\'état transporte objets et projectiles',
+    Array.isArray(alice.items) && Array.isArray(alice.projectiles),
+    `${alice.items.length} objets visibles`)
 
   // --- déplacement -------------------------------------------------------
   const before = alice.self()!

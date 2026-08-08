@@ -14,11 +14,19 @@ ws.on('message', (raw) => {
   const line = msg.actors
     .map(
       (a) =>
-        `${a.kind === 'player' ? '@' : '#'}${a.name}(${a.x.toFixed(1)},${a.y.toFixed(1)})` +
-        `${a.winding ? '!' : ''}${a.alive ? '' : '†'}`,
+        `${a.kind === 'player' ? '@' : '#'}${a.name}` +
+        `${a.rank ? `[${a.rank}]` : ''}(${a.x.toFixed(1)},${a.y.toFixed(1)})` +
+        `${a.level ? ` n${a.level}` : ''}` +
+        `${a.winding ? '!' : ''}${a.dashing ? '»' : ''}` +
+        `${a.downed ? '_' : ''}${a.alive ? '' : '†'}`,
     )
     .join(' ')
-  console.log(`t=${msg.tick} étage=${msg.floor} ${line}`)
+  const loot = msg.items.map((i) => i.kind[0]).join('')
+  console.log(
+    `t=${msg.tick} étage=${msg.floor} ${msg.locked ? '[fermé]' : '[ouvert]'}` +
+      `${msg.projectiles.length ? ` ${msg.projectiles.length}⋅` : ''}` +
+      `${loot ? ` {${loot}}` : ''} ${line}`,
+  )
 })
 
 setTimeout(() => {

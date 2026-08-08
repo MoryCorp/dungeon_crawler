@@ -3,9 +3,12 @@
  *
  * Le pathfinding reste sur la grille (un seul BFS par tick pour tout le monde,
  * les monstres descendent le gradient), mais le déplacement produit est un
- * vecteur continu. En ligne de vue directe, on vise le joueur plutôt que le
- * centre de la tuile suivante : suivre les tuiles en terrain dégagé donne une
- * trajectoire en escalier, visible et laide.
+ * vecteur continu. En ligne de vue directe on vise le joueur plutôt que le
+ * centre de la tuile suivante, sinon la trajectoire fait des escaliers.
+ *
+ * Chaque archétype décide différemment, et c'est là que se joue la variété des
+ * combats : l'archer recule, le chargeur se fige avant de foncer, le kamikaze
+ * ne cherche que le contact.
  */
 import { hasLineOfSight } from './fov.js'
 import { angleDiff } from './physics.js'
@@ -17,7 +20,7 @@ const NEIGHBOURS: readonly (readonly [number, number])[] = [
   [0, 1], [-1, 1], [-1, 0], [-1, -1],
 ]
 
-/** Distance de chaque tuile au joueur vivant le plus proche (-1 = inatteignable). */
+/** Distance de chaque tuile au joueur debout le plus proche (-1 = inatteignable). */
 export function buildFlowField(state: GameState, out: Int16Array, maxDist: number): void {
   out.fill(-1)
   const w = state.width
@@ -25,7 +28,9 @@ export function buildFlowField(state: GameState, out: Int16Array, maxDist: numbe
   const queue: number[] = []
 
   for (const a of Object.values(state.actors)) {
-    if (a.kind !== 'player' || !a.alive) continue
+    // Un joueur à terre n'attire plus les monstres : ils se redéploient sur les
+    // coéquipiers encore debout, ce qui laisse une chance de venir le relever.
+    if (a.kind !== 'player' || !a.alive || a.downed) continue
     const idx = Math.floor(a.y) * w + Math.floor(a.x)
     if (out[idx] === -1) {
       out[idx] = 0
@@ -68,18 +73,60 @@ function hashId(id: string): number {
   return h >>> 0
 }
 
-function nearestPlayer(state: GameState, m: Actor): Actor | null {
+function nearestTarget(state: GameState, m: Actor): Actor | null {
   let best: Actor | null = null
   let bestD = Infinity
   for (const a of Object.values(state.actors)) {
     if (a.kind !== 'player' || !a.alive) continue
-    const d = (a.x - m.x) ** 2 + (a.y - m.y) ** 2
+    // On préfère largement une cible debout, mais on achève un joueur à terre
+    // s'il n'y a plus que lui.
+    const penalty = a.downed ? 1e4 : 0
+    const d = (a.x - m.x) ** 2 + (a.y - m.y) ** 2 + penalty
     if (d < bestD) {
       bestD = d
       best = a
     }
   }
   return best
+}
+
+/** Descente du gradient vers le centre de la meilleure tuile voisine. */
+function followFlow(state: GameState, m: Actor, flow: Int16Array): MonsterAction | null {
+  const w = state.width
+  const tx = Math.floor(m.x)
+  const ty = Math.floor(m.y)
+  const here = flow[ty * w + tx]!
+  if (here < 0) return null
+
+  let bestX = 0
+  let bestY = 0
+  let bestD = here
+  for (const [dx, dy] of NEIGHBOURS) {
+    const nx = tx + dx
+    const ny = ty + dy
+    if (nx < 0 || ny < 0 || nx >= state.width || ny >= state.height) continue
+    const nd = flow[ny * w + nx]!
+    if (nd < 0 || nd >= bestD) continue
+    bestD = nd
+    bestX = nx
+    bestY = ny
+  }
+  if (bestD >= here) return null
+
+  const gx = bestX + 0.5 - m.x
+  const gy = bestY + 0.5 - m.y
+  const len = Math.hypot(gx, gy) || 1
+  return { type: 'move', mx: gx / len, my: gy / len, aim: Math.atan2(gy, gx) }
+}
+
+function wander(state: GameState, m: Actor): MonsterAction {
+  // Direction dérivée de l'identifiant et du temps : pas d'état de patrouille à
+  // stocker par monstre, et ça reste déterministe.
+  const phase = hashId(m.id) + Math.floor(state.tick / (TICK_RATE * 2))
+  const angle = ((Math.imul(phase, 2654435761) >>> 0) / 4294967296) * Math.PI * 2
+  const moving = (Math.imul(phase ^ 0x9e37, 40503) >>> 0) % 3 !== 0
+  if (!moving) return { type: 'idle', aim: m.aim }
+  return { type: 'move', mx: Math.cos(angle) * 0.45, my: Math.sin(angle) * 0.45, aim: angle }
 }
 
 export function decideMonsterAction(
@@ -92,74 +139,73 @@ export function decideMonsterAction(
   const def = MONSTERS[m.species]!
   const tx = Math.floor(m.x)
   const ty = Math.floor(m.y)
-  const idx = ty * w + tx
 
   // Aggro symétrique : si l'équipe peut le voir, il voit l'équipe.
-  if (visible[idx] === 1) m.aggroUntil = state.tick + AGGRO_MEMORY
+  if (visible[ty * w + tx] === 1) m.aggroUntil = state.tick + AGGRO_MEMORY
   const aggro = (m.aggroUntil ?? 0) > state.tick
 
-  const target = nearestPlayer(state, m)
-  const aim = target ? Math.atan2(target.y - m.y, target.x - m.x) : m.aim
-
   // Coup déjà en préparation : il reste planté, c'est la fenêtre d'esquive.
-  if (m.windupUntil && state.tick < m.windupUntil) {
+  if (m.windupUntil !== undefined && state.tick < m.windupUntil) {
     return { type: 'windup', aim: m.aim }
   }
 
-  if (target && aggro && state.tick >= m.readyAt) {
-    const dist = Math.hypot(target.x - m.x, target.y - m.y)
-    if (dist <= def.reach) return { type: 'windup', aim }
-  }
+  const target = nearestTarget(state, m)
+  if (!target || !aggro) return wander(state, m)
 
-  if (target && aggro) {
-    const dist = Math.hypot(target.x - m.x, target.y - m.y)
-    const seesDirectly = hasLineOfSight(
-      state.tiles, w, tx, ty, Math.floor(target.x), Math.floor(target.y),
-    )
+  const dx = target.x - m.x
+  const dy = target.y - m.y
+  const dist = Math.hypot(dx, dy)
+  const aim = Math.atan2(dy, dx)
+  const seesDirectly = hasLineOfSight(
+    state.tiles, w, tx, ty, Math.floor(target.x), Math.floor(target.y),
+  )
+  const ready = state.tick >= m.readyAt
 
-    // Assez près et en vue : on fonce droit dessus.
-    if (seesDirectly && dist < AGGRO_MAX_DIST) {
-      return { type: 'move', mx: Math.cos(aim), my: Math.sin(aim), aim }
+  switch (def.behavior) {
+    case 'archer': {
+      // Tire de loin, et recule si on lui colle dessus : il faut fermer l'écart
+      // ou le contourner.
+      if (ready && seesDirectly && dist <= def.reach) return { type: 'windup', aim }
+      const keepAway = def.keepAway ?? 4
+      if (seesDirectly && dist < keepAway) {
+        return { type: 'move', mx: -Math.cos(aim), my: -Math.sin(aim), aim }
+      }
+      if (seesDirectly && dist <= def.reach) return { type: 'idle', aim }
+      break
     }
 
-    // Sinon on descend le gradient vers le centre de la meilleure tuile voisine.
-    const here = flow[idx]!
-    if (here >= 0) {
-      let bestX = 0
-      let bestY = 0
-      let bestD = here
-      for (const [dx, dy] of NEIGHBOURS) {
-        const nx = tx + dx
-        const ny = ty + dy
-        if (nx < 0 || ny < 0 || nx >= state.width || ny >= state.height) continue
-        const nd = flow[ny * w + nx]!
-        if (nd < 0 || nd >= bestD) continue
-        bestD = nd
-        bestX = nx
-        bestY = ny
+    case 'charger': {
+      // Se fige puis fonce en ligne droite : on esquive en se décalant
+      // latéralement, jamais en reculant.
+      if (ready && seesDirectly && dist <= def.reach && dist > 1.2) {
+        return { type: 'windup', aim }
       }
-      if (bestD < here) {
-        const gx = bestX + 0.5 - m.x
-        const gy = bestY + 0.5 - m.y
-        const len = Math.hypot(gx, gy) || 1
-        return { type: 'move', mx: gx / len, my: gy / len, aim: Math.atan2(gy, gx) }
+      // Trop près pour s'élancer : il recule pour reprendre de l'élan.
+      if (ready && seesDirectly && dist <= 1.2) {
+        return { type: 'move', mx: -Math.cos(aim), my: -Math.sin(aim), aim }
       }
+      break
+    }
+
+    case 'bomber': {
+      // Ne cherche que le contact, et s'amorce longuement une fois collé : le
+      // tuer pendant l'amorçage désamorce l'explosion. C'est la récompense.
+      if (ready && dist <= def.reach) return { type: 'windup', aim }
+      break
+    }
+
+    case 'melee':
+    case 'swarm':
+    default: {
+      if (ready && dist <= def.reach) return { type: 'windup', aim }
+      break
     }
   }
 
-  // Hors aggro : errance lente. La direction est dérivée de l'identifiant et du
-  // temps, ce qui évite de stocker un état de patrouille par monstre tout en
-  // restant déterministe.
-  const phase = hashId(m.id) + Math.floor(state.tick / (TICK_RATE * 2))
-  const wanderAngle = ((Math.imul(phase, 2654435761) >>> 0) / 4294967296) * Math.PI * 2
-  const moving = (Math.imul(phase ^ 0x9e37, 40503) >>> 0) % 3 !== 0
-  if (!moving) return { type: 'idle', aim: m.aim }
-  return {
-    type: 'move',
-    mx: Math.cos(wanderAngle) * 0.45,
-    my: Math.sin(wanderAngle) * 0.45,
-    aim: wanderAngle,
+  if (seesDirectly && dist < AGGRO_MAX_DIST) {
+    return { type: 'move', mx: Math.cos(aim), my: Math.sin(aim), aim }
   }
+  return followFlow(state, m, flow) ?? wander(state, m)
 }
 
 /** Rotation progressive vers un angle cible, pour éviter les demi-tours instantanés. */

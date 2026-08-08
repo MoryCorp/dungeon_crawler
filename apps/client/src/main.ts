@@ -1,10 +1,15 @@
 import { Application } from 'pixi.js'
 import {
+  BLEED_OUT_TICKS,
+  DOWNED_SPEED,
   DT,
   PLAYER_SPEED,
+  TICK_RATE,
+  WEAPONS,
   fromBase64,
   movePhysical,
   unpackBits,
+  xpForLevel,
   type ActorView,
   type PlayerInput,
   type ServerMsg,
@@ -26,6 +31,12 @@ const partyBox = $('party')
 const hint = $('hint')
 const floorLabel = $('floor')
 const hpLabel = $('hp')
+const weaponLabel = $('weapon')
+const levelLabel = $('level')
+const xpFill = $('xp-fill')
+const objective = $('objective')
+const downedBox = $('downed')
+const downedSub = $('downed-sub')
 const roomLabel = $('room-label')
 
 /** Au-delà de cet écart avec le serveur, on recale sèchement plutôt que d'interpoler. */
@@ -55,6 +66,10 @@ async function main(): Promise<void> {
   let mapW = 0
   let mapH = 0
   let alive = true
+  let downed = false
+  /** Tick serveur du dernier paquet : sert à afficher le compte à rebours de saignement. */
+  let serverTick = 0
+  let downedSince = 0
 
   /** État physique prédit du joueur local. */
   const local = { x: 0, y: 0, kx: 0, ky: 0 }
@@ -63,7 +78,10 @@ async function main(): Promise<void> {
   let accumulator = 0
   let sendTimer = 0
 
-  const debug = { frames: 0, states: 0, floors: 0, swings: 0, effects: 0, lastTick: 0 }
+  const debug = {
+    frames: 0, states: 0, floors: 0, swings: 0, effects: 0, lastTick: 0,
+    monsters: 0, items: 0, projectiles: 0, x: 0, y: 0,
+  }
   ;(window as unknown as { __dc: typeof debug }).__dc = debug
 
   const net = new Net({
@@ -109,10 +127,14 @@ async function main(): Promise<void> {
         debug.states++
         debug.lastTick = msg.tick
 
+        serverTick = msg.tick
+        debug.monsters = msg.actors.reduce((n, a) => n + (a.kind === 'monster' ? 1 : 0), 0)
+        debug.items = msg.items.length
+        debug.projectiles = msg.projectiles.length
         const visible = msg.vis ? unpackBits(fromBase64(msg.vis), mapSize) : null
-        renderer.applyState(msg.actors, visible, msg.events)
+        renderer.applyState(msg.actors, msg.projectiles, msg.items, visible, msg.events)
         floorLabel.textContent = String(msg.floor)
-        updateHud(msg.actors)
+        updateHud(msg.actors, msg.locked)
 
         for (const ev of msg.events) {
           if (ev.t === 'swing' && ev.id === selfId) debug.swings++
@@ -162,17 +184,48 @@ async function main(): Promise<void> {
     }
   }
 
-  function updateHud(actors: ActorView[]): void {
+  function updateHud(actors: ActorView[], locked: boolean): void {
     const self = actors.find((a) => a.id === selfId)
     hpLabel.textContent = self ? `${self.hp}/${self.maxHp}` : '—'
+    weaponLabel.textContent = WEAPONS[self?.weapon ?? '']?.label ?? '—'
+    levelLabel.textContent = String(self?.level ?? 1)
+
+    // La barre d'XP est relative au palier courant, pas au total cumulé :
+    // sinon elle n'avance visiblement plus passé quelques niveaux.
+    if (self?.xpNext !== undefined) {
+      const prev = xpForLevel(self.level ?? 1)
+      const ratio = ((self.xp ?? 0) - prev) / Math.max(1, self.xpNext - prev)
+      xpFill.style.width = `${Math.max(0, Math.min(100, ratio * 100))}%`
+    }
+
+    objective.classList.remove('hidden')
+    objective.classList.toggle('done', !locked)
+    objective.textContent = locked
+      ? 'Escalier verrouillé — tuez le gardien et récupérez la clé'
+      : 'Escalier ouvert — descendez quand vous êtes prêts'
+
+    const wasDowned = downed
+    downed = self?.downed === true
+    if (downed && !wasDowned) downedSince = serverTick
+    downedBox.classList.toggle('hidden', !downed)
+    if (downed) {
+      const left = Math.max(0, BLEED_OUT_TICKS - (serverTick - downedSince)) / TICK_RATE
+      const helper = actors.some(
+        (a) => a.kind === 'player' && a.id !== selfId && a.alive && !a.downed,
+      )
+      downedSub.textContent = helper
+        ? `Un coéquipier doit rester près de toi · ${left.toFixed(0)} s`
+        : `Personne pour te relever · ${left.toFixed(0)} s`
+    }
 
     const party = actors.filter((a) => a.kind === 'player')
     partyBox.innerHTML = party
       .map((p) => {
-        const state = !p.alive ? 'K.O.' : `${p.hp}/${p.maxHp}`
-        const color = !p.alive ? '#e2686d' : p.id === selfId ? '#d9a441' : '#8a90a2'
+        const state = !p.alive ? 'mort' : p.downed ? 'à terre !' : `${p.hp}/${p.maxHp}`
+        const color = !p.alive || p.downed ? '#e2686d' : p.id === selfId ? '#d9a441' : '#8a90a2'
         const escaped = p.name.replace(/[<>&]/g, '')
-        return `<div style="color:${color}">${escaped} · ${state}</div>`
+        const lvl = p.level ? ` <span style="opacity:.6">n${p.level}</span>` : ''
+        return `<div style="color:${color}">${escaped}${lvl} · ${state}</div>`
       })
       .join('')
   }
@@ -199,13 +252,16 @@ async function main(): Promise<void> {
     if (localReady && tiles && alive) {
       accumulator += dt
       let steps = 0
+      const speed = downed ? DOWNED_SPEED : PLAYER_SPEED
       while (accumulator >= DT && steps < 5) {
-        movePhysical(tiles, mapW, mapH, local, current.mx, current.my, PLAYER_SPEED)
+        movePhysical(tiles, mapW, mapH, local, current.mx, current.my, speed)
         accumulator -= DT
         steps++
       }
       if (steps === 5) accumulator = 0
       renderer.predicted = { x: local.x, y: local.y }
+      debug.x = local.x
+      debug.y = local.y
     }
 
     renderer.render(dt)

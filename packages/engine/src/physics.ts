@@ -121,8 +121,15 @@ export function inAttackArc(
  * Empêche les acteurs de s'empiler en les repoussant doucement.
  * Sans ça les monstres convergent tous vers le même point et forment un tas
  * dans lequel on ne distingue plus rien.
+ *
+ * L'écartement passe par `moveWithCollision` : une meute qui acculait un joueur
+ * contre un mur finissait sinon par le pousser au travers, poussée après
+ * poussée, et il se retrouvait coincé dans la pierre.
  */
 export function separateActors(
+  tiles: Uint8Array,
+  w: number,
+  h: number,
   actors: { x: number; y: number; alive: boolean }[],
   r: number,
 ): void {
@@ -149,10 +156,41 @@ export function separateActors(
       const push = (minDist - d) / 2
       const ux = (dx / d) * push
       const uy = (dy / d) * push
-      a.x -= ux
-      a.y -= uy
-      b.x += ux
-      b.y += uy
+
+      const na = moveWithCollision(tiles, w, h, a.x, a.y, -ux, -uy, r)
+      a.x = na.x
+      a.y = na.y
+      const nb = moveWithCollision(tiles, w, h, b.x, b.y, ux, uy, r)
+      b.x = nb.x
+      b.y = nb.y
+    }
+  }
+}
+
+/**
+ * Filet de sécurité : ramène sur du sol un acteur qui se retrouverait dans un
+ * mur. Ne devrait jamais servir en jeu, mais une sauvegarde produite par une
+ * version antérieure peut contenir un personnage coincé, et rester bloqué dans
+ * la pierre est le seul bug dont on ne peut pas se sortir soi-même.
+ */
+export function unstick(
+  tiles: Uint8Array,
+  w: number,
+  h: number,
+  actor: { x: number; y: number },
+): void {
+  if (!solidAt(tiles, w, h, Math.floor(actor.x), Math.floor(actor.y))) return
+  for (let radius = 1; radius <= 6; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue
+        const tx = Math.floor(actor.x) + dx
+        const ty = Math.floor(actor.y) + dy
+        if (solidAt(tiles, w, h, tx, ty)) continue
+        actor.x = tx + 0.5
+        actor.y = ty + 0.5
+        return
+      }
     }
   }
 }

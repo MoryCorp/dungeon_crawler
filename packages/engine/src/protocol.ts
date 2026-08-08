@@ -8,7 +8,8 @@
  * Corollaire assumé : la carte complète est envoyée au client, le brouillard
  * est donc cosmétique. Sans importance entre amis.
  */
-import type { Actor, GameEvent, GameState, PlayerInput } from './types.js'
+import type { Actor, GameEvent, GameState, ItemKind, PlayerInput } from './types.js'
+import { xpForLevel } from './types.js'
 
 const g = globalThis as unknown as {
   Buffer?: { from(b: Uint8Array | string, enc?: string): Uint8Array & { toString(e: string): string } }
@@ -70,6 +71,36 @@ export interface ActorView {
   /** Coup en préparation : le client dessine le télégraphe à esquiver. */
   winding: boolean
   invuln: boolean
+
+  /** Joueurs uniquement. */
+  weapon?: string
+  level?: number
+  xp?: number
+  /** XP cumulée nécessaire pour le niveau suivant : évite de dupliquer la courbe côté client. */
+  xpNext?: number
+  downed?: boolean
+  /** Progression de la relève, 0 à 1. */
+  revive?: number
+
+  /** Monstres uniquement. */
+  rank?: 'elite' | 'boss'
+  dashing?: boolean
+}
+
+export interface ProjectileView {
+  id: string
+  x: number
+  y: number
+  color: number
+  hostile: boolean
+}
+
+export interface ItemView {
+  id: string
+  kind: ItemKind
+  x: number
+  y: number
+  weapon?: string
 }
 
 export type ClientMsg =
@@ -85,6 +116,10 @@ export type ServerMsg =
       tick: number
       floor: number
       actors: ActorView[]
+      projectiles: ProjectileView[]
+      items: ItemView[]
+      /** L'escalier reste fermé tant que la clé du gardien n'est pas prise. */
+      locked: boolean
       /** Absent sur la plupart des paquets : le brouillard bouge lentement. */
       vis?: string
       events: GameEvent[]
@@ -96,15 +131,20 @@ export type ServerMsg =
 const round2 = (n: number) => Math.round(n * 100) / 100
 const round3 = (n: number) => Math.round(n * 1000) / 1000
 
+/** Une position est-elle dans le champ de vision de l'équipe ? */
+function seenAt(state: GameState, visible: Uint8Array, x: number, y: number): boolean {
+  const tx = Math.min(state.width - 1, Math.max(0, Math.floor(x)))
+  const ty = Math.min(state.height - 1, Math.max(0, Math.floor(y)))
+  return visible[ty * state.width + tx] === 1
+}
+
 export function buildActorViews(state: GameState, visible: Uint8Array): ActorView[] {
   const out: ActorView[] = []
   for (const a of Object.values(state.actors)) {
-    const tx = Math.min(state.width - 1, Math.max(0, Math.floor(a.x)))
-    const ty = Math.min(state.height - 1, Math.max(0, Math.floor(a.y)))
-    const seen = visible[ty * state.width + tx] === 1
+    const seen = seenAt(state, visible, a.x, a.y)
     if (a.kind === 'monster' && !seen) continue
 
-    out.push({
+    const view: ActorView = {
       id: a.id,
       kind: a.kind,
       species: a.species,
@@ -119,6 +159,53 @@ export function buildActorViews(state: GameState, visible: Uint8Array): ActorVie
       swinging: a.swingUntil > state.tick,
       winding: a.windupUntil !== undefined && a.windupUntil > state.tick,
       invuln: a.invulnUntil !== undefined && a.invulnUntil > state.tick,
+    }
+
+    if (a.kind === 'player') {
+      const level = a.level ?? 1
+      view.weapon = a.weapon
+      view.level = level
+      view.xp = a.xp ?? 0
+      view.xpNext = xpForLevel(level + 1)
+      view.downed = a.downed === true
+      if (a.downed) view.revive = round2(a.reviveProgress ?? 0)
+    } else {
+      if (a.boss) view.rank = 'boss'
+      else if (a.elite) view.rank = 'elite'
+      if (a.dashUntil !== undefined && a.dashUntil > state.tick) view.dashing = true
+    }
+
+    out.push(view)
+  }
+  return out
+}
+
+export function buildProjectileViews(state: GameState, visible: Uint8Array): ProjectileView[] {
+  const out: ProjectileView[] = []
+  for (const p of state.projectiles) {
+    if (!seenAt(state, visible, p.x, p.y)) continue
+    out.push({
+      id: p.id,
+      x: round2(p.x),
+      y: round2(p.y),
+      color: p.color,
+      hostile: p.hostileToPlayers,
+    })
+  }
+  return out
+}
+
+export function buildItemViews(state: GameState, visible: Uint8Array): ItemView[] {
+  const out: ItemView[] = []
+  for (const item of state.items) {
+    // Un coffre dans une pièce non éclairée reste une découverte à faire.
+    if (!seenAt(state, visible, item.x, item.y)) continue
+    out.push({
+      id: item.id,
+      kind: item.kind,
+      x: round2(item.x),
+      y: round2(item.y),
+      weapon: item.weapon,
     })
   }
   return out

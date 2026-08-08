@@ -87,6 +87,42 @@
       }
       #hud .row { color: var(--muted); }
       #hud b { color: var(--text); font-weight: 600; }
+      #xp-track {
+        width: 160px;
+        height: 4px;
+        background: #0e1017;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      #xp-fill { height: 100%; width: 0%; background: #7fd8ff; transition: width 120ms linear; }
+
+      /* Objectif de l'étage : la seule information qui dit quoi faire ensuite. */
+      #objective {
+        position: fixed;
+        left: 50%;
+        top: 14px;
+        transform: translateX(-50%);
+        font-size: 12px;
+        color: var(--accent);
+        text-shadow: 0 1px 3px #000;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #objective.done { color: #8ee6a0; }
+
+      /* Bandeau de mise à terre : plein écran, impossible à rater. */
+      #downed {
+        position: fixed;
+        left: 50%;
+        bottom: 22%;
+        transform: translateX(-50%);
+        text-align: center;
+        pointer-events: none;
+        text-shadow: 0 2px 6px #000;
+      }
+      #downed .big { font-size: 22px; font-weight: 700; color: #e2686d; letter-spacing: 0.06em; }
+      #downed .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
       #party { position: fixed; right: 14px; top: 14px; display: grid; gap: 4px; font-size: 12px; text-align: right; pointer-events: none; text-shadow: 0 1px 3px #000; }
       #hint { position: fixed; left: 14px; bottom: 12px; color: var(--muted); font-size: 11px; pointer-events: none; }
       .hidden { display: none !important; }
@@ -115,10 +151,17 @@
 
     <div id="hud" class="hidden">
       <div class="row">Étage <b id="floor">1</b> · Partie <b id="room-label">—</b></div>
-      <div class="row">PV <b id="hp">—</b></div>
+      <div class="row">PV <b id="hp">—</b> · <b id="weapon">—</b></div>
+      <div class="row">Niveau <b id="level">1</b></div>
+      <div id="xp-track"><div id="xp-fill"></div></div>
+    </div>
+    <div id="objective" class="hidden"></div>
+    <div id="downed" class="hidden">
+      <div class="big">À TERRE</div>
+      <div class="sub" id="downed-sub"></div>
     </div>
     <div id="party" class="hidden"></div>
-    <div id="hint" class="hidden">ZQSD / WASD / flèches pour se déplacer · <b>clic gauche</b> : coup d'épée · manette : stick droit pour viser</div>
+    <div id="hint" class="hidden">ZQSD / WASD / flèches pour se déplacer · <b>clic gauche</b> : attaquer · rester près d'un coéquipier à terre le relève · manette : stick droit pour viser</div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

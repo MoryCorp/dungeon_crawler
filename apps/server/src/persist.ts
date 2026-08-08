@@ -12,8 +12,15 @@ import { fromBase64, toBase64, type GameState } from '@dc/engine'
 const DATA_DIR = process.env.DATA_DIR ?? './data'
 const ROOMS_DIR = join(DATA_DIR, 'rooms')
 
-/** Version du format : incrémenter si la forme de GameState change de façon incompatible. */
-const SAVE_VERSION = 1
+/**
+ * Version du format : incrémenter si la forme de GameState change de façon
+ * incompatible. Une sauvegarde d'une autre version est ignorée, et la partie
+ * repart d'un donjon neuf — acceptable entre amis, et bien préférable à un
+ * chargement d'état à moitié valide.
+ *
+ * 2 : projectiles, objets au sol, escalier verrouillé, armes et niveaux.
+ */
+const SAVE_VERSION = 2
 
 let ready: Promise<void> | null = null
 function ensureDir(): Promise<void> {
@@ -45,8 +52,15 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     const s = parsed.state as unknown as GameState & { tiles: string }
     const state: GameState = { ...s, tiles: fromBase64(s.tiles) }
 
-    // Personne n'est connecté au chargement : tout le monde est prêt à agir.
-    for (const a of Object.values(state.actors)) a.readyAt = state.tick
+    // Personne n'est connecté au chargement : tout le monde est prêt à agir, et
+    // aucun coup ne reste figé en cours de préparation.
+    for (const a of Object.values(state.actors)) {
+      a.readyAt = state.tick
+      a.swingUntil = 0
+      delete a.windupUntil
+      delete a.dashUntil
+    }
+    state.projectiles = []
     state.events = []
     return state
   } catch {

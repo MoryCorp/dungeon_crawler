@@ -5,17 +5,19 @@
  */
 import {
   ACTOR_RADIUS,
-  ATTACK_HALF_ARC,
-  ATTACK_REACH,
+  BLEED_OUT_TICKS,
   FOV_RADIUS,
+  HEART_HEAL,
   MAP_H,
   MAP_W,
   MONSTERS,
   MONSTER_HALF_ARC,
   PLAYER_SPEED,
+  REVIVE_TICKS,
   Rng,
   TICK_RATE,
   Tile,
+  WEAPONS,
   addPlayer,
   computeFov,
   createGame,
@@ -26,9 +28,13 @@ import {
   packBits,
   step,
   unpackBits,
+  xpForLevel,
+  type Actor,
   type GameState,
   type PlayerInput,
 } from '@dc/engine'
+
+const SWORD = WEAPONS.sword!
 
 let failures = 0
 function check(label: string, ok: boolean, detail = ''): void {
@@ -38,6 +44,27 @@ function check(label: string, ok: boolean, detail = ''): void {
 
 const idle: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false }
 const noInputs: Record<string, PlayerInput | null> = {}
+
+/** Vide l'étage de ses monstres pour isoler ce qu'on veut tester. */
+function clearMonsters(s: GameState): void {
+  for (const a of Object.values(s.actors)) {
+    if (a.kind === 'monster') delete s.actors[a.id]
+  }
+}
+
+/** Pose un monstre déjà aggro à un endroit précis. */
+function putMonster(s: GameState, id: string, species: string, x: number, y: number): Actor {
+  const def = MONSTERS[species]!
+  const m: Actor = {
+    id, kind: 'monster', species, name: def.label,
+    x, y, kx: 0, ky: 0,
+    hp: def.maxHp, maxHp: def.maxHp, atk: def.atk,
+    aim: Math.PI, alive: true, swingUntil: 0, readyAt: 0,
+    aggroUntil: 999999,
+  }
+  s.actors[id] = m
+  return m
+}
 
 console.log('\nTests engine\n')
 
@@ -82,7 +109,7 @@ console.log('\nTests engine\n')
 {
   const hitDiagonal = inAttackArc(
     10, 10, Math.atan2(1, 1), // on vise le sud-est
-    ATTACK_HALF_ARC, ATTACK_REACH,
+    SWORD.halfArc, SWORD.reach,
     10.7, 10.7, ACTOR_RADIUS,
   )
   check('un ennemi en diagonale est touché quand on le vise', hitDiagonal)
@@ -91,21 +118,21 @@ console.log('\nTests engine\n')
   // reste dans l'arc, parce qu'elle occupe un large secteur de près.
   const hitSloppy = inAttackArc(
     10, 10, 0,
-    ATTACK_HALF_ARC, ATTACK_REACH,
+    SWORD.halfArc, SWORD.reach,
     10.6, 10.6, ACTOR_RADIUS,
   )
   check('viser approximativement suffit au contact', hitSloppy)
 
   const missBehind = inAttackArc(
     10, 10, 0,
-    ATTACK_HALF_ARC, ATTACK_REACH,
+    SWORD.halfArc, SWORD.reach,
     8.9, 10, ACTOR_RADIUS,
   )
   check('on ne touche pas dans le dos', !missBehind)
 
   const missFar = inAttackArc(
     10, 10, 0,
-    ATTACK_HALF_ARC, ATTACK_REACH,
+    SWORD.halfArc, SWORD.reach,
     13, 10, ACTOR_RADIUS,
   )
   check('on ne touche pas hors de portée', !missFar)
@@ -154,6 +181,32 @@ console.log('\nTests engine\n')
     Math.abs(diagDist - PLAYER_SPEED / TICK_RATE) < 1e-6,
     `${diagDist.toFixed(4)} tuile/tick`,
   )
+}
+
+// --- une meute ne pousse pas à travers un mur -------------------------------
+// Vu en jeu : quatre monstres acculant le héros contre la paroi finissaient par
+// le faire passer au travers, poussée après poussée, et il restait coincé.
+{
+  const s = createGame(3131)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_squeeze', 'Coincé')
+  // On le colle contre un mur, puis on l'entoure de monstres qui poussent.
+  let wallX = -1
+  for (let x = Math.floor(hero.x); x > 0; x--) {
+    if (!isWalkable(s.tiles[Math.floor(hero.y) * MAP_W + x]!)) {
+      wallX = x
+      break
+    }
+  }
+  hero.x = wallX + 1.4
+  for (let i = 0; i < 5; i++) {
+    putMonster(s, `m_push${i}`, 'bat', hero.x + 0.4 + i * 0.05, hero.y - 0.2 + i * 0.1)
+  }
+
+  for (let i = 0; i < TICK_RATE * 4; i++) step(s, noInputs)
+  const onFloor = isWalkable(s.tiles[Math.floor(hero.y) * MAP_W + Math.floor(hero.x)]!)
+  check('une meute ne pousse pas le héros dans un mur', onFloor,
+    `(${hero.x.toFixed(2)},${hero.y.toFixed(2)})`)
 }
 
 // --- déterminisme ----------------------------------------------------------
@@ -278,7 +331,7 @@ console.log('\nTests engine\n')
   )
 }
 
-// --- respawn ---------------------------------------------------------------
+// --- mise à terre, saignement, réapparition --------------------------------
 {
   const s = createGame(2024)
   const hero = addPlayer(s, 'p_dead', 'Mort')
@@ -289,19 +342,252 @@ console.log('\nTests engine\n')
   monster.y = hero.y
   monster.aggroUntil = 999999
 
-  let died = false
-  for (let i = 0; i < TICK_RATE * 10 && !died; i++) {
+  let down = false
+  for (let i = 0; i < TICK_RATE * 10 && !down; i++) {
     step(s, noInputs)
-    died = !s.actors['p_dead']!.alive
+    down = s.actors['p_dead']!.downed === true
   }
-  check('un héros à 1 PV finit par tomber', died)
+  check('un héros à 1 PV tombe à terre au lieu de mourir', down)
+  check('il est encore en vie tant qu\'il saigne', s.actors['p_dead']!.alive)
 
-  for (const a of Object.values(s.actors)) {
-    if (a.kind === 'monster') delete s.actors[a.id]
-  }
+  clearMonsters(s)
+  // Sans personne pour le relever, il finit par mourir pour de bon.
+  for (let i = 0; i < BLEED_OUT_TICKS + 5; i++) step(s, noInputs)
+  check('sans coéquipier, il finit par mourir', !s.actors['p_dead']!.alive)
+
   for (let i = 0; i < TICK_RATE * 12; i++) step(s, noInputs)
   check('le héros réapparaît tout seul', s.actors['p_dead']!.alive)
   check('il est invulnérable un instant après le respawn', (s.actors['p_dead']!.invulnUntil ?? 0) > 0)
+}
+
+// --- relève par un coéquipier ----------------------------------------------
+// C'est le cœur de la coopération : rester au sol à côté de son pote a un coût
+// (on ne se défend pas) et un effet (il se relève).
+{
+  const s = createGame(8080)
+  clearMonsters(s)
+  const victim = addPlayer(s, 'p_down', 'Tombé')
+  const helper = addPlayer(s, 'p_help', 'Sauveur')
+  victim.hp = 1
+  victim.invulnUntil = 0
+
+  putMonster(s, 'm_killer', 'skeleton_warrior', victim.x + 0.6, victim.y)
+  for (let i = 0; i < TICK_RATE * 8 && !victim.downed; i++) step(s, noInputs)
+  check('la victime est à terre', victim.downed === true)
+  clearMonsters(s)
+
+  // Le sauveur est loin : rien ne se passe.
+  helper.x = victim.x + 6
+  helper.y = victim.y
+  for (let i = 0; i < REVIVE_TICKS; i++) step(s, noInputs)
+  check('on ne relève pas de loin', (victim.reviveProgress ?? 0) === 0)
+
+  // Il se colle : la relève avance et aboutit.
+  helper.x = victim.x + 0.5
+  helper.y = victim.y
+  for (let i = 0; i < REVIVE_TICKS + 4; i++) step(s, noInputs)
+  check('un coéquipier collé relève la victime', victim.downed === false)
+  check('elle repart avec une partie de ses PV', victim.hp > 0 && victim.hp < victim.maxHp, `${victim.hp}/${victim.maxHp}`)
+}
+
+// --- armes : la portée change vraiment le jeu -------------------------------
+{
+  const s = createGame(1717)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_reach', 'Lancier')
+  const target = putMonster(s, 'm_far', 'skeleton', hero.x + 2.0, hero.y)
+  target.hp = 999
+
+  hero.weapon = 'dagger'
+  step(s, { p_reach: { mx: 0, my: 0, aim: 0, attack: true } })
+  check('la dague ne touche pas à 2 tuiles', target.hp === 999)
+
+  hero.weapon = 'spear'
+  hero.readyAt = s.tick
+  step(s, { p_reach: { mx: 0, my: 0, aim: 0, attack: true } })
+  check('la lance touche à 2 tuiles', target.hp < 999, `hp=${target.hp}`)
+}
+
+// --- arc : le coup part en projectile ---------------------------------------
+{
+  const s = createGame(1818)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_bow', 'Archer')
+  hero.weapon = 'bow'
+  const target = putMonster(s, 'm_shot', 'skeleton', hero.x + 4, hero.y)
+  target.hp = 999
+
+  step(s, { p_bow: { mx: 0, my: 0, aim: 0, attack: true } })
+  check('tirer crée un projectile', s.projectiles.length === 1)
+
+  for (let i = 0; i < TICK_RATE && target.hp === 999; i++) step(s, noInputs)
+  check('la flèche atteint une cible à 4 tuiles', target.hp < 999, `hp=${target.hp}`)
+  check('le projectile disparaît à l\'impact', s.projectiles.length === 0)
+}
+
+// --- kamikaze : explosion de zone -------------------------------------------
+{
+  const s = createGame(1919)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_boom', 'Cible')
+  hero.invulnUntil = 0
+  const hpBefore = hero.hp
+  putMonster(s, 'm_bomb', 'orc_bomber', hero.x + 1.0, hero.y)
+
+  let blasted = false
+  for (let i = 0; i < TICK_RATE * 4 && !blasted; i++) {
+    step(s, noInputs)
+    blasted = s.events.some((e) => e.t === 'blast')
+  }
+  check('le kamikaze explose', blasted)
+  check('l\'explosion blesse le joueur', hero.hp < hpBefore, `${hpBefore} -> ${hero.hp}`)
+  check('le kamikaze meurt avec son explosion', s.actors['m_bomb'] === undefined)
+}
+
+// --- chargeur : la ruée blesse au contact -----------------------------------
+{
+  const s = createGame(2020)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_charge', 'Statique')
+  hero.invulnUntil = 0
+  const hpBefore = hero.hp
+  // On le pose assez loin pour qu'il ait la place de s'élancer.
+  putMonster(s, 'm_dash', 'skeleton_rogue', hero.x + 3.5, hero.y)
+
+  let dashed = false
+  for (let i = 0; i < TICK_RATE * 6 && hero.hp === hpBefore; i++) {
+    step(s, noInputs)
+    if (s.actors['m_dash']?.dashUntil !== undefined) dashed = true
+  }
+  check('le chargeur s\'élance', dashed)
+  check('la ruée touche une cible immobile', hero.hp < hpBefore, `${hpBefore} -> ${hero.hp}`)
+}
+
+// --- loot, XP et niveaux ----------------------------------------------------
+{
+  const s = createGame(2121)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_loot', 'Pilleur')
+  hero.weapon = 'spear'
+  // Assez loin pour que le butin ne soit pas aspiré dans le même tick.
+  const victim = putMonster(s, 'm_prey', 'skeleton', hero.x + 2.2, hero.y)
+  victim.hp = 1
+
+  const itemsBefore = s.items.length
+  step(s, { p_loot: { mx: 0, my: 0, aim: 0, attack: true } })
+  check('tuer un monstre laisse du butin', s.items.length > itemsBefore, `${s.items.length} objets`)
+  check('l\'XP ne tombe qu\'avec le butin ramassé', (hero.xp ?? 0) === 0)
+
+  for (let i = 0; i < TICK_RATE * 2; i++) step(s, noInputs)
+  check('l\'orbe rejoint le joueur et donne son XP', (hero.xp ?? 0) > 0, `${hero.xp} xp`)
+
+  // Un tas d'XP juste devant doit finir dans la poche, aimanté.
+  s.items.push({ id: 'i_xp', kind: 'xp', x: hero.x + 2, y: hero.y, amount: xpForLevel(2) })
+  for (let i = 0; i < TICK_RATE * 2; i++) step(s, noInputs)
+  check('les orbes d\'XP sont aimantées et ramassées', !s.items.some((i) => i.id === 'i_xp'))
+  check('assez d\'XP fait monter de niveau', (hero.level ?? 1) >= 2, `niveau ${hero.level}`)
+  check('le niveau augmente les PV max', hero.maxHp > 40, `${hero.maxHp} PV max`)
+
+  // Un cœur ne se ramasse que si on en a besoin : sinon il reste au sol.
+  hero.hp = hero.maxHp
+  s.items.push({ id: 'i_full', kind: 'heart', x: hero.x, y: hero.y })
+  step(s, noInputs)
+  check('un cœur inutile reste au sol', s.items.some((i) => i.id === 'i_full'))
+
+  hero.hp = 5
+  for (let i = 0; i < 3; i++) step(s, noInputs)
+  check('un cœur soigne quand on est blessé', hero.hp >= 5 + HEART_HEAL - 1, `${hero.hp} PV`)
+}
+
+// --- échange d'arme : pas de va-et-vient infini -----------------------------
+{
+  const s = createGame(2525)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_swap', 'Échangeur')
+  s.items.length = 0
+  s.items.push({ id: 'i_axe', kind: 'weapon', x: hero.x, y: hero.y, weapon: 'axe' })
+
+  step(s, noInputs)
+  check('marcher sur une arme l\'équipe', hero.weapon === 'axe', String(hero.weapon))
+  check('l\'ancienne arme reste au sol', s.items.some((i) => i.weapon === 'sword'))
+
+  // En restant planté dessus, on ne doit pas réenchaîner les échanges.
+  for (let i = 0; i < TICK_RATE * 3; i++) step(s, noInputs)
+  check('rester sur l\'arme posée ne la reprend pas', hero.weapon === 'axe', String(hero.weapon))
+
+  // En s'éloignant puis en revenant, si.
+  hero.x += 4
+  step(s, noInputs)
+  hero.x -= 4
+  for (let i = 0; i < 3; i++) step(s, noInputs)
+  check('revenir sur son arme la reprend', hero.weapon === 'sword', String(hero.weapon))
+}
+
+// --- l'XP est commune à l'équipe --------------------------------------------
+// Sinon celui qui frappe distance les autres et le donjon devient injouable
+// pour la moitié du groupe.
+{
+  const s = createGame(2424)
+  clearMonsters(s)
+  const front = addPlayer(s, 'p_front', 'Devant')
+  const back = addPlayer(s, 'p_back', 'Derrière')
+  back.x = front.x + 5
+  back.y = front.y
+
+  s.items.push({ id: 'i_share', kind: 'xp', x: front.x, y: front.y, amount: 12 })
+  step(s, noInputs)
+  check('l\'XP profite à toute l\'équipe', (back.xp ?? 0) === (front.xp ?? 0) && (back.xp ?? 0) === 12,
+    `devant ${front.xp}, derrière ${back.xp}`)
+}
+
+// --- structure d'étage : la clé du gardien ----------------------------------
+{
+  const s = createGame(2222)
+  check('l\'escalier démarre verrouillé', s.stairsLocked)
+
+  const keeper = Object.values(s.actors).find((a) => a.elite || a.boss)
+  check('un gardien est posé sur l\'étage', keeper !== undefined)
+  check('le gardien est plus coriace qu\'un monstre normal',
+    (keeper?.maxHp ?? 0) > (MONSTERS[keeper?.species ?? '']?.maxHp ?? 0))
+  check('des coffres sont placés', s.items.some((i) => i.kind === 'chest'))
+
+  const hero = addPlayer(s, 'p_key', 'Porteur')
+  // On amène le héros sur l'escalier avant d'avoir la clé : il ne descend pas.
+  hero.x = s.stairs.x + 0.5
+  hero.y = s.stairs.y + 0.5
+  const floorBefore = s.floor
+  step(s, noInputs)
+  check('on ne descend pas sans la clé', s.floor === floorBefore)
+
+  // Le gardien meurt : la clé tombe et se ramasse. On s'écarte de l'escalier
+  // d'abord, sinon on descend dans la foulée.
+  hero.x = s.spawn.x + 0.5
+  hero.y = s.spawn.y + 0.5
+  if (keeper) {
+    keeper.x = hero.x + 0.6
+    keeper.y = hero.y
+    keeper.hp = 1
+    hero.weapon = 'axe'
+    hero.readyAt = s.tick
+    for (let i = 0; i < TICK_RATE && s.stairsLocked; i++) {
+      step(s, { p_key: { mx: 0, my: 0, aim: 0, attack: true } })
+    }
+  }
+  check('tuer le gardien déverrouille l\'escalier', !s.stairsLocked)
+
+  hero.x = s.stairs.x + 0.5
+  hero.y = s.stairs.y + 0.5
+  step(s, noInputs)
+  check('on descend une fois la clé prise', s.floor === floorBefore + 1)
+  check('l\'étage suivant est de nouveau verrouillé', s.stairsLocked)
+}
+
+// --- un boss tous les BOSS_EVERY étages -------------------------------------
+{
+  const s = createGame(2323, 5)
+  const boss = Object.values(s.actors).find((a) => a.boss)
+  check('l\'étage 5 a un boss', boss !== undefined, boss?.name)
+  check('le boss est vraiment gros', (boss?.maxHp ?? 0) > 200, `${boss?.maxHp} PV`)
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)

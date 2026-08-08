@@ -5,6 +5,8 @@ import {
   TICK_RATE,
   addPlayer,
   buildActorViews,
+  buildItemViews,
+  buildProjectileViews,
   createGame,
   packBits,
   removePlayer,
@@ -156,6 +158,9 @@ export class Room {
       tick: this.state.tick,
       floor: this.state.floor,
       actors: buildActorViews(this.state, visible),
+      projectiles: buildProjectileViews(this.state, visible),
+      items: buildItemViews(this.state, visible),
+      locked: this.state.stairsLocked,
       ...(withVis ? { vis: toBase64(packBits(visible)) } : {}),
       events: this.state.events,
     })
