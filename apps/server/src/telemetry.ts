@@ -99,6 +99,16 @@ export interface FloorRecord {
    * isolées — l'exact contraire de la pression qu'ils devaient produire.
    */
   nearEntryTicks: number
+
+  /**
+   * Tailles des vagues livrées par la Directrice sur cet étage. C'est le
+   * contrôle de son travail : une liste vide veut dire qu'elle n'a jamais
+   * trouvé de creux — donc que la pression était continue — et des vagues de
+   * deux veulent dire qu'elle a manqué de munitions.
+   */
+  hordes: number[]
+  /** Monstres gardés en réserve à l'arrivée sur l'étage : ses munitions. */
+  held: number
 }
 
 /** Portée au-delà de laquelle un monstre ne pèse plus sur la décision immédiate. */
@@ -151,6 +161,8 @@ function emptyFloor(floor: number, level: number): FloorRecord {
     heartsTaken: 0,
     heartHpSum: 0,
     nearEntryTicks: 0,
+    hordes: [],
+    held: 0,
   }
 }
 
@@ -203,6 +215,7 @@ export class RunTelemetry {
       this.current.spawned = Object.values(state.actors).filter(
         (a) => a.kind === 'monster',
       ).length
+      this.current.held = state.reserve?.length ?? 0
     }
 
     const monsters = Object.values(state.actors).filter((a) => a.kind === 'monster' && a.alive)
@@ -324,6 +337,10 @@ export class RunTelemetry {
         this.current.pursuers = ev.count
         break
 
+      case 'horde':
+        this.current.hordes.push(ev.count)
+        break
+
       default:
         break
     }
@@ -439,11 +456,37 @@ export function engagement(f: FloorRecord): {
   }
 }
 
+/**
+ * Ce que la Directrice a effectivement livré. Le nombre de vagues dit si elle a
+ * trouvé des creux ; leur taille moyenne dit si elles pesaient quelque chose ;
+ * `unspent` dit ce qu'elle n'a jamais réussi à placer, c'est-à-dire des
+ * monstres que l'étage contenait sur le papier et que personne n'a rencontrés.
+ */
+export function waves(f: FloorRecord): {
+  count: number
+  mean: number
+  biggest: number
+  delivered: number
+  unspent: number
+} {
+  const list = f.hordes ?? []
+  const delivered = list.reduce((a, b) => a + b, 0)
+  return {
+    count: list.length,
+    mean: list.length ? delivered / list.length : 0,
+    biggest: list.reduce((a, b) => Math.max(a, b), 0),
+    delivered,
+    unspent: Math.max(0, (f.held ?? 0) + f.pursuers - delivered),
+  }
+}
+
 export function floorSummary(f: FloorRecord): string {
   const seconds = (f.ticks / TICK_RATE).toFixed(0)
   const kills = Object.values(f.kills).reduce((a, b) => a + b, 0)
   const taken = Object.values(f.damageTaken).reduce((a, b) => a + b, 0)
-  const present = f.spawned + f.pursuers
+  // Le total présent inclut la réserve : elle fait partie de l'étage même si
+  // elle n'est pas sur la carte à l'arrivée. Sans elle, on lit « 12 tués sur 6 ».
+  const present = f.spawned + f.pursuers + (f.held ?? 0)
   const left = present > 0 ? Math.max(0, present - kills) : 0
   const { ttk, k } = floorInvariants(f)
   return (

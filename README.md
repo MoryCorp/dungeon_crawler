@@ -168,8 +168,10 @@ Quatre changements, dans l'ordre de leur importance :
    couloirs, en privilégiant archers et chargeurs : ne pas pouvoir contourner
    ni reculer est le meilleur moment du jeu.
 
-La courbe d'XP est aussi nettement plus raide : trois niveaux au premier étage
-rendaient les monstres décoratifs jusqu'au bout.
+La courbe d'XP n'est pas choisie : ses deux coefficients sont **ajustés** sur le
+butin réel des étages, de sorte que le niveau atteint suive l'étage. Ils sont
+donc à refaire chaque fois que le peuplement change — `scripts/curve.ts` le
+vérifie en une seconde.
 
 ### Ce qu'on ne tue pas descend derrière nous
 
@@ -180,24 +182,77 @@ il descendait, et 5 étages sur 6 se traversaient sans jamais passer sous 65 % d
 PV. Le donjon n'était pas trop faible, il était **facultatif**.
 
 Alors les monstres laissés en vie suivent. À la descente, les survivants les
-plus proches de l'escalier viennent avec vous, blessures comprises, et
-débouchent **un par un** au pied de l'escalier d'arrivée après quelques secondes
-de répit.
+plus proches de l'escalier viennent avec vous, blessures comprises — mais ils ne
+débouchent pas quelque part, ils sont versés à la réserve de la Directrice, qui
+décidera quand les rendre.
 
-Trois détails font que c'est une difficulté et pas une punition :
-
-- **Ils sortent en file, pas en bloc.** Seize monstres surgissant d'un coup sur
-  le groupe seraient une condamnation sans réponse. Un par un, c'est un choix :
-  tenir le goulot et les cueillir à l'arrivée, ou filer chercher la clé en les
-  laissant s'accumuler dans le dos.
-- **Ils sortent à un endroit connu**, celui par lequel on est arrivé. Une menace
-  qu'on peut anticiper se joue ; une menace qui apparaît n'importe où se subit.
-- **La dette est entièrement choisie.** Nettoyer l'étage ne coûte rien. Le HUD
-  affiche en permanence combien descendent derrière vous.
+La dette est entièrement choisie : nettoyer l'étage ne coûte rien, et le HUD
+affiche en permanence combien descendent derrière vous.
 
 C'est le changement qui a le plus d'effet, et il ne touche à aucune statistique :
 il rend simplement le fait d'ignorer un monstre payant plus tard plutôt que
 gratuit.
+
+La première version les faisait sortir **un par un au pied de l'escalier
+d'arrivée**, ce qui semblait raisonnable — une file est un choix, un mur de
+seize est une condamnation. C'était le mauvais choix, et la mesure l'a dit :
+il suffisait de rester à l'escalier et de les cueillir à la sortie, isolés, sans
+jamais en affronter deux. Une menace qui arrive à un endroit connu et à un
+rythme connu n'est pas une menace, c'est une file d'attente de cibles.
+
+## La Directrice
+
+Les meutes existaient déjà. La mesure de simultanéité a montré qu'elles ne
+servaient à rien : **effectif médian 1, deux tiers du temps de combat en
+tête-à-tête**, quatre étages sur six terminés à 100 % de PV. Des monstres posés
+sur une carte, même côte à côte, n'arrivent jamais ensemble : les espèces n'ont
+pas la même vitesse, le groupe s'étire pendant l'approche et se présente en file
+indienne. Tout le modèle de puissance repose sur « la difficulté vient du nombre
+simultané » — et la simultanéité valait 1.
+
+D'où la Directrice, sur le modèle de celle de *Left 4 Dead* (2008). Elle ne
+place pas les monstres, elle les **livre**.
+
+Elle suit une **intensité perçue**, pas objective : elle monte fort quand on
+encaisse, doucement quand on est simplement entouré, et retombe toute seule dès
+qu'il ne se passe plus rien — un joueur qui recule pour souffler voit
+effectivement la pression retomber au lieu d'être puni de sa prudence. Là-dessus
+tourne une machine à quatre états :
+
+```
+montée → pic → décompression → repos → montée…
+```
+
+La difficulté n'est pas une rampe, c'est une **onde**. Une pression constante
+n'est pas de la difficulté, c'est de l'épuisement : au bout de quelques minutes
+on ne la perçoit plus, elle devient un bruit de fond. C'est le creux qui donne
+sa valeur au pic, et c'est le repos — garanti, que rien ne peut écourter — qui
+permet d'en replacer un sans que ce soit vécu comme une punition.
+
+Une vague n'est livrée que pendant la montée, après plusieurs secondes de calme
+continu. Elle arrive **hors du champ de vision**, entre 7 et 15 tuiles, serrée,
+déjà en chasse, et **d'une seule espèce** — un groupe mixte s'étirerait sur le
+trajet et arriverait un par un, c'est-à-dire exactement le défaut qu'on corrige.
+Elle puise d'abord dans la dette de l'étage précédent, ensuite dans la réserve.
+
+Deux conséquences qui n'étaient pas le but mais qui tombent bien :
+
+- **Camper l'escalier ne sert plus à rien.** Ce qu'on doit ne revient plus à un
+  endroit connu, il revient en groupe, ailleurs, au pire moment.
+- **Personne ne se fait achever au sol.** Quand toute l'équipe est à terre, la
+  Directrice n'a plus de munitions : livrer là ne produirait pas de la tension,
+  ça s'acharnerait.
+
+Le peuplement d'un étage s'est scindé en deux parts qui ne jouent pas le même
+rôle : ce qui est **posé** sur la carte se rencontre en explorant, presque
+toujours seul — c'est le décor du donjon ; ce qui est **gardé en réserve** est
+sa difficulté. La réserve ne grandit pas avec l'étage, et c'est volontaire : le
+modèle tient K constant, donc une vague de l'étage 20 n'est pas plus nombreuse,
+elle est plus forte.
+
+Premier relevé après coup : effectif médian **1.3 → 2.0**, tête-à-tête
+**57 % → 39 %**, 5.7 vagues par étage. Et le bot qui fonçait vers la sortie en
+ignorant tout, qui atteignait l'étage 12, meurt maintenant au troisième.
 
 ## Mesurer au lieu de deviner
 
@@ -239,8 +294,9 @@ jeu de son enjeu sans tricher :
   PV. Laisser les cœurs au sol tant qu'on est en pleine vie transforme la barre
   de vie en stock rappelable au lieu d'une ressource qui s'épuise.
 - **Le campement de l'entrée** — part du temps passée à moins de 5 tuiles de
-  l'escalier d'arrivée. Attendre les poursuivants à leur point de sortie les
-  transforme en file d'attente de cibles isolées.
+  l'escalier d'arrivée. C'est la mesure qui a condamné la première version de la
+  poursuite : il suffisait d'attendre les poursuivants à leur point de sortie
+  pour les transformer en file d'attente de cibles isolées.
 
 C'est calculé uniquement à partir des événements que l'engine émet déjà, plus un
 échantillon des PV à chaque tick. `step()` reste pure : elle ne sait pas que la
@@ -435,8 +491,9 @@ traverser, la diagonale ne donne pas de bonus de vitesse, un coup télégraphié
 rate si la cible se décale, **une meute ne pousse pas le héros à travers un
 mur**, rester sur l'arme qu'on vient de poser ne la reprend pas en boucle, un
 enchaînement de coups cesse de projeter, frapper à la hache coûte réellement de
-la vitesse, **un joueur à terre finit par saigner** même sous les coups, et les
-poursuivants débouchent un par un au pied de l'escalier plutôt qu'en bloc.
+la vitesse, **un joueur à terre finit par saigner** même sous les coups, et la
+Directrice livre ses vagues groupées, hors du champ de vision, jamais pendant
+son repos et jamais sur une équipe entièrement à terre.
 
 `mapdump` sert exactement à ça : quand une position n'a pas de sens, la carte
 ASCII dit en une seconde ce qu'un dump JSON cache.

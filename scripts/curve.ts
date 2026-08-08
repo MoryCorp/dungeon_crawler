@@ -15,11 +15,15 @@
  */
 import {
   ATK_GROWTH,
+  DIRECTOR_RESERVE,
   FLOOR_ATK_GROWTH,
   FLOOR_HP_GROWTH,
   HP_GROWTH,
   LEVELS_PER_FLOOR,
   MONSTERS,
+  PLACED_BASE_COUNT,
+  PLACED_MAX_COUNT,
+  PLACED_PER_FLOOR,
   PLAYER_BASE_HP,
   TARGET_K,
   TARGET_TTK,
@@ -133,9 +137,13 @@ console.log('\n── Rythme de progression ────────────
 console.log('  L\'XP d\'un étage doit faire monter d\'environ LEVELS_PER_FLOOR.')
 console.log('  Sinon la montée dérivée des monstres ne correspond plus à rien.\n')
 
-/** XP posée au sol par un étage, en supposant qu'on tue tout. */
+/**
+ * XP d'un étage entier, en supposant qu'on tue tout : ce qui est posé sur la
+ * carte **et** ce que la Directrice a en réserve.
+ */
 function floorXp(floor: number): number {
-  const count = Math.min(46, 11 + floor * 3)
+  const count =
+    Math.min(PLACED_MAX_COUNT, PLACED_BASE_COUNT + floor * PLACED_PER_FLOOR) + DIRECTOR_RESERVE
   // Composition moyenne : on prend la moyenne des espèces disponibles.
   const pool = Object.values(MONSTERS)
   const avgXp = pool.reduce((a, m) => a + m.xp, 0) / pool.length

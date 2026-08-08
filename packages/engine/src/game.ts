@@ -7,6 +7,7 @@
  * différentes.
  */
 import { buildFlowField, decideMonsterAction } from './ai.js'
+import { createDirector, updateDirector } from './director.js'
 import { computeFov } from './fov.js'
 import { generateFloor, type Rect } from './mapgen.js'
 import { inAttackArc, moveWithCollision, separateActors, solidAt, unstick } from './physics.js'
@@ -23,6 +24,7 @@ import type {
 import {
   ACTOR_RADIUS,
   AGGRO_MAX_DIST,
+  AGGRO_MEMORY,
   ATTACK_SWING,
   BLEED_OUT_TICKS,
   BOSS_ATK_MULT,
@@ -32,6 +34,8 @@ import {
   BOSS_WEIGHT_MULT,
   BOSS_XP_MULT,
   CORRIDOR_SPAWN_SHARE,
+  DIRECTOR_ENGAGE_RANGE,
+  DIRECTOR_RESERVE,
   DOWNED_SPEED,
   DT,
   ELITE_ATK_MULT,
@@ -46,24 +50,27 @@ import {
   FOV_RADIUS,
   HEART_HEAL_MIN,
   HEART_HEAL_RATIO,
+  HORDE_MAX,
+  HORDE_MAX_DIST,
+  HORDE_MIN,
+  HORDE_MIN_DIST,
+  HORDE_SPREAD,
   KB_STACK_FALLOFF,
   KB_STACK_RESET,
   KNOCKBACK_DECAY,
   LOOT_WEAPONS,
   MONSTERS,
-  MONSTER_BASE_COUNT,
   MONSTER_HALF_ARC,
-  MONSTER_MAX_COUNT,
-  MONSTER_PER_FLOOR,
   PACK_MAX,
   PACK_MIN,
   PACK_SPREAD,
   PICKUP_RANGE,
+  PLACED_BASE_COUNT,
+  PLACED_MAX_COUNT,
+  PLACED_PER_FLOOR,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
   PROJECTILE_RADIUS,
-  PURSUE_DELAY,
-  PURSUE_INTERVAL,
   PURSUE_MAX,
   PURSUE_STRIKE_GRACE,
   RESPAWN_GRACE,
@@ -74,6 +81,7 @@ import {
   STARTING_WEAPON,
   Tile,
   WEAPONS,
+  isWalkable,
   XP_MAGNET_RANGE,
   XP_MAGNET_SPEED,
   floorScale,
@@ -211,10 +219,18 @@ function corridorTiles(state: GameState, rooms: Rect[]): { x: number; y: number 
 
 function populate(state: GameState, rooms: Rect[], rng: Rng): void {
   const pool = monsterPool(state.floor)
-  const count = Math.min(
-    MONSTER_MAX_COUNT,
-    MONSTER_BASE_COUNT + state.floor * MONSTER_PER_FLOOR,
-  )
+  const count = Math.min(PLACED_MAX_COUNT, PLACED_BASE_COUNT + state.floor * PLACED_PER_FLOOR)
+
+  // La réserve de la Directrice est constituée **par espèces entières** : une
+  // vague livrée doit être d'une seule espèce, sinon les vitesses diffèrent, le
+  // groupe s'étire pendant l'approche et arrive en file indienne — exactement le
+  // défaut des meutes posées qu'on cherche à corriger.
+  state.reserve = []
+  while (state.reserve.length < DIRECTOR_RESERVE) {
+    const species = rng.pick(pool)
+    const n = Math.min(DIRECTOR_RESERVE - state.reserve.length, rng.range(HORDE_MIN, HORDE_MAX))
+    for (let i = 0; i < n; i++) state.reserve.push(species)
+  }
   // On exclut la salle de spawn : arriver au milieu d'un comité d'accueil
   // n'est pas une difficulté, c'est une frustration.
   const spawnable = rooms.slice(1)
@@ -346,6 +362,8 @@ export function createGame(seed: number, floor = 1): GameState {
     spawn: layout.spawn,
     stairsLocked: true,
     pursuers: [],
+    reserve: [],
+    director: createDirector(0),
     events: [],
   }
 
@@ -380,7 +398,7 @@ export function descend(state: GameState): void {
     )
     .slice(0, PURSUE_MAX)
 
-  state.pursuers = survivors.map((actor, i) => {
+  state.pursuers = survivors.map((actor) => {
     actor.kx = 0
     actor.ky = 0
     actor.swingUntil = 0
@@ -388,8 +406,9 @@ export function descend(state: GameState): void {
     delete actor.windupUntil
     delete actor.dashUntil
     delete actor.kbStackAt
-    return { atTick: state.tick + PURSUE_DELAY + i * PURSUE_INTERVAL, actor }
+    return { actor }
   })
+  state.director = createDirector(state.tick)
 
   for (const a of Object.values(state.actors)) {
     if (a.kind === 'monster') delete state.actors[a.id]
@@ -425,33 +444,176 @@ export function descend(state: GameState): void {
 }
 
 /**
- * Fait déboucher les poursuivants dus, au pied de l'escalier par lequel on est
- * arrivé. Ils sortent là et nulle part ailleurs : une menace qui apparaît à un
- * endroit connu se joue, une menace qui apparaît n'importe où se subit.
+ * Rassemble ce que la Directrice observe, puis applique sa décision.
+ *
+ * L'intensité se lit sur les événements du tick précédent : ce sont eux qui
+ * portent les dégâts subis et les mises à terre, et ils sont déjà là.
  */
-function releasePursuers(state: GameState): void {
-  if (state.pursuers.length === 0) return
+function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
+  const players = Object.values(state.actors).filter(
+    (a) => a.kind === 'player' && a.alive && !a.downed,
+  )
 
-  const due = state.pursuers.filter((p) => state.tick >= p.atTick)
-  if (due.length === 0) return
-  state.pursuers = state.pursuers.filter((p) => state.tick < p.atTick)
-
-  for (const { actor } of due) {
-    const spot = findFreeSpot(state, state.spawn.x + 0.5, state.spawn.y + 0.5)
-    actor.x = spot.x
-    actor.y = spot.y
-    // Sans ce délai, un monstre qui avait fini de récupérer à l'étage du dessus
-    // frappe dans la seconde où il apparaît, sans télégraphe visible.
-    actor.readyAt = state.tick + PURSUE_STRIKE_GRACE
-    state.actors[actor.id] = actor
-    state.events.push({
-      t: 'arrive',
-      id: actor.id,
-      species: actor.species,
-      x: actor.x,
-      y: actor.y,
-    })
+  let damageFraction = 0
+  let downed = false
+  for (const ev of state.events) {
+    if (ev.t === 'downed') downed = true
+    if (ev.t !== 'hit') continue
+    const victim = state.actors[ev.to]
+    if (victim?.kind !== 'player' || victim.maxHp <= 0) continue
+    damageFraction = Math.max(damageFraction, ev.dmg / victim.maxHp)
   }
+
+  let engaged = 0
+  for (const p of players) {
+    let near = 0
+    for (const a of Object.values(state.actors)) {
+      if (a.kind !== 'monster' || !a.alive) continue
+      if (Math.hypot(a.x - p.x, a.y - p.y) <= DIRECTOR_ENGAGE_RANGE) near++
+    }
+    engaged = Math.max(engaged, near)
+  }
+
+  // Personne de vivant sur ses jambes : la Directrice n'a plus de munitions.
+  // Livrer sur une équipe déjà à terre ne produit pas de la tension, ça
+  // s'acharne — et le dire ici plutôt qu'après coup lui évite de dépenser sa
+  // patience pour une décision qu'on va jeter.
+  const available = players.length > 0 ? state.pursuers.length + state.reserve.length : 0
+  const wanted = updateDirector(state.director, state.tick, {
+    damageFraction,
+    engaged,
+    downed,
+    available,
+  })
+  if (wanted > 0) deliverHorde(state, wanted, visible, rng)
+}
+
+/**
+ * Choisit où livrer une vague : hors de vue, à une distance qui laisse le temps
+ * de la voir venir sans qu'elle mette une minute à arriver, et de préférence
+ * dans un couloir.
+ *
+ * Hors de vue est la contrainte importante. Des monstres qui apparaissent sous
+ * les yeux du joueur cassent la fiction et transforment une vague en tricherie
+ * visible ; les mêmes monstres qui débouchent d'un couloir sont une rencontre.
+ */
+function hordeAnchor(
+  state: GameState,
+  visible: Uint8Array,
+  rng: Rng,
+): { x: number; y: number } | null {
+  const players = Object.values(state.actors).filter((a) => a.kind === 'player' && a.alive)
+  if (players.length === 0) return null
+
+  let best: { x: number; y: number; score: number } | null = null
+  // Un échantillon suffit : on cherche un bon emplacement, pas le meilleur.
+  for (let tries = 0; tries < 220; tries++) {
+    const x = 1 + rng.int(state.width - 2)
+    const y = 1 + rng.int(state.height - 2)
+    const idx = y * state.width + x
+    if (!isWalkable(state.tiles[idx]!)) continue
+    if (visible[idx]) continue
+
+    let nearest = Infinity
+    for (const p of players) nearest = Math.min(nearest, Math.hypot(p.x - x, p.y - y))
+    if (nearest < HORDE_MIN_DIST || nearest > HORDE_MAX_DIST) continue
+
+    // À distance égale, on préfère le plus proche : la vague doit arriver
+    // pendant que le joueur est encore là, pas trois salles plus loin.
+    const score = -nearest
+    if (!best || score > best.score) best = { x, y, score }
+  }
+  return best ? { x: best.x + 0.5, y: best.y + 0.5 } : null
+}
+
+/**
+ * Livre une vague : d'abord la dette de l'étage précédent, puis la réserve.
+ *
+ * Les poursuivants passent en premier, et c'est ce qui rend la dette réellement
+ * coûteuse : ce qu'on a laissé en vie ne revient plus en file indienne à un
+ * endroit qu'on peut camper, il revient en groupe, au moment où on ne s'y
+ * attend pas.
+ *
+ * Une vague est **d'une seule espèce**. Ce n'est pas un détail cosmétique :
+ * deux espèces n'ont pas la même vitesse, donc un groupe mixte s'étire sur le
+ * trajet et arrive un par un. C'est précisément ce qui faisait échouer les
+ * meutes posées sur la carte, et une vague mixte échouerait de la même façon.
+ */
+function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng: Rng): void {
+  const species = waveSpecies(state)
+  if (!species) return
+  const anchor = hordeAnchor(state, visible, rng)
+  if (!anchor) return
+
+  let placed = 0
+  for (let i = 0; i < count; i++) {
+    const debtAt = state.pursuers.findIndex((p) => p.actor.species === species)
+    const stockAt = debtAt >= 0 ? -1 : state.reserve.indexOf(species)
+    if (debtAt < 0 && stockAt < 0) break
+
+    const angle = rng.next() * Math.PI * 2
+    const radius = rng.next() * HORDE_SPREAD
+    const spot = findFreeSpot(
+      state,
+      anchor.x + Math.cos(angle) * radius,
+      anchor.y + Math.sin(angle) * radius,
+    )
+
+    let actor: Actor
+    if (debtAt >= 0) {
+      actor = state.pursuers.splice(debtAt, 1)[0]!.actor
+      actor.x = spot.x
+      actor.y = spot.y
+      state.actors[actor.id] = actor
+    } else {
+      state.reserve.splice(stockAt, 1)
+      actor = spawnMonster(
+        state,
+        `d${state.floor}_${state.nextId++}`,
+        species,
+        spot.x,
+        spot.y,
+        'normal',
+        rng,
+      )
+    }
+
+    // Sans ce délai, un monstre qui avait fini de récupérer frappe dans la
+    // seconde où il apparaît, sans télégraphe visible.
+    actor.readyAt = state.tick + PURSUE_STRIKE_GRACE
+    // Livrés déjà en chasse : une vague qui flâne n'est plus une vague.
+    actor.aggroUntil = state.tick + AGGRO_MEMORY * 4
+    placed++
+  }
+
+  if (placed > 0) {
+    state.events.push({ t: 'horde', count: placed, x: anchor.x, y: anchor.y })
+  }
+}
+
+/**
+ * Espèce de la prochaine vague : la mieux fournie, la dette comptant double.
+ *
+ * Compter la dette double la fait sortir en premier sans jamais fabriquer une
+ * vague de deux traînards : si l'espèce qu'on doit n'a pas les effectifs, la
+ * réserve fournit le reste sous la même bannière.
+ */
+function waveSpecies(state: GameState): string | null {
+  const stock = new Map<string, number>()
+  for (const p of state.pursuers) {
+    stock.set(p.actor.species, (stock.get(p.actor.species) ?? 0) + 2)
+  }
+  for (const s of state.reserve) stock.set(s, (stock.get(s) ?? 0) + 1)
+
+  let best: string | null = null
+  let bestN = 0
+  for (const [species, n] of stock) {
+    if (n > bestN) {
+      best = species
+      bestN = n
+    }
+  }
+  return best
 }
 
 export function addPlayer(state: GameState, id: string, name: string): Actor {
@@ -996,9 +1158,6 @@ export function step(
 
   const rng = new Rng(state.rng)
 
-  // 0. Les poursuivants de l'étage précédent débouchent de l'escalier.
-  releasePursuers(state)
-
   // 1. Réapparitions dues (après saignement complet).
   for (const a of Object.values(state.actors)) {
     if (a.kind !== 'player' || a.alive) continue
@@ -1127,6 +1286,13 @@ export function step(
   for (const a of Object.values(state.actors)) {
     if (a.alive) unstick(state.tiles, state.width, state.height, a)
   }
+
+  // 4b. La Directrice. Elle passe en fin de tick, une fois les événements du
+  // tick écrits : c'est là-dedans qu'elle lit les dégâts subis, et un appel plus
+  // tôt ne verrait qu'une liste vide, donc une intensité éternellement nulle.
+  // Elle utilise le champ de vision calculé en début de tick — à la tuile près,
+  // personne n'a bougé assez pour que ça change quoi que ce soit.
+  runDirector(state, visible, rng)
 
   // 5. Escalier : verrouillé tant que la clé du gardien n'est pas ramassée.
   if (!state.stairsLocked) {

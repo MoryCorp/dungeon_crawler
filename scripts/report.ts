@@ -18,6 +18,7 @@ import {
   engagement,
   floorInvariants,
   floorSummary,
+  waves,
   type FloorRecord,
   type RunRecord,
 } from '../apps/server/src/telemetry.js'
@@ -183,6 +184,43 @@ function report(run: RunRecord): void {
           ? '  → Beaucoup de tête-à-tête : les meutes se défont avant d\'arriver.'
           : '  → Les rencontres sont majoritairement groupées. C\'est ce qu\'on veut.',
     )
+  }
+
+  // --- le travail de la Directrice -------------------------------------------
+  const anyWave = run.floors.some((f) => (f.hordes ?? []).length > 0 || (f.held ?? 0) > 0)
+  if (anyWave) {
+    console.log('\n── La Directrice ──────────────────────────────────────────────')
+    console.log('  Elle ne pose pas les monstres, elle les livre : en groupe, hors de')
+    console.log('  vue, quand l\'intensité est retombée. Les vagues non livrées sont')
+    console.log('  des monstres que l\'étage contenait et que personne n\'a croisés.\n')
+    console.log('   étage   vagues   taille moy.   plus grosse   livrés   non livrés')
+    let totalWaves = 0
+    let totalDelivered = 0
+    let totalUnspent = 0
+    for (const f of run.floors) {
+      const w = waves(f)
+      totalWaves += w.count
+      totalDelivered += w.delivered
+      totalUnspent += w.unspent
+      console.log(
+        `   ${String(f.floor).padStart(5)}   ${String(w.count).padStart(6)}   ` +
+          `${w.mean.toFixed(1).padStart(11)}   ${String(w.biggest).padStart(11)}   ` +
+          `${String(w.delivered).padStart(6)}   ${String(w.unspent).padStart(10)}`,
+      )
+    }
+    const perFloor = run.floors.length ? totalWaves / run.floors.length : 0
+    console.log(`\n  ${perFloor.toFixed(1)} vague(s) par étage, ${totalDelivered} monstres livrés`)
+    if (perFloor < 1) {
+      console.log(
+        '  → Presque aucune vague : soit la pression ne retombe jamais assez pour\n' +
+          '    qu\'elle trouve un creux, soit elle n\'a nulle part où livrer.',
+      )
+    } else if (totalUnspent > totalDelivered) {
+      console.log(
+        '  → Plus de monstres gardés que livrés : les étages se traversent plus\n' +
+          '    vite qu\'elle ne peut les dépenser.',
+      )
+    }
   }
 
   // --- l'économie des cœurs --------------------------------------------------

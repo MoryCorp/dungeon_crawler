@@ -18,9 +18,12 @@ import {
   MONSTER_HALF_ARC,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
-  PURSUE_DELAY,
-  PURSUE_INTERVAL,
+  DIRECTOR_PATIENCE,
+  DIRECTOR_REST,
+  HORDE_MIN,
   PURSUE_MAX,
+  createDirector,
+  updateDirector,
   REVIVE_TICKS,
   Rng,
   TARGET_TTK,
@@ -732,13 +735,14 @@ console.log('\nTests engine\n')
 
   const wounded = putMonster(s, 'm_a', 'orc', s.stairs.x + 1.5, s.stairs.y + 0.5)
   wounded.hp = 3
-  putMonster(s, 'm_b', 'skeleton', s.stairs.x + 2.5, s.stairs.y + 0.5)
-  putMonster(s, 'm_c', 'skeleton', s.stairs.x + 3.5, s.stairs.y + 0.5)
+  for (let i = 0; i < 6; i++) {
+    putMonster(s, `m_s${i}`, 'skeleton', s.stairs.x + 2.5 + i * 0.6, s.stairs.y + 0.5)
+  }
+  putMonster(s, 'm_o', 'orc', s.stairs.x + 7, s.stairs.y + 0.5)
 
-  const tickAtDescend = s.tick
   descend(s)
 
-  check('les monstres laissés en vie suivent', s.pursuers.length === 3, `${s.pursuers.length}`)
+  check('les monstres laissés en vie suivent', s.pursuers.length === 8, `${s.pursuers.length}`)
   check(
     'ils ne débarquent pas dans la foulée',
     s.pursuers.every((p) => !(p.actor.id in s.actors)),
@@ -749,33 +753,117 @@ console.log('\nTests engine\n')
   )
   check('la descente annonce la poursuite', s.events.some((e) => e.t === 'pursuit'))
 
-  const arrivals: { tick: number; x: number; y: number }[] = []
-  for (let i = 1; i <= TICK_RATE * 20; i++) {
+  // La dette ne se paie plus à l'escalier d'arrivée : elle est confiée à la
+  // Directrice, qui la livre quand elle décide. Camper la sortie ne sert donc
+  // plus à rien — c'était exactement l'exploit à supprimer.
+  //
+  // On isole la dette : ni monstres posés, ni réserve. Et on efface à chaque
+  // tick ce qui vient d'être livré, parce qu'on teste la livraison et pas le
+  // combat : un cobaye qui reste entouré garde une intensité au plafond, et une
+  // Directrice qui ne livre plus rien dans ces conditions fait son travail.
+  clearMonsters(s)
+  s.reserve = []
+
+  const hordes: { tick: number; count: number; x: number; y: number }[] = []
+  for (let i = 1; i <= TICK_RATE * 120; i++) {
     step(s, noInputs)
     for (const ev of s.events) {
-      if (ev.t === 'arrive') arrivals.push({ tick: i, x: ev.x, y: ev.y })
+      if (ev.t === 'horde') hordes.push({ tick: i, count: ev.count, x: ev.x, y: ev.y })
     }
+    clearMonsters(s)
   }
 
-  check('tous finissent par déboucher', arrivals.length === 3, `${arrivals.length}/3`)
+  check('la Directrice finit par livrer', hordes.length > 0, `${hordes.length} vague(s)`)
   check(
-    'le premier laisse un répit',
-    arrivals[0]?.tick === tickAtDescend + PURSUE_DELAY,
-    `tick ${arrivals[0]?.tick} au lieu de ${tickAtDescend + PURSUE_DELAY}`,
-  )
-  // Le point entier de l'échelonnement : un mur de seize monstres d'un coup
-  // serait une condamnation, une file est un choix.
-  check(
-    'ils débouchent un par un, pas en bloc',
-    arrivals.length === 3 &&
-      arrivals[1]!.tick - arrivals[0]!.tick === PURSUE_INTERVAL &&
-      arrivals[2]!.tick - arrivals[1]!.tick === PURSUE_INTERVAL,
-    arrivals.map((a) => a.tick).join(', '),
+    'la première vague est un groupe, pas un traînard',
+    (hordes[0]?.count ?? 0) >= HORDE_MIN,
+    `${hordes[0]?.count}`,
   )
   check(
-    'ils sortent au pied de l\'escalier d\'arrivée',
-    arrivals.every((a) => Math.hypot(a.x - (s.spawn.x + 0.5), a.y - (s.spawn.y + 0.5)) < 5),
+    'toute la dette finit par être dépensée',
+    s.pursuers.length === 0 && hordes.reduce((a, h) => a + h.count, 0) === 8,
+    `${s.pursuers.length} restant(s)`,
   )
+  const player = s.actors.p_run!
+  check(
+    'elle ne livre jamais dans les jambes du joueur',
+    hordes.every((h) => Math.hypot(h.x - player.x, h.y - player.y) >= 3),
+  )
+}
+
+// Une vague ne tombe pas sous les yeux du joueur : elle débouche.
+{
+  const s = createGame(7771)
+  addPlayer(s, 'p_eye', 'Guetteur')
+  clearMonsters(s)
+  s.actors.p_eye!.maxHp = 9000
+  s.actors.p_eye!.hp = 9000
+  s.reserve = Array.from({ length: 12 }, () => 'skeleton')
+  s.director = createDirector(s.tick)
+
+  let sighted = 0
+  let waves = 0
+  for (let i = 0; i < TICK_RATE * 60; i++) {
+    const { visible } = step(s, noInputs)
+    for (const ev of s.events) {
+      if (ev.t !== 'horde') continue
+      waves++
+      const idx = Math.floor(ev.y) * s.width + Math.floor(ev.x)
+      if (visible[idx]) sighted++
+    }
+  }
+  check('des vagues arrivent sur un étage en réserve', waves > 0, `${waves}`)
+  check('aucune n\'apparaît dans le champ de vision', sighted === 0, `${sighted} vue(s)`)
+}
+
+// La politique seule, sans donjon : c'est là qu'on vérifie l'onde.
+{
+  const d = createDirector(0)
+  const calm = { damageFraction: 0, engaged: 0, downed: false, available: 20 }
+
+  let first = -1
+  for (let t = 1; t <= TICK_RATE * 30 && first < 0; t++) {
+    if (updateDirector(d, t, calm) > 0) first = t
+  }
+  check('le calme finit par déclencher une vague', first > 0, `tick ${first}`)
+  check('mais pas immédiatement', first >= DIRECTOR_PATIENCE, `tick ${first}`)
+
+  // Une équipe qui encaisse ne se voit rien ajouter : c'est la moitié du
+  // modèle. Sans ça on empile jusqu'à l'écœurement.
+  const hot = createDirector(0)
+  let deliveredWhileHot = 0
+  for (let t = 1; t <= TICK_RATE * 30; t++) {
+    deliveredWhileHot += updateDirector(hot, t, {
+      damageFraction: 0.05,
+      engaged: 4,
+      downed: false,
+      available: 20,
+    })
+  }
+  check('sous le feu, elle n\'ajoute rien', deliveredWhileHot === 0)
+  check('et elle est passée par le pic', hot.phase !== 'buildup', hot.phase)
+
+  // Le repos est garanti : rien ne peut le raccourcir, c'est lui qui donne sa
+  // valeur au pic suivant.
+  const resting = createDirector(0)
+  resting.phase = 'rest'
+  resting.since = 0
+  let deliveredWhileResting = 0
+  for (let t = 1; t < DIRECTOR_REST; t++) {
+    deliveredWhileResting += updateDirector(resting, t, calm)
+  }
+  check('le repos ne peut pas être écourté', deliveredWhileResting === 0)
+  updateDirector(resting, DIRECTOR_REST, calm)
+  const afterRest: string = resting.phase
+  check('et il finit', afterRest === 'buildup', afterRest)
+
+  // Sans munitions, elle patiente au lieu de livrer du vide.
+  const dry = createDirector(0)
+  let deliveredDry = 0
+  for (let t = 1; t <= TICK_RATE * 30; t++) {
+    deliveredDry += updateDirector(dry, t, { ...calm, available: 0 })
+  }
+  check('sans réserve, elle ne livre rien', deliveredDry === 0)
 }
 
 // Un étage nettoyé ne coûte rien : c'est ce qui rend la dette juste.

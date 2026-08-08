@@ -7,13 +7,7 @@
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import {
-  PURSUE_DELAY,
-  PURSUE_INTERVAL,
-  fromBase64,
-  toBase64,
-  type GameState,
-} from '@dc/engine'
+import { createDirector, fromBase64, toBase64, type GameState } from '@dc/engine'
 import type { RunRecord } from './telemetry.js'
 
 const DATA_DIR = process.env.DATA_DIR ?? './data'
@@ -32,8 +26,12 @@ const RUNS_DIR = join(DATA_DIR, 'runs')
  *     rien dire — au niveau 24 il aurait 147 PV là où la formule en donne 98,
  *     et le premier passage de niveau lui en retirerait cinquante d'un coup.
  *     Repartir d'un donjon neuf est la seule reprise honnête.
+ * 4 : la Directrice. Un étage sauvegardé sous l'ancien format a déjà tous ses
+ *     monstres posés sur la carte et pas de réserve : le rechargement donnerait
+ *     un étage que la Directrice ne peut plus animer, donc plus aucune vague
+ *     jusqu'à l'escalier suivant.
  */
-const SAVE_VERSION = 3
+const SAVE_VERSION = 4
 
 let ready: Promise<void> | null = null
 function ensureDir(): Promise<void> {
@@ -103,15 +101,12 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     }
     state.projectiles = []
     state.events = []
-    // Sauvegarde d'avant la poursuite : le champ manque, et une room chargée
-    // sans lui planterait au premier tick.
     state.pursuers ??= []
-    // Une room qui s'arrête pendant que des arrivées sont dues les ferait toutes
-    // déboucher au même tick à la réouverture, soit exactement le mur qu'on veut
-    // éviter. On réétale le calendrier depuis maintenant, ordre conservé.
-    state.pursuers.forEach((p, i) => {
-      p.atTick = state.tick + PURSUE_DELAY + i * PURSUE_INTERVAL
-    })
+    state.reserve ??= []
+    // La Directrice repart d'une ardoise propre : son intensité mesure ce que le
+    // joueur vient de vivre, et il ne vient de rien vivre du tout. Recharger un
+    // pic vieux de trois jours livrerait une vague sur un donjon endormi.
+    state.director = createDirector(state.tick)
     return state
   } catch {
     return null

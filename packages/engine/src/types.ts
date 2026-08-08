@@ -186,9 +186,22 @@ export function effectiveHp(maxHp: number, armor = 0): number {
  * il doit tenir LEVELS_PER_FLOOR, sinon la montée dérivée des monstres ne
  * correspond plus à rien et TTK dérive. `scripts/curve.ts` vérifie que la
  * courbe et le butin des étages sont bien d'accord.
+ *
+ * Ces deux nombres ne sont pas choisis, ils sont **ajustés** sur le butin réel
+ * des étages : régression sur l'XP cumulée de vingt étages tués entièrement,
+ * de sorte que le niveau atteint suive l'étage. Ils changent donc chaque fois
+ * que le peuplement change — l'ancienne paire (30, 2.15) était calée sur un
+ * étage qui triplait ses effectifs entre le premier et le vingtième ; avec une
+ * réserve constante ils ne varient plus que de moitié, et la courbe devait
+ * s'aplatir d'autant. Sans ce réajustement, les deux premiers étages
+ * rapportaient deux niveaux chacun et le héros prenait une avance qu'il ne
+ * rendait jamais.
  */
+export const XP_CURVE_SCALE = 107
+export const XP_CURVE_EXPONENT = 1.69
+
 export function xpForLevel(level: number): number {
-  return Math.round(30 * (level - 1) ** 2.15)
+  return Math.round(XP_CURVE_SCALE * (level - 1) ** XP_CURVE_EXPONENT)
 }
 
 /** Un cœur rend une fraction des PV max : sinon il devient dérisoire en profondeur. */
@@ -264,9 +277,29 @@ export function floorScale(floor: number, growth: number): number {
   return powerScale(floor - 1, growth)
 }
 
-export const MONSTER_BASE_COUNT = 11
-export const MONSTER_PER_FLOOR = 3
-export const MONSTER_MAX_COUNT = 46
+/**
+ * Le peuplement d'un étage se fait en deux parts qui ne jouent pas du tout le
+ * même rôle.
+ *
+ * `PLACED_*` — ce qui est posé sur la carte. On le rencontre en explorant, et
+ * on le rencontre presque toujours **seul**, même quand c'est posé en meute :
+ * les espèces n'ont pas la même vitesse, donc une meute s'étire pendant
+ * l'approche et se présente en file indienne. C'est le décor du donjon, ce
+ * n'est pas sa difficulté.
+ *
+ * La réserve de la Directrice — ce qui n'est pas posé, et qui sera livré en
+ * vague. C'est de là que vient la difficulté.
+ *
+ * La mesure qui a imposé ce partage : avec une réserve calculée comme une part
+ * (45 %) d'un budget de quatorze, la Directrice avait de quoi livrer **une**
+ * vague par étage. Elle fonctionnait — les relevés le montraient — et
+ * l'effectif médian des rencontres restait à 1.3, parce que tout le reste de
+ * l'étage était fait de monstres isolés. Une part d'un total est un mauvais
+ * réglage : c'est le nombre de vagues qu'on veut choisir.
+ */
+export const PLACED_BASE_COUNT = 7
+export const PLACED_PER_FLOOR = 2
+export const PLACED_MAX_COUNT = 26
 /**
  * Part des monstres posés dans les couloirs plutôt que dans les salles.
  * Tomber sur un archer ou un chargeur dans un couloir d'une tuile de large est
@@ -296,26 +329,91 @@ export const PACK_SPREAD = 2.5
  * elle reste entièrement sous contrôle du joueur, puisqu'il suffit de tuer
  * pour ne rien devoir.
  *
- * Ils débouchent **un par un** au pied de l'escalier d'arrivée, pas d'un bloc :
- * un mur de seize monstres surgissant sur la tête du groupe serait une
- * condamnation sans réponse. En file, c'est un choix — tenir le goulot et les
- * cueillir à l'arrivée, ou filer chercher la clé en les laissant s'accumuler
- * dans le dos.
+ * Ils ne débouchent pas à l'escalier d'arrivée : ils sont versés à la réserve
+ * de la Directrice, qui les livrera quand elle jugera le moment venu. La
+ * première version les faisait sortir un par un au pied de l'escalier, ce qui
+ * s'est révélé être exactement le mauvais choix : il suffisait d'attendre sur
+ * place et de les cueillir à la sortie, isolés, sans jamais en affronter deux.
+ * Confiée à la Directrice, la dette redevient ce qu'elle devait être — ce qu'on
+ * a laissé en vie revient en groupe, ailleurs, et au pire moment.
  */
 export const PURSUE_MAX = 16
-/** Temps de répit avant que le premier ne débouche. */
-export const PURSUE_DELAY = ticks(4)
-/** Intervalle entre deux arrivées. */
-export const PURSUE_INTERVAL = ticks(0.9)
 /** Répit accordé à celui qui débouche, pour qu'il ne frappe pas dès l'apparition. */
 export const PURSUE_STRIKE_GRACE = ticks(0.6)
 
-/** Un monstre de l'étage précédent, en train de descendre derrière l'équipe. */
+/** Un monstre de l'étage précédent, en attente d'être renvoyé au front. */
 export interface Pursuer {
-  /** Tick auquel il débouche de l'escalier. */
-  atTick: number
   actor: Actor
 }
+
+// --- La Directrice ----------------------------------------------------------
+
+/**
+ * Pilotage de l'intensité, sur le modèle de l'IA Directrice de Left 4 Dead.
+ *
+ * La difficulté ne doit pas être une rampe mais une **onde** : montée, pic,
+ * décompression, repos. Une pression constante cesse d'être perçue au bout de
+ * quelques minutes — c'est le creux qui donne sa valeur au pic.
+ *
+ * La mesure qui l'a rendue nécessaire : sur de vraies parties, l'effectif
+ * médian des rencontres valait 1 et les deux tiers du temps de combat se
+ * passaient en tête-à-tête. Les meutes posées sur la carte s'étirent pendant
+ * l'approche. Une Directrice ne place pas les monstres, elle les **livre**,
+ * groupés, quand il ne se passe rien.
+ */
+export interface DirectorState {
+  phase: 'buildup' | 'peak' | 'fade' | 'rest'
+  /** Intensité perçue du joueur le plus sous pression, entre 0 et 1. */
+  intensity: number
+  /** Tick d'entrée dans la phase courante. */
+  since: number
+}
+
+/** Seuil d'intensité au-delà duquel on considère être au pic. */
+export const DIRECTOR_PEAK = 0.8
+/** Seuil en deçà duquel on considère que le joueur souffle. */
+export const DIRECTOR_CALM = 0.25
+/** Décroissance de l'intensité par tick : ~2 s pour retomber de moitié. */
+export const DIRECTOR_DECAY = 0.988
+/** Durée du pic tenu avant de laisser retomber. */
+export const DIRECTOR_PEAK_HOLD = ticks(6)
+/** Repos garanti après une décompression. Rien ne peut le raccourcir. */
+export const DIRECTOR_REST = ticks(10)
+/** Temps de calme continu avant de livrer une vague. */
+export const DIRECTOR_PATIENCE = ticks(6)
+
+/** Intensité gagnée par fraction de PV max perdue d'un coup. */
+export const INTENSITY_PER_DAMAGE = 2.2
+/** Intensité gagnée par tick et par ennemi à portée. */
+export const INTENSITY_PER_FOE = 0.004
+/** Une mise à terre est le pic d'intensité le plus fort du jeu. */
+export const INTENSITY_DOWNED = 0.7
+
+/**
+ * Taille d'une vague. C'est le seul chiffre qui décide vraiment de la
+ * difficulté : trois monstres simultanés forcent à choisir lequel gérer, à
+ * reculer, à utiliser la géométrie de la pièce. Un seul ne force rien.
+ */
+export const HORDE_MIN = 3
+export const HORDE_MAX = 6
+/** Rayon de dispersion d'une vague. Serré : ils doivent arriver ensemble. */
+export const HORDE_SPREAD = 1.6
+/** Distance de livraison : assez loin pour être vue venir, assez près pour arriver. */
+export const HORDE_MIN_DIST = 7
+export const HORDE_MAX_DIST = 15
+
+/**
+ * Vagues que la Directrice doit pouvoir livrer sur un étage, et la réserve qui
+ * s'en déduit.
+ *
+ * La réserve ne grandit **pas** avec l'étage, et c'est volontaire : le modèle
+ * de puissance tient K constant, donc le nombre d'ennemis simultanés qu'on peut
+ * gérer est le même à l'étage 20 qu'à l'étage 2. Une vague de l'étage 20 n'est
+ * pas plus nombreuse, elle est plus forte — et c'est le scaling des statistiques
+ * qui s'en charge, pas le compte.
+ */
+export const DIRECTOR_WAVES = 5
+export const DIRECTOR_RESERVE = Math.round((DIRECTOR_WAVES * (HORDE_MIN + HORDE_MAX)) / 2)
 
 // --- Monstres ---------------------------------------------------------------
 
@@ -538,6 +636,8 @@ export type GameEvent =
   | { t: 'pursuit'; count: number }
   /** Un poursuivant vient de déboucher de l'escalier. */
   | { t: 'arrive'; id: string; species: string; x: number; y: number }
+  /** La Directrice vient de livrer une vague. */
+  | { t: 'horde'; count: number; x: number; y: number }
   /**
    * Un objet vient d'apparaître au sol. Sans cet événement on ne peut pas
    * distinguer « aucun cœur n'est tombé » de « ils sont tous encore par terre »,
@@ -572,7 +672,13 @@ export interface GameState {
   spawn: { x: number; y: number }
   /** L'escalier ne s'ouvre qu'une fois la clé récupérée. */
   stairsLocked: boolean
-  /** Monstres de l'étage précédent, en attente de déboucher de l'escalier. */
+  /** Monstres de l'étage précédent, en attente d'être renvoyés au front. */
   pursuers: Pursuer[]
+  /** Monstres de cet étage gardés en réserve, à livrer par la Directrice. */
+  reserve: string[]
+  director: DirectorState
   events: GameEvent[]
 }
+
+/** Portée à laquelle un monstre pèse sur la décision immédiate du joueur. */
+export const DIRECTOR_ENGAGE_RANGE = 6
