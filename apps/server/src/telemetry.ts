@@ -9,7 +9,7 @@
  * Tout est dérivé des `GameEvent` déjà émis par l'engine, plus un échantillon
  * de PV par seconde. L'engine reste pur : il ne sait pas qu'on l'observe.
  */
-import { TICK_RATE, type GameEvent, type GameState } from '@dc/engine'
+import { TICK_RATE, WEAPONS, effectiveHp, type GameEvent, type GameState } from '@dc/engine'
 
 /** Compteur par clé, écrit sans avoir à initialiser chaque case. */
 type Tally = Record<string, number>
@@ -31,6 +31,11 @@ export interface FloorRecord {
   spawned: number
   /** Monstres qui ont suivi depuis l'étage précédent — la dette qu'on traîne. */
   pursuers: number
+  /**
+   * PV effectifs du joueur le mieux doté sur cet étage. C'est le dénominateur
+   * du K réel : sans lui, « combien de dégâts encaissés » ne veut rien dire.
+   */
+  poolHp: number
   /** Monstres tués, par espèce. */
   kills: Tally
   /** Dégâts infligés par les joueurs, par espèce de victime. */
@@ -75,6 +80,7 @@ function emptyFloor(floor: number, level: number): FloorRecord {
     ticks: 0,
     spawned: 0,
     pursuers: 0,
+    poolHp: 0,
     kills: {},
     damageDealt: {},
     damageTaken: {},
@@ -150,6 +156,9 @@ export class RunTelemetry {
       const ratio = a.maxHp > 0 ? a.hp / a.maxHp : 1
       lowest = Math.min(lowest, ratio)
       if (ratio < DANGER_HP_RATIO) inDanger = true
+      // PV effectifs, armure comprise le jour où il y en aura : c'est cette
+      // grandeur-là que le modèle équilibre, jamais les PV bruts.
+      this.current.poolHp = Math.max(this.current.poolHp, effectiveHp(a.maxHp, a.armor ?? 0))
     }
     if (lowest < this.current.lowestHpRatio) this.current.lowestHpRatio = lowest
     if (inDanger) this.dangerTicks += 1
@@ -238,18 +247,64 @@ export class RunTelemetry {
 }
 
 /** Résumé lisible d'un étage, utilisé par le rapport et par les tests. */
+/**
+ * Les deux invariants du modèle de puissance, mesurés sur ce qui s'est
+ * réellement passé plutôt que calculés sur le papier.
+ *
+ * `ttk` — coups **qui touchent** nécessaires pour tuer, multipliés par la
+ * cadence de l'arme. Directement comparable à TARGET_TTK.
+ *
+ *   On compte les touches et pas les coups portés, et c'est essentiel : un
+ *   joueur qui garde le clic enfoncé en traversant l'étage frappe deux à trois
+ *   fois plus souvent qu'il ne touche. Compter les coups mesurerait sa
+ *   discipline de gâchette, pas la solidité des monstres.
+ *
+ * `k` — monstres tués avant d'épuiser sa barre de vie.
+ *
+ *   Attention : ce n'est PAS comparable au K analytique de `scripts/curve.ts`.
+ *   Le K analytique est un pire cas — trois monstres qui frappent sans
+ *   discontinuer. Le K mesuré inclut tout ce que le joueur fait pour l'éviter :
+ *   reculer, repousser, tuer avant le contact, ramasser un cœur. Il sera
+ *   toujours bien plus haut. Ce qui compte ici, c'est **sa platitude** : s'il
+ *   grimpe avec la profondeur, le jeu devient plus facile à mesure qu'on
+ *   descend.
+ *
+ * Les deux valent `null` quand l'étage n'a pas assez de matière pour être
+ * honnête — mieux vaut ne rien dire qu'un chiffre tiré de deux événements.
+ */
+export function floorInvariants(f: FloorRecord): { ttk: number | null; k: number | null } {
+  const kills = Object.values(f.kills).reduce((a, b) => a + b, 0)
+  const taken = Object.values(f.damageTaken).reduce((a, b) => a + b, 0)
+
+  let connectedSeconds = 0
+  for (const [weaponId, n] of Object.entries(f.hits)) {
+    const w = WEAPONS[weaponId]
+    if (w) connectedSeconds += (n * w.cooldown) / TICK_RATE
+  }
+
+  // `poolHp` manque sur les relevés d'avant le modèle de puissance : mieux vaut
+  // ne rien afficher qu'un NaN qui ressemble à une mesure.
+  const pool = f.poolHp ?? 0
+  return {
+    ttk: kills >= 3 && connectedSeconds > 0 ? connectedSeconds / kills : null,
+    k: kills >= 3 && taken > 0 && pool > 0 ? (pool * kills) / taken : null,
+  }
+}
+
 export function floorSummary(f: FloorRecord): string {
   const seconds = (f.ticks / TICK_RATE).toFixed(0)
   const kills = Object.values(f.kills).reduce((a, b) => a + b, 0)
   const taken = Object.values(f.damageTaken).reduce((a, b) => a + b, 0)
   const present = f.spawned + f.pursuers
   const left = present > 0 ? Math.max(0, present - kills) : 0
+  const { ttk, k } = floorInvariants(f)
   return (
     `étage ${f.floor} · ${seconds}s · niveau ${f.levelIn}→${f.levelOut} · ` +
     `${kills}/${present} tués` +
     (f.pursuers ? ` (dont ${f.pursuers} suiveur${f.pursuers > 1 ? 's' : ''})` : '') +
     ` · ${left} laissé(s) · ${taken} dégâts subis · ${f.downs} mise(s) à terre · ` +
     `PV au plus bas ${(f.lowestHpRatio * 100).toFixed(0)}% · ` +
-    `en danger ${(f.dangerRatio * 100).toFixed(0)}% du temps`
+    `en danger ${(f.dangerRatio * 100).toFixed(0)}% du temps · ` +
+    `TTK ${ttk === null ? '—' : ttk.toFixed(2) + 's'} · K ${k === null ? '—' : k.toFixed(1)}`
   )
 }

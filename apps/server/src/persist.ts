@@ -27,8 +27,13 @@ const RUNS_DIR = join(DATA_DIR, 'runs')
  * chargement d'état à moitié valide.
  *
  * 2 : projectiles, objets au sol, escalier verrouillé, armes et niveaux.
+ * 3 : modèle de puissance multiplicatif. Un personnage sauvegardé sous
+ *     l'ancien modèle porte des PV et une attaque additifs qui ne veulent plus
+ *     rien dire — au niveau 24 il aurait 147 PV là où la formule en donne 98,
+ *     et le premier passage de niveau lui en retirerait cinquante d'un coup.
+ *     Repartir d'un donjon neuf est la seule reprise honnête.
  */
-const SAVE_VERSION = 2
+const SAVE_VERSION = 3
 
 let ready: Promise<void> | null = null
 function ensureDir(): Promise<void> {

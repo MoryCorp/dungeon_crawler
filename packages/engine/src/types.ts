@@ -66,20 +66,30 @@ export interface WeaponDef {
 const deg = (d: number) => (d * Math.PI) / 180
 
 /**
- * Chaque arme impose un style de jeu différent, pas juste un chiffre :
- * la hache oblige à s'engager, la lance à tenir la distance, l'arc à kiter.
+ * Budget de puissance : **toutes les armes ont le même DPS nominal**, et se
+ * différencient uniquement par la façon de le dépenser — portée, ouverture
+ * d'arc, engagement, recul. Choisir une arme n'est plus « laquelle tape le plus
+ * fort » mais « quel profil de risque » : la dague force le contact, la hache
+ * te cloue sur place, la lance tient la distance dans un cône étroit.
  *
- * `swing` est ce qui rend le choix réel : frapper immobilise partiellement. Une
- * hache ouvre un arc énorme mais te cloue sur place presque une demi-seconde ;
- * une dague ne t'engage presque pas mais gratte. Sans ce coût, toutes les armes
- * reviennent à « avancer en cliquant » et n'ont plus d'identité.
+ * Les dégâts se déduisent donc de la cadence : `damage = WEAPON_DPS × cooldown`,
+ * en prenant la cadence **arrondie au tick** — sinon `ticks()` réintroduit un
+ * écart de 11 % entre la meilleure et la pire arme, et le budget ne veut plus
+ * rien dire. Ce ne sont pas des entiers : ils sont multipliés par la puissance
+ * du joueur puis arrondis au moment du coup.
+ *
+ * `swing` et `movePenalty` sont l'autre moitié du prix : frapper immobilise
+ * partiellement. Sans ce coût, toutes les armes reviennent à « avancer en
+ * cliquant » et n'ont plus d'identité.
  */
+export const WEAPON_DPS = 15
+
 export const WEAPONS: Record<string, WeaponDef> = {
-  sword:  { label: 'Épée',    reach: 1.45, halfArc: deg(55), cooldown: ticks(0.42), swing: ticks(0.18), movePenalty: 0.45, damage: 6,  knockback: 5,   color: 0xd8dde8 },
-  dagger: { label: 'Dague',   reach: 1.00, halfArc: deg(40), cooldown: ticks(0.18), swing: ticks(0.08), movePenalty: 0.85, damage: 3,  knockback: 1.5, color: 0xbfe8d8 },
-  axe:    { label: 'Hache',   reach: 1.60, halfArc: deg(85), cooldown: ticks(0.78), swing: ticks(0.40), movePenalty: 0.12, damage: 13, knockback: 9,   color: 0xe8b48a },
-  spear:  { label: 'Lance',   reach: 2.40, halfArc: deg(22), cooldown: ticks(0.55), swing: ticks(0.26), movePenalty: 0.35, damage: 8,  knockback: 3.5, color: 0xc9d8f0 },
-  bow:    { label: 'Arc',     reach: 0.9,  halfArc: deg(30), cooldown: ticks(0.50), swing: ticks(0.16), movePenalty: 0.55, damage: 7,  knockback: 2,
+  sword:  { label: 'Épée',    reach: 1.45, halfArc: deg(55), cooldown: ticks(0.42), swing: ticks(0.18), movePenalty: 0.45, damage: 6.50,  knockback: 5,   color: 0xd8dde8 },
+  dagger: { label: 'Dague',   reach: 1.00, halfArc: deg(40), cooldown: ticks(0.18), swing: ticks(0.08), movePenalty: 0.72, damage: 2.50,  knockback: 1.5, color: 0xbfe8d8 },
+  axe:    { label: 'Hache',   reach: 1.60, halfArc: deg(85), cooldown: ticks(0.78), swing: ticks(0.40), movePenalty: 0.12, damage: 11.50, knockback: 9,   color: 0xe8b48a },
+  spear:  { label: 'Lance',   reach: 2.40, halfArc: deg(22), cooldown: ticks(0.55), swing: ticks(0.26), movePenalty: 0.35, damage: 8.50,  knockback: 3.5, color: 0xc9d8f0 },
+  bow:    { label: 'Arc',     reach: 0.9,  halfArc: deg(30), cooldown: ticks(0.50), swing: ticks(0.16), movePenalty: 0.55, damage: 7.50,  knockback: 2,
             ranged: { speed: 15, ttl: ticks(1.2) }, color: 0xe8dca0 },
 }
 
@@ -87,25 +97,98 @@ export const STARTING_WEAPON = 'sword'
 /** Armes trouvables dans les coffres. */
 export const LOOT_WEAPONS = ['dagger', 'axe', 'spear', 'bow']
 
-// --- Progression ------------------------------------------------------------
+// --- Progression : le modèle de puissance -----------------------------------
+
+/**
+ * Le jeu ne se règle pas en dégâts. Il se règle sur trois grandeurs :
+ *
+ *   TTK = PV effectifs du monstre / DPS du joueur     — temps pour tuer
+ *   TTD = PV effectifs du joueur / DPS des monstres   — temps pour mourir
+ *   K   = TTD / TTK                                   — combien on en gère à la fois
+ *
+ * L'invariant de conception : **TTK et K restent constants sur toute la
+ * descente**. La difficulté ne vient jamais des statistiques, elle vient du
+ * nombre d'ennemis simultanés et de la géométrie de la rencontre. C'est ce qui
+ * permet à l'étage 20 d'être aussi tendu que l'étage 2 sans que les monstres
+ * deviennent des éponges à coups.
+ *
+ * La mesure qui a imposé ce modèle : sur une descente réelle jusqu'à l'étage
+ * 16, TTK valait 0.5 s et K montait de 6 à 11. On pouvait tuer dix monstres
+ * dans le temps qu'il leur fallait pour en venir à bout d'un joueur — aucune
+ * rencontre ne pouvait menacer qui que ce soit.
+ */
+export const TARGET_TTK = 1.2
+export const TARGET_K = 3.2
+
+/**
+ * La puissance est MULTIPLICATIVE, et c'est le point le plus important du
+ * fichier.
+ *
+ * Le modèle additif précédent (`dégâts = arme + atk`) faisait disparaître
+ * l'arme dans le bruit : au niveau 1 la hache frappait 3× plus fort que la
+ * dague, au niveau 24 seulement 1.36× plus fort. Il ne restait que la cadence,
+ * donc la dague gagnait toujours — elle a produit 89 % des dégâts d'une
+ * descente entière. Un facteur préserve les écarts pour toujours.
+ */
+export const ATK_GROWTH = 1.07
+export const HP_GROWTH = 1.05
+
+/**
+ * Rythme visé : niveaux gagnés par étage. Ce n'est pas un réglage libre, c'est
+ * la charnière entre la progression du joueur et celle du donjon — la courbe
+ * d'XP est calibrée pour le tenir.
+ */
+export const LEVELS_PER_FLOOR = 1.0
+
+export function powerScale(steps: number, growth: number): number {
+  return growth ** Math.max(0, steps)
+}
 
 export const PLAYER_BASE_HP = 32
-export const PLAYER_BASE_ATK = 2
-/** Gain par niveau. */
-export const HP_PER_LEVEL = 5
-export const ATK_PER_LEVEL = 1
+
+export function playerAttackMult(level: number): number {
+  return powerScale(level - 1, ATK_GROWTH)
+}
+
+export function playerMaxHp(level: number): number {
+  return Math.round(PLAYER_BASE_HP * powerScale(level - 1, HP_GROWTH))
+}
+
+/**
+ * Réduction de dégâts, forme canonique à rendements décroissants : a / (a + k).
+ *
+ * Aucune armure n'existe encore. La constante et le chemin de calcul sont posés
+ * maintenant pour que les armures s'ajoutent plus tard **sans redériver TTD ni
+ * K** : une armure ne touchera jamais aux PV, elle changera les PV *effectifs*,
+ * et c'est déjà cette grandeur-là que le modèle équilibre.
+ *
+ * Cette forme a une propriété qui la rend sûre : les PV effectifs valent
+ * `PV × (1 + armure / k)`, donc ils croissent **linéairement** avec l'armure.
+ * Pas d'emballement possible, quel que soit l'empilement — c'est exactement
+ * pour ça que tous les jeux à statistiques l'utilisent. L'axe de coût prévu
+ * pour une armure lourde est la vitesse de déplacement, pas un malus de PV.
+ */
+export const ARMOR_K = 60
+
+export function mitigation(armor: number): number {
+  return armor / (armor + ARMOR_K)
+}
+
+/** PV effectifs : la vraie monnaie défensive, celle que TTD et K mesurent. */
+export function effectiveHp(maxHp: number, armor = 0): number {
+  return maxHp / (1 - mitigation(armor))
+}
 
 /**
  * XP cumulée nécessaire pour atteindre un niveau donné.
  *
- * L'exposant est ce qui décide du rythme de la partie. Trop plat et on gagne
- * trois niveaux au premier étage : les monstres deviennent décoratifs et il n'y
- * a plus de tension jusqu'au bout. La courbe doit rester légèrement en retard
- * sur la montée en puissance des étages — c'est ce retard qui fait qu'on doit
- * jouer correctement plutôt que d'encaisser.
+ * L'exposant décide du rythme, et le rythme n'est plus une question de goût :
+ * il doit tenir LEVELS_PER_FLOOR, sinon la montée dérivée des monstres ne
+ * correspond plus à rien et TTK dérive. `scripts/curve.ts` vérifie que la
+ * courbe et le butin des étages sont bien d'accord.
  */
 export function xpForLevel(level: number): number {
-  return Math.round(36 * (level - 1) ** 1.9)
+  return Math.round(30 * (level - 1) ** 2.15)
 }
 
 /** Un cœur rend une fraction des PV max : sinon il devient dérisoire en profondeur. */
@@ -157,19 +240,28 @@ export const BOSS_WEIGHT_MULT = 4.0
 // --- Montée en difficulté ---------------------------------------------------
 
 /**
- * Les monstres montent avec l'étage, les joueurs avec les niveaux. On fait
- * croître PV, dégâts et cadence — jamais le temps de préparation : le
- * télégraphe doit rester lisible à l'étage 20 comme à l'étage 1, sinon la
- * difficulté cesse d'être juste.
+ * La montée des monstres n'est pas choisie, elle est **dérivée**.
+ *
+ * Ce sont exactement les facteurs qui gardent TTK et TTD constants quand le
+ * joueur progresse au rythme prévu : les monstres doivent gagner en PV ce que
+ * le joueur gagne en dégâts sur un étage, et en dégâts ce qu'il gagne en PV
+ * effectifs. Toucher à ATK_GROWTH ou à LEVELS_PER_FLOOR recalcule le donjon
+ * tout seul, et c'est le but — un seul endroit où mentir devient impossible.
+ *
+ * On ne fait jamais croître le temps de préparation : le télégraphe doit rester
+ * aussi lisible à l'étage 20 qu'au premier, sinon la difficulté cesse d'être
+ * juste.
  */
-export const FLOOR_HP_GROWTH = 0.22
-export const FLOOR_ATK_GROWTH = 0.15
-export const FLOOR_XP_GROWTH = 0.3
+export const FLOOR_HP_GROWTH = ATK_GROWTH ** LEVELS_PER_FLOOR
+export const FLOOR_ATK_GROWTH = HP_GROWTH ** LEVELS_PER_FLOOR
+/** L'XP par monstre suit les PV : un étage doit rapporter LEVELS_PER_FLOOR. */
+export const FLOOR_XP_GROWTH = FLOOR_HP_GROWTH
 export const FLOOR_COOLDOWN_TIGHTEN = 0.03
 export const FLOOR_COOLDOWN_MIN = 0.6
 
+/** Facteur de puissance d'un étage. Géométrique, comme celui du joueur. */
 export function floorScale(floor: number, growth: number): number {
-  return 1 + growth * Math.max(0, floor - 1)
+  return powerScale(floor - 1, growth)
 }
 
 export const MONSTER_BASE_COUNT = 11
@@ -324,6 +416,12 @@ export interface Actor {
   hp: number
   maxHp: number
   atk: number
+  /**
+   * Armure. Personne n'en porte encore : le champ existe pour que les armures
+   * s'ajoutent sans toucher au modèle d'équilibrage, qui raisonne déjà en PV
+   * effectifs. Voir `mitigation()`.
+   */
+  armor?: number
   /** Direction de visée, en radians. */
   aim: number
   alive: boolean

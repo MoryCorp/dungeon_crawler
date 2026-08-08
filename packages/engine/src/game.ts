@@ -23,7 +23,6 @@ import type {
 import {
   ACTOR_RADIUS,
   AGGRO_MAX_DIST,
-  ATK_PER_LEVEL,
   ATTACK_SWING,
   BLEED_OUT_TICKS,
   BOSS_ATK_MULT,
@@ -47,7 +46,6 @@ import {
   FOV_RADIUS,
   HEART_HEAL_MIN,
   HEART_HEAL_RATIO,
-  HP_PER_LEVEL,
   KB_STACK_FALLOFF,
   KB_STACK_RESET,
   KNOCKBACK_DECAY,
@@ -61,7 +59,6 @@ import {
   PACK_MIN,
   PACK_SPREAD,
   PICKUP_RANGE,
-  PLAYER_BASE_ATK,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
   PROJECTILE_RADIUS,
@@ -80,6 +77,9 @@ import {
   XP_MAGNET_RANGE,
   XP_MAGNET_SPEED,
   floorScale,
+  mitigation,
+  playerAttackMult,
+  playerMaxHp,
   xpForLevel,
 } from './types.js'
 
@@ -475,7 +475,9 @@ export function addPlayer(state: GameState, id: string, name: string): Actor {
     ky: 0,
     hp: PLAYER_BASE_HP,
     maxHp: PLAYER_BASE_HP,
-    atk: PLAYER_BASE_ATK,
+    // Les joueurs ne se servent plus de `atk` : leur puissance est un facteur
+    // dérivé du niveau. Le champ reste pour les monstres, qui l'utilisent.
+    atk: 0,
     aim: 0,
     alive: true,
     swingUntil: 0,
@@ -509,9 +511,14 @@ function grantXp(state: GameState, amount: number): void {
     let level = player.level ?? 1
     while (player.xp >= xpForLevel(level + 1)) {
       level++
-      player.maxHp += HP_PER_LEVEL
-      player.hp += HP_PER_LEVEL
-      player.atk += ATK_PER_LEVEL
+      // Les PV se recalculent depuis le niveau plutôt que de s'accumuler : une
+      // seule formule fait autorité, et changer HP_GROWTH corrige les
+      // personnages existants au lieu de laisser des reliquats.
+      const gained = playerMaxHp(level) - player.maxHp
+      player.maxHp += gained
+      // Si un réglage de HP_GROWTH baisse rétroactivement le palier, on ne tue
+      // pas le personnage au passage de niveau.
+      player.hp = Math.max(1, Math.min(player.maxHp, player.hp + gained))
       state.events.push({ t: 'levelup', id: player.id, level, x: player.x, y: player.y })
     }
     player.level = level
@@ -610,6 +617,9 @@ function damage(
   if (to.kind === 'player' && to.downed) return
   if (to.invulnUntil !== undefined && state.tick < to.invulnUntil) return
 
+  // Réduction par l'armure. Sans armure c'est l'identité — le chemin existe
+  // pour que les armures s'ajoutent sans retoucher au modèle d'équilibrage.
+  amount = Math.max(1, Math.round(amount * (1 - mitigation(to.armor ?? 0))))
   to.hp -= amount
   const push = knockbackPush(state, to, knockback)
   const ang = Math.atan2(to.y - originY, to.x - originX)
@@ -670,7 +680,8 @@ function playerAttack(state: GameState, actor: Actor, rng: Rng): void {
     halfArc: weapon.halfArc,
   })
 
-  const dmg = weapon.damage + actor.atk
+  // Multiplicatif : l'écart entre deux armes se conserve à tous les niveaux.
+  const dmg = Math.max(1, Math.round(weapon.damage * playerAttackMult(actor.level ?? 1)))
 
   if (weapon.ranged) {
     spawnProjectile(

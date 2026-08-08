@@ -13,8 +13,13 @@
  *   5. La progression suit-elle la difficulté ? (niveau vs étage)
  */
 import { readFile } from 'node:fs/promises'
-import { MONSTERS, TICK_RATE, WEAPONS } from '@dc/engine'
-import { floorSummary, type FloorRecord, type RunRecord } from '../apps/server/src/telemetry.js'
+import { MONSTERS, TARGET_K, TARGET_TTK, TICK_RATE, WEAPONS } from '@dc/engine'
+import {
+  floorInvariants,
+  floorSummary,
+  type FloorRecord,
+  type RunRecord,
+} from '../apps/server/src/telemetry.js'
 
 const target = process.argv[2]
 const base = process.argv[3] ?? 'http://localhost:3000'
@@ -76,6 +81,67 @@ function report(run: RunRecord): void {
       `  étage ${String(f.floor).padStart(2)}  PV min ${bar(f.lowestHpRatio, 16)} ` +
         `${(f.lowestHpRatio * 100).toFixed(0).padStart(3)}%   ` +
         `danger ${bar(f.dangerRatio, 16)} ${(f.dangerRatio * 100).toFixed(0).padStart(3)}%`,
+    )
+  }
+
+  // --- les invariants du modèle de puissance ---------------------------------
+  console.log('\n── Invariants ─────────────────────────────────────────────────')
+  console.log('  TTK : coups qui touchent × cadence, pour tuer un monstre.')
+  console.log('        Comparable à la cible. Ne compte pas les coups dans le vide.')
+  console.log('  K   : monstres tués avant d\'épuiser sa barre de vie. Inclut tout')
+  console.log('        ce qu\'on fait pour éviter les coups, donc bien plus haut que')
+  console.log('        le K analytique — c\'est sa PLATITUDE qui compte, pas sa valeur.\n')
+  console.log(`   étage      TTK   écart cible        K`)
+
+  const measured: { ttk: number[]; k: number[]; kFloors: number[] } = { ttk: [], k: [], kFloors: [] }
+  for (const f of run.floors) {
+    const { ttk, k } = floorInvariants(f)
+    if (ttk !== null) measured.ttk.push(ttk)
+    if (k !== null) {
+      measured.k.push(k)
+      measured.kFloors.push(f.floor)
+    }
+    console.log(
+      `   ${String(f.floor).padStart(5)}  ` +
+        (ttk === null
+          ? '      —             —'
+          : `${ttk.toFixed(2).padStart(7)}   ${(ttk / TARGET_TTK).toFixed(2).padStart(11)}×`) +
+        `  ${k === null ? '       —' : k.toFixed(1).padStart(8)}`,
+    )
+  }
+
+  const spread = (xs: number[]) => (xs.length < 2 ? 1 : Math.max(...xs) / Math.min(...xs))
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0)
+
+  if (measured.ttk.length) {
+    const m = mean(measured.ttk)
+    console.log(
+      `\n  TTK moyen ${m.toFixed(2)} s (cible ${TARGET_TTK}) · ` +
+        `dérive ×${spread(measured.ttk).toFixed(2)}`,
+    )
+    if (m < TARGET_TTK * 0.7) {
+      console.log('  → Les monstres meurent trop vite pour avoir le temps de menacer.')
+    } else if (m > TARGET_TTK * 1.6) {
+      console.log('  → Les monstres sont des éponges : le combat devient une corvée.')
+    }
+  }
+
+  // La tendance compte plus que la valeur : un K qui grimpe avec la profondeur
+  // veut dire que le donjon devient plus facile à mesure qu'on descend.
+  if (measured.k.length >= 4) {
+    const half = Math.floor(measured.k.length / 2)
+    const early = mean(measured.k.slice(0, half))
+    const late = mean(measured.k.slice(half))
+    console.log(
+      `  K moyen   ${mean(measured.k).toFixed(1)} · ` +
+        `premiers étages ${early.toFixed(1)} → derniers ${late.toFixed(1)}`,
+    )
+    console.log(
+      late > early * 1.3
+        ? '  → Le donjon se ramollit en profondeur : on encaisse de moins en moins.'
+        : late < early * 0.7
+          ? '  → Le donjon durcit en profondeur. Voulu si c\'est progressif, pas si ça décroche.'
+          : '  → K plat : la difficulté tient sur toute la descente.',
     )
   }
 

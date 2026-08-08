@@ -79,6 +79,65 @@ de sa ruée. Se décaler pendant la préparation fait rater le coup.
 Le porteur de clé de chaque étage est une élite (3.2× PV, 1.5× dégâts), jamais
 une espèce d'essaim. Tous les 5 étages c'est un boss (9× PV) à la place.
 
+## Le modèle de puissance
+
+Le jeu ne se règle pas en dégâts. Il se règle sur trois grandeurs, et c'est le
+cadre standard des jeux d'action :
+
+```
+TTK = PV du monstre / DPS du joueur      temps pour tuer
+TTD = PV effectifs  / DPS des monstres   temps pour mourir
+K   = TTD / TTK                          combien on en gère à la fois
+```
+
+**L'invariant : TTK et K restent constants sur toute la descente.** La
+difficulté ne vient jamais des statistiques, elle vient du nombre d'ennemis
+simultanés et de la géométrie de la rencontre. C'est ce qui permet à l'étage 20
+d'être aussi tendu que l'étage 2 sans que les monstres deviennent des éponges.
+
+Trois conséquences, chacune imposée par une mesure :
+
+1. **La puissance est multiplicative.** Le modèle additif (`arme + atk`) faisait
+   disparaître l'arme dans le bruit : la hache frappait 3× plus fort que la
+   dague au niveau 1, et seulement 1.36× au niveau 24. Il ne restait que la
+   cadence, donc la dague gagnait toujours — elle a produit **89 % des dégâts**
+   d'une descente réelle jusqu'à l'étage 16.
+2. **Toutes les armes ont le même DPS.** Les dégâts se déduisent de la cadence
+   (`WEAPON_DPS × cooldown`), en prenant la cadence arrondie au tick. Choisir
+   une arme n'est plus « laquelle tape le plus fort » mais **quel profil de
+   risque** : la dague force le contact, la hache te cloue sur place, la lance
+   tient la distance dans un cône étroit.
+3. **La montée des monstres est dérivée, pas choisie.** `FLOOR_HP_GROWTH` vaut
+   exactement `ATK_GROWTH ^ LEVELS_PER_FLOOR` — le facteur qui garde TTK
+   constant. Toucher à la progression du joueur recalcule le donjon tout seul.
+   Il n'y a plus d'endroit où se mentir.
+
+Les défenses passent par les **PV effectifs** (`effectiveHp`), pas par les PV
+bruts, et la réduction de dégâts utilise la forme canonique à rendements
+décroissants `a / (a + k)`. Personne ne porte d'armure aujourd'hui : le chemin
+existe pour que les armures s'ajoutent **sans redériver TTD ni K**. Cette forme
+a la propriété qui la rend sûre — les PV effectifs croissent *linéairement* avec
+l'armure, donc aucun empilement ne peut s'emballer.
+
+```bash
+npx tsx scripts/curve.ts 20    # vérifie le modèle analytiquement, en 1 seconde
+```
+
+```
+   étage  niveau      PV     TTK     TTD       K
+       1       1      32    1.20    3.91    3.26
+      10      10      50    1.20    3.94    3.28
+      20      20      81    1.20    3.92    3.26
+
+  Dérive de TTK sur 20 étages : ×1.000
+  Écart de DPS entre la meilleure et la pire arme : ×1.000
+```
+
+Mesuré sur une vraie descente avant ce modèle, le TTK **tombait de 1.32 s à
+0.48 s** entre l'étage 2 et l'étage 16 : les monstres mouraient deux fois plus
+vite à mesure qu'on descendait. C'est ça qui empêchait toute tension, pas le
+réglage des espèces.
+
 ## La difficulté, et pourquoi elle n'y était pas
 
 Le prototype se traversait en avançant tout droit en cliquant. Ce n'était pas un
@@ -152,6 +211,12 @@ dégâts par arme.
 
 Le rapport « tués sur présents » est celui qui a payé le plus : c'est lui qui a
 révélé qu'on ne combattait pas le donjon, on le traversait.
+
+Le rapport recalcule aussi **TTK et K mesurés** et les compare aux cibles. Le
+TTK compte les coups *qui touchent*, jamais les coups portés : un joueur qui
+garde le clic enfoncé en traversant frappe deux à trois fois plus qu'il ne
+touche, et compter les coups mesurerait sa discipline de gâchette plutôt que la
+solidité des monstres.
 
 C'est calculé uniquement à partir des événements que l'engine émet déjà, plus un
 échantillon des PV à chaque tick. `step()` reste pure : elle ne sait pas que la
@@ -301,18 +366,24 @@ Les quatre boutons qui pèsent le plus sur la difficulté :
 
 | Constante | Ce qu'elle change |
 |---|---|
+| `TARGET_TTK` / `TARGET_K` | les cibles de conception. Tout le reste en découle |
+| `ATK_GROWTH` / `LEVELS_PER_FLOOR` | la pente de progression. `FLOOR_HP_GROWTH` s'en déduit |
+| `WEAPON_DPS` | la puissance commune à toutes les armes |
 | `KB_STACK_FALLOFF` | à quel point on peut verrouiller un monstre au recul. **Le réglage le plus sensible du jeu** |
-| `FLOOR_HP_GROWTH` / `FLOOR_ATK_GROWTH` | la pente de difficulté par étage |
 | `PACK_MIN` / `PACK_MAX` / `CORRIDOR_SPAWN_SHARE` | combien on en affronte à la fois, et où |
 | `PURSUE_MAX` / `PURSUE_INTERVAL` | ce que coûte le fait d'esquiver un étage |
 | `movePenalty` d'une arme | ce qu'un coup coûte en mobilité — l'identité de l'arme |
 
-Après toute modification, sur deux ou trois graines :
+Après toute modification :
 
 ```bash
+npx tsx scripts/curve.ts 20            # les invariants tiennent-ils encore ?
 npx tsx scripts/botrun.ts 10           # le bourrinage ne doit pas suffire
 npx tsx scripts/botrun.ts 10 4242 rush # esquiver l'étage ne doit pas payer
 ```
+
+`curve.ts` répond en une seconde et sans jouer : c'est lui qu'on lance en
+premier. Les bots ne servent qu'à vérifier que le modèle survit au contact.
 
 Les événements réseau portent eux-mêmes la portée et l'ouverture d'un coup
 (`{t:'swing', reach, halfArc}`) : le client dessine l'arc sans avoir à savoir
@@ -323,6 +394,7 @@ rendu.
 
 ```bash
 npx tsx scripts/engine-test.ts   # règles pures, aucune dépendance externe
+npx tsx scripts/curve.ts 20      # invariants du modèle de puissance
 npx tsx scripts/smoke.ts         # bout en bout, serveur lancé requis
 npx tsx scripts/botrun.ts 10     # équilibrage : le bourrinage suffit-il ?
 npx tsx scripts/botrun.ts 10 1 rush   # équilibrage : esquiver l'étage paie-t-il ?
@@ -382,7 +454,7 @@ connecté ne tourne pas : le donjon est figé jusqu'au retour de quelqu'un.
 Se reconnecter avec le même pseudo reprend le même personnage à sa position,
 avec son arme et son niveau.
 
-Le format porte un numéro de version (`SAVE_VERSION`, actuellement **2**). Une
+Le format porte un numéro de version (`SAVE_VERSION`, actuellement **3**). Une
 sauvegarde d'une autre version est ignorée et la partie repart d'un donjon
 neuf : entre amis c'est acceptable, et bien préférable à un chargement d'état à
 moitié valide.
@@ -416,9 +488,18 @@ Gardez `TILE = 16` et un `SCALE` **entier**, sinon les pixels bavent.
 
 ## Pistes
 
-1. Une esquive / roulade avec brèves i-frames (le recul, les télégraphes et le
+1. **Piloter l'intensité plutôt que la subir.** L'IA Directrice de Left 4 Dead
+   (2008) mesure en continu une intensité perçue par joueur et fait tourner une
+   machine à états *montée → pic → décompression → repos* : les apparitions sont
+   asservies à ce signal, pas posées sur la carte. C'est la bonne réponse à
+   « du stress en permanence, mais juste » — une onde, pas une rampe. La
+   télémétrie calcule déjà le signal (`lowestHpRatio`, `dangerRatio`) ; il n'est
+   pas encore branché sur `populate()`.
+2. **Salles neutres** entre deux étages : marchand, réparation, repenser son
+   stuff. C'est la phase de repos de la Directrice, rendue explicite.
+3. **Armures**, sur l'axe protection contre vitesse. Les formules sont déjà
+   écrites pour les accueillir (`mitigation`, `effectiveHp`, `Actor.armor`).
+4. Une esquive / roulade avec brèves i-frames (le recul, les télégraphes et le
    dash des monstres sont déjà là, il ne manque que la version joueur)
-2. Salles au trésor gardées, pièges au sol
-3. Classes de héros avec une compétence propre
-4. Modificateurs d'arme trouvés sur les boss (feu, poison, vol de vie)
-5. Sons — Howler.js, un fichier par événement, la moitié du game feel
+5. Classes de héros, modificateurs d'arme sur les boss (feu, poison, vol de vie)
+6. Sons — Howler.js, un fichier par événement, la moitié du game feel

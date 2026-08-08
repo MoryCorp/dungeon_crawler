@@ -5,8 +5,11 @@
  */
 import {
   ACTOR_RADIUS,
+  ATK_GROWTH,
   BLEED_OUT_TICKS,
+  FLOOR_HP_GROWTH,
   FOV_RADIUS,
+  LEVELS_PER_FLOOR,
   HEART_HEAL_MIN,
   HEART_HEAL_RATIO,
   MAP_H,
@@ -20,6 +23,7 @@ import {
   PURSUE_MAX,
   REVIVE_TICKS,
   Rng,
+  TARGET_TTK,
   TICK_RATE,
   Tile,
   WEAPONS,
@@ -27,11 +31,15 @@ import {
   computeFov,
   createGame,
   descend,
+  effectiveHp,
+  floorScale,
   generateFloor,
   inAttackArc,
   isWalkable,
   movePhysical,
   packBits,
+  playerAttackMult,
+  playerMaxHp,
   step,
   unpackBits,
   xpForLevel,
@@ -794,6 +802,90 @@ console.log('\nTests engine\n')
     s.pursuers.length === PURSUE_MAX,
     `${s.pursuers.length} pour ${PURSUE_MAX + 9} laissés`,
   )
+}
+
+// --- le modèle de puissance -------------------------------------------------
+// Ces tests ne vérifient pas un comportement, ils verrouillent des invariants
+// de conception. Ce sont eux qui empêchent de revenir en arrière sans le voir.
+{
+  const dpsOf = (id: string, level: number) => {
+    const w = WEAPONS[id]!
+    return (w.damage * playerAttackMult(level)) / (w.cooldown / TICK_RATE)
+  }
+  const ids = Object.keys(WEAPONS)
+
+  const dps1 = ids.map((id) => dpsOf(id, 1))
+  check(
+    'toutes les armes ont le même DPS nominal',
+    Math.max(...dps1) / Math.min(...dps1) < 1.02,
+    dps1.map((d) => d.toFixed(1)).join(' / '),
+  )
+
+  // Le défaut qui a produit 89 % des dégâts d'une descente à la dague : en
+  // additif, l'écart entre deux armes s'effondre à mesure que le niveau monte.
+  const ratio = (level: number) => dpsOf('axe', level) / dpsOf('dagger', level)
+  check(
+    'l\'écart entre deux armes se conserve à tous les niveaux',
+    Math.abs(ratio(30) - ratio(1)) < 0.01,
+    `n1 ×${ratio(1).toFixed(3)} → n30 ×${ratio(30).toFixed(3)}`,
+  )
+
+  // L'invariant central : un monstre de base doit mettre le même temps à mourir
+  // à l'étage 20 qu'à l'étage 1, si le joueur a progressé au rythme prévu.
+  const orc = MONSTERS.orc!
+  const ttkAt = (floor: number) => {
+    const level = Math.round(1 + LEVELS_PER_FLOOR * (floor - 1))
+    return (orc.maxHp * floorScale(floor, FLOOR_HP_GROWTH)) / dpsOf('sword', level)
+  }
+  const ttks = [1, 5, 10, 15, 20].map(ttkAt)
+  check(
+    'le TTK reste constant sur 20 étages',
+    Math.max(...ttks) / Math.min(...ttks) < 1.02,
+    ttks.map((t) => t.toFixed(2)).join(' / '),
+  )
+  check(
+    'le TTK est sur sa cible',
+    Math.abs(ttkAt(1) - TARGET_TTK) < 0.1,
+    `${ttkAt(1).toFixed(2)}s pour une cible de ${TARGET_TTK}s`,
+  )
+
+  // Les PV effectifs doivent croître linéairement avec l'armure — c'est la
+  // propriété qui rend a/(a+k) sûre, et qui permettra d'empiler sans emballement.
+  const gain = (a: number) => effectiveHp(100, a) / effectiveHp(100, 0)
+  check(
+    'les PV effectifs croissent linéairement avec l\'armure',
+    Math.abs((gain(120) - 1) / (gain(60) - 1) - 2) < 0.001,
+    `+${((gain(60) - 1) * 100).toFixed(0)}% à 60, +${((gain(120) - 1) * 100).toFixed(0)}% à 120`,
+  )
+  check('sans armure, les PV effectifs sont les PV', effectiveHp(100) === 100)
+}
+
+// La montée en niveau applique bien le modèle multiplicatif.
+{
+  const s = createGame(4242)
+  const hero = addPlayer(s, 'p_lvl', 'Cobaye')
+  clearMonsters(s)
+  const hpAt1 = hero.maxHp
+  const dmgAt1 = Math.round(WEAPONS.sword!.damage * playerAttackMult(hero.level ?? 1))
+
+  hero.xp = xpForLevel(10)
+  // Un ramassage d'orbe déclenche la montée : on en pose une sous ses pieds.
+  s.items.push({ id: 'xp_test', kind: 'xp', x: hero.x, y: hero.y, amount: 1 })
+  step(s, noInputs)
+
+  check('le héros monte de niveau', (hero.level ?? 1) >= 10, `niveau ${hero.level}`)
+  check(
+    'ses PV suivent la formule, sans reliquat',
+    hero.maxHp === playerMaxHp(hero.level ?? 1),
+    `${hero.maxHp} PV pour ${playerMaxHp(hero.level ?? 1)} attendus`,
+  )
+  const dmgNow = Math.round(WEAPONS.sword!.damage * playerAttackMult(hero.level ?? 1))
+  check(
+    'ses dégâts ont monté en facteur',
+    dmgNow > dmgAt1 && Math.abs(dmgNow / dmgAt1 - ATK_GROWTH ** ((hero.level ?? 1) - 1)) < 0.15,
+    `${dmgAt1} → ${dmgNow} (×${(dmgNow / dmgAt1).toFixed(2)})`,
+  )
+  check('ses PV ont monté aussi', hero.maxHp > hpAt1, `${hpAt1} → ${hero.maxHp}`)
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)
