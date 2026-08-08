@@ -226,8 +226,36 @@ export function xpForLevel(level: number): number {
 }
 
 /** Un cœur rend une fraction des PV max : sinon il devient dérisoire en profondeur. */
-export const HEART_HEAL_RATIO = 0.22
-export const HEART_HEAL_MIN = 8
+export const HEART_HEAL_RATIO = 0.16
+export const HEART_HEAL_MIN = 6
+/** Un monstre ordinaire lâche un cœur une fois sur dix. */
+export const HEART_DROP_CHANCE = 0.14
+
+/**
+ * Le plafond de soin, et avec lui l'économie de toute la descente.
+ *
+ * Les PV étaient une ressource locale : rechargeable sur place, sans limite, à
+ * volonté. Le relevé le disait sans ambiguïté — quatre étages sur cinq abordés
+ * à pleine vie. Une barre qui se refait entièrement entre deux escaliers n'est
+ * pas une ressource, c'est un stock qu'on rappelle, et la mort ne peut alors
+ * arriver que par pic : jamais par épuisement.
+ *
+ * Le plafond descend avec l'étage. Un cœur soigne toujours, mais il ne ramène
+ * plus aussi haut qu'avant, et ce qui a été perdu en profondeur ne se rattrape
+ * pas sur place. C'est ce qui transforme une suite d'étages indépendants en
+ * descente, sans toucher ni à TTK ni à K : on ne change pas ce que coûte un
+ * monstre, on change ce qu'on peut se permettre d'en encaisser.
+ *
+ * C'est aussi, à dessein, le futur étal de la salle de repos : remonter le
+ * plafond est exactement le genre de chose qui s'achète et ne se ramasse pas.
+ */
+export const HEAL_CAP_PER_FLOOR = 0.04
+export const HEAL_CAP_MIN = 0.5
+
+/** Plafond de soin à cet étage, en fraction des PV max. */
+export function healCap(floor: number): number {
+  return Math.max(HEAL_CAP_MIN, 1 - HEAL_CAP_PER_FLOOR * Math.max(0, floor - 1))
+}
 
 // --- Mise à terre et relève -------------------------------------------------
 
@@ -238,7 +266,27 @@ export const REVIVE_TICKS = ticks(2.5)
 export const REVIVE_RANGE = 1.1
 /** Vitesse d'un joueur à terre : il rampe vers ses coéquipiers. */
 export const DOWNED_SPEED = 1.3
-export const REVIVE_HP_RATIO = 0.45
+
+/**
+ * Ce que rendent les trois façons de se remettre debout, en fraction du
+ * plafond de soin de l'étage. L'ordre est l'invariant, pas les valeurs :
+ *
+ *   se faire relever  >  mourir et réapparaître  >  être descendu à terre
+ *
+ * Il ne tenait pas. Les trois chemins étaient des `maxHp / 2` écrits en dur à
+ * trois endroits — dont deux introuvables par recherche, faute de constante —
+ * et le troisième valait 0.45. Se faire relever par un coéquipier rendait donc
+ * **moins** que mourir seul : la coopération était mécaniquement moins bonne
+ * que l'abandon. Et se laisser mettre à terre juste avant l'escalier soignait
+ * à 50 % sans payer les huit secondes ni risquer le saignement, ce qui en
+ * faisait le soin le moins cher du jeu.
+ *
+ * Exprimés en fraction du plafond, les trois s'érodent avec la descente et
+ * gardent leur ordre quel que soit l'étage.
+ */
+export const REVIVE_OF_CAP = 0.75
+export const RESPAWN_OF_CAP = 0.45
+export const CARRIED_OF_CAP = 0.3
 
 export const RESPAWN_TICKS = ticks(8)
 export const RESPAWN_GRACE = ticks(2)

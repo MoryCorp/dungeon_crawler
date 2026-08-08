@@ -54,8 +54,13 @@ import {
   FLOW_MAX_DIST,
   FLOOR_XP_GROWTH,
   FOV_RADIUS,
+  CARRIED_OF_CAP,
+  HEART_DROP_CHANCE,
   HEART_HEAL_MIN,
   HEART_HEAL_RATIO,
+  RESPAWN_OF_CAP,
+  REVIVE_OF_CAP,
+  healCap,
   HORDE_MAX,
   HORDE_MAX_DIST,
   HORDE_MIN,
@@ -95,7 +100,6 @@ import {
   RECIPE_NEAR_MAX,
   RESPAWN_GRACE,
   RESPAWN_TICKS,
-  REVIVE_HP_RATIO,
   REVIVE_RANGE,
   REVIVE_TICKS,
   STARTING_WEAPON,
@@ -505,7 +509,10 @@ export function descend(state: GameState): void {
       a.reviveProgress = 0
       delete a.bleedOutAt
       delete a.respawnAt
-      a.hp = Math.max(1, Math.floor(a.maxHp / 2))
+      // Le chemin le moins cher doit rendre le moins : sans ça, se laisser
+      // mettre à terre juste avant l'escalier était le soin le plus rentable
+      // du jeu — ni les huit secondes de réapparition, ni le saignement.
+      a.hp = standUpHp(state, a, CARRIED_OF_CAP)
     }
     a.invulnUntil = state.tick + RESPAWN_GRACE
   }
@@ -999,16 +1006,25 @@ function dropLoot(state: GameState, victim: Actor, rng: Rng): void {
     state.events.push({ t: 'keydrop', x: victim.x, y: victim.y })
     // Un porteur de clé lâche aussi de quoi encaisser la suite.
     dropItem(state, { kind: 'heart', x: victim.x + 0.5, y: victim.y })
-    dropItem(state, { kind: 'heart', x: victim.x - 0.5, y: victim.y })
     if (victim.boss) {
       dropItem(state, {
         kind: 'weapon',
         x: victim.x, y: victim.y + 0.6, weapon: rng.pick(LOOT_WEAPONS),
       })
     }
-  } else if (rng.chance(0.16)) {
+  } else if (rng.chance(HEART_DROP_CHANCE)) {
     dropItem(state, { kind: 'heart', x: victim.x, y: victim.y })
   }
+}
+
+/**
+ * PV rendus en se remettant debout, à la fraction du plafond de soin qui
+ * correspond au chemin emprunté. Un seul endroit pour les trois façons de se
+ * relever : elles étaient écrites en dur à trois points différents du fichier,
+ * et l'ordre entre elles s'était inversé sans que personne le voie.
+ */
+function standUpHp(state: GameState, actor: Actor, ofCap: number): number {
+  return Math.max(1, Math.round(actor.maxHp * healCap(state.floor) * ofCap))
 }
 
 function killOrDown(state: GameState, victim: Actor, rng: Rng): void {
@@ -1361,13 +1377,18 @@ function stepItems(state: GameState, rng: Rng): void {
         grantXp(state, item.amount ?? 1)
         break
 
-      case 'heart':
-        if (nearest.hp >= nearest.maxHp) continue // on laisse le soin par terre
+      case 'heart': {
+        // Le plafond descend avec l'étage : un cœur soigne toujours, mais il ne
+        // ramène plus aussi haut, et ce qu'on a perdu en profondeur ne se
+        // rattrape pas sur place.
+        const ceiling = Math.round(nearest.maxHp * healCap(state.floor))
+        if (nearest.hp >= ceiling) continue // on laisse le soin par terre
         nearest.hp = Math.min(
-          nearest.maxHp,
+          ceiling,
           nearest.hp + Math.max(HEART_HEAL_MIN, Math.round(nearest.maxHp * HEART_HEAL_RATIO)),
         )
         break
+      }
 
       case 'key':
         state.stairsLocked = false
@@ -1426,7 +1447,7 @@ function stepDowned(state: GameState): void {
         a.downed = false
         a.reviveProgress = 0
         delete a.bleedOutAt
-        a.hp = Math.max(1, Math.round(a.maxHp * REVIVE_HP_RATIO))
+        a.hp = standUpHp(state, a, REVIVE_OF_CAP)
         a.invulnUntil = state.tick + RESPAWN_GRACE
         state.events.push({ t: 'revived', id: a.id, x: a.x, y: a.y })
         continue
@@ -1484,7 +1505,7 @@ export function step(
       a.ky = 0
       a.alive = true
       a.downed = false
-      a.hp = Math.max(1, Math.floor(a.maxHp / 2))
+      a.hp = standUpHp(state, a, RESPAWN_OF_CAP)
       a.readyAt = state.tick
       a.invulnUntil = state.tick + RESPAWN_GRACE
       delete a.respawnAt

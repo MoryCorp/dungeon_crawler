@@ -13,6 +13,11 @@ import {
   HEART_HEAL_MIN,
   HEART_HEAL_RATIO,
   MAP_H,
+  CARRIED_OF_CAP,
+  HEAL_CAP_MIN,
+  RESPAWN_OF_CAP,
+  REVIVE_OF_CAP,
+  healCap,
   FLOW_MAX_DIST,
   HORDE_MAX_DIST,
   MAP_W,
@@ -1548,6 +1553,91 @@ console.log('\nTests engine\n')
       'marteler ne verrouille pas un monstre indéfiniment',
       hero.hp < before,
       `${before} -> ${hero.hp} PV en 12 s`,
+    )
+  }
+}
+
+// --- Économie de la descente ---------------------------------------------------
+//
+// La barre de vie doit être une ressource de descente, pas un stock qu'on
+// rappelle entre deux escaliers. Trois chemins la rechargeaient gratuitement,
+// dont deux écrits en dur et introuvables par recherche.
+{
+  console.log('\nUsure')
+
+  check(
+    'le plafond de soin descend avec l\'étage',
+    healCap(1) === 1 && healCap(5) < healCap(1) && healCap(10) < healCap(5),
+    `étage 1 ${(healCap(1) * 100).toFixed(0)} % · 5 ${(healCap(5) * 100).toFixed(0)} % · ` +
+      `10 ${(healCap(10) * 100).toFixed(0)} % · 20 ${(healCap(20) * 100).toFixed(0)} %`,
+  )
+  check(
+    'mais il ne descend pas indéfiniment',
+    healCap(100) === HEAL_CAP_MIN,
+    `${(healCap(100) * 100).toFixed(0)} % au plancher`,
+  )
+
+  // L'invariant qui compte : se faire relever doit toujours payer plus que
+  // mourir, et mourir plus que se faire descendre à terre. Il était inversé.
+  {
+    let holds = true
+    for (let floor = 1; floor <= 30; floor++) {
+      const cap = healCap(floor)
+      if (!(cap * REVIVE_OF_CAP > cap * RESPAWN_OF_CAP && cap * RESPAWN_OF_CAP > cap * CARRIED_OF_CAP)) {
+        holds = false
+      }
+    }
+    check(
+      'relever paie plus que mourir, qui paie plus que se faire porter',
+      holds && REVIVE_OF_CAP > RESPAWN_OF_CAP && RESPAWN_OF_CAP > CARRIED_OF_CAP,
+      `${REVIVE_OF_CAP} > ${RESPAWN_OF_CAP} > ${CARRIED_OF_CAP} du plafond`,
+    )
+  }
+
+  /** PV d'un héros après avoir ramassé autant de cœurs qu'il en faut. */
+  function healToCeiling(floor: number): { hp: number; maxHp: number } {
+    const s = createGame(555)
+    clearMonsters(s)
+    s.floor = floor
+    const hero = addPlayer(s, 'p_heal', 'Blessé')
+    hero.hp = 1
+    for (let i = 0; i < 40; i++) {
+      s.items.push({ id: `h${i}`, kind: 'heart', x: hero.x, y: hero.y })
+      step(s, { p_heal: idle })
+    }
+    return { hp: hero.hp, maxHp: hero.maxHp }
+  }
+
+  const shallow = healToCeiling(1)
+  check(
+    'à l\'étage 1 les cœurs refont toute la barre',
+    shallow.hp === shallow.maxHp,
+    `${shallow.hp}/${shallow.maxHp}`,
+  )
+  const deep = healToCeiling(12)
+  const deepRatio = deep.hp / deep.maxHp
+  check(
+    'en profondeur ils ne la refont plus',
+    deepRatio < 0.95 && Math.abs(deepRatio - healCap(12)) < 0.03,
+    `${deep.hp}/${deep.maxHp} = ${(deepRatio * 100).toFixed(0)} % pour un plafond à ` +
+      `${(healCap(12) * 100).toFixed(0)} %`,
+  )
+
+  // Le trou le moins visible des trois : se laisser mettre à terre juste avant
+  // l'escalier soignait à 50 % sans payer les huit secondes ni le saignement.
+  {
+    const s = createGame(556)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_carry', 'Porté')
+    hero.hp = Math.round(hero.maxHp * 0.5)
+    const before = hero.hp
+    hero.downed = true
+    hero.hp = 0
+    descend(s)
+    check(
+      'se faire porter à terre ne soigne pas',
+      hero.hp < before,
+      `${before} -> ${hero.hp} PV`,
     )
   }
 }
