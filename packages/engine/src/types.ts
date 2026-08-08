@@ -472,6 +472,13 @@ export interface DirectorState {
   intensity: number
   /** Tick d'entrée dans la phase courante. */
   since: number
+  /**
+   * Graine de la partie, empruntée pour varier la taille des vagues. La
+   * Directrice ne peut pas consommer le RNG de la partie — appelée à chaque
+   * tick, elle en décalerait la séquence — mais rien ne l'empêche d'en mélanger
+   * la graine à un hash du tick.
+   */
+  seed: number
 }
 
 /** Seuil d'intensité au-delà duquel on considère être au pic. */
@@ -482,6 +489,16 @@ export const DIRECTOR_CALM = 0.25
 export const DIRECTOR_DECAY = 0.988
 /** Durée du pic tenu avant de laisser retomber. */
 export const DIRECTOR_PEAK_HOLD = ticks(6)
+/**
+ * Durée maximale de la décompression.
+ *
+ * `fade` ne sortait que sur une condition d'état — l'intensité repassée sous le
+ * seuil de calme. Tant que la présence des monstres alimentait l'intensité, la
+ * condition ne pouvait jamais être vraie et la phase se bloquait pour de bon :
+ * plus une seule vague de tout l'étage. Aucune phase ne doit pouvoir dépendre
+ * d'une seule condition d'état ; il faut toujours une porte de sortie en temps.
+ */
+export const DIRECTOR_FADE_MAX = ticks(12)
 /** Repos garanti après une décompression. Rien ne peut le raccourcir. */
 export const DIRECTOR_REST = ticks(10)
 /** Temps de calme continu avant de livrer une vague. */
@@ -489,10 +506,25 @@ export const DIRECTOR_PATIENCE = ticks(6)
 
 /** Intensité gagnée par fraction de PV max perdue d'un coup. */
 export const INTENSITY_PER_DAMAGE = 2.2
-/** Intensité gagnée par tick et par ennemi à portée. */
-export const INTENSITY_PER_FOE = 0.004
 /** Une mise à terre est le pic d'intensité le plus fort du jeu. */
 export const INTENSITY_DOWNED = 0.7
+/**
+ * Poids d'un ennemi à portée dans la pression **ressentie**.
+ *
+ * La présence était additionnée à l'accumulateur, comme les dégâts. C'était
+ * l'erreur de fond : encaisser est un événement, qui doit laisser une trace ;
+ * être entouré est un état, qui doit cesser de peser dès que la salle est
+ * vide. Amorti par `DIRECTOR_DECAY`, un ennemi présent poussait l'intensité
+ * vers un point fixe de `engaged / 3` — un seul traînard à six tuiles la
+ * stabilisait à 0,333, au-dessus du seuil de calme, et supprimait toute
+ * livraison tant qu'il vivait. La Directrice était donc absente exactement
+ * pendant les combats.
+ *
+ * Lu à l'instant plutôt qu'accumulé, le poids se règle sur ce qu'il représente :
+ * un ou deux traînards ne suffisent pas à retenir une vague, trois adversaires
+ * font un vrai combat et la retiennent, huit valent un pic à eux seuls.
+ */
+export const PRESENCE_WEIGHT = 0.1
 
 /**
  * Taille d'une vague. C'est le seul chiffre qui décide vraiment de la

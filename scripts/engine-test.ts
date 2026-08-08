@@ -874,6 +874,86 @@ console.log('\nTests engine\n')
   const afterRest: string = resting.phase
   check('et il finit', afterRest === 'buildup', afterRest)
 
+  // Aucune phase ne doit pouvoir se bloquer sur une condition d'état seule.
+  // `fade` n'attendait que « l'intensité repasse sous le seuil de calme » ; la
+  // présence des monstres alimentant l'intensité, la condition ne pouvait plus
+  // devenir vraie et la Directrice se taisait pour le reste de l'étage.
+  {
+    const besieged = createDirector(0, 1)
+    const swarm = { damageFraction: 0, engaged: 8, downed: false, available: 20 }
+    const seen = new Set<string>()
+    let previous: string = besieged.phase
+    let cycles = 0
+    for (let t = 1; t <= TICK_RATE * 300; t++) {
+      updateDirector(besieged, t, swarm)
+      seen.add(besieged.phase)
+      if (previous !== 'buildup' && besieged.phase === 'buildup') cycles++
+      previous = besieged.phase
+    }
+    check(
+      'assiégée, elle boucle quand même son cycle',
+      cycles >= 2 && seen.size === 4,
+      `${cycles} cycle(s), phases vues : ${[...seen].join(', ')}`,
+    )
+  }
+
+  // Un traînard n'est pas un combat. Il tenait pourtant l'intensité à 0,333,
+  // au-dessus du seuil de calme, et suspendait toute livraison tant qu'il
+  // vivait — la Directrice n'agissait que sur un joueur strictement seul.
+  {
+    const nagged = createDirector(0, 2)
+    let delivered = 0
+    for (let t = 1; t <= TICK_RATE * 30; t++) {
+      delivered += updateDirector(nagged, t, { ...calm, engaged: 1 })
+    }
+    check('un traînard ne suspend pas les livraisons', delivered > 0, `${delivered} monstre(s)`)
+  }
+
+  // Mais un vrai combat, si : c'est toute la différence entre présence subie et
+  // pression réelle, et c'est ce que la séparation mémoire/présence permet
+  // enfin d'exprimer.
+  {
+    const busy = createDirector(0, 3)
+    let delivered = 0
+    for (let t = 1; t <= TICK_RATE * 30; t++) {
+      delivered += updateDirector(busy, t, { ...calm, engaged: 4 })
+    }
+    check('mais quatre adversaires, oui', delivered === 0)
+  }
+
+  // La présence ne laisse pas de trace : une salle vidée doit rendre la main
+  // tout de suite, sinon reculer pour souffler ne paie qu'au bout de plusieurs
+  // secondes et le joueur ne fait pas le lien.
+  {
+    const cleared = createDirector(0, 4)
+    for (let t = 1; t <= TICK_RATE * 20; t++) {
+      updateDirector(cleared, t, { ...calm, engaged: 6 })
+    }
+    check('la présence ne laisse aucune trace', cleared.intensity < 0.01)
+  }
+
+  // La taille d'une vague doit dépendre de la graine. Elle ne dépendait que du
+  // tick, et la première livraison tombe toujours au même tick : cinq parties
+  // différentes sortaient cinq vagues identiques.
+  {
+    const sizes = new Set<number>()
+    for (let seed = 1; seed <= 40; seed++) {
+      const d2 = createDirector(0, seed * 7919)
+      for (let t = 1; t <= TICK_RATE * 30; t++) {
+        const n = updateDirector(d2, t, calm)
+        if (n > 0) {
+          sizes.add(n)
+          break
+        }
+      }
+    }
+    check(
+      'la taille de la première vague varie avec la graine',
+      sizes.size >= 3,
+      `${sizes.size} taille(s) distincte(s) sur 40 graines : ${[...sizes].sort().join(', ')}`,
+    )
+  }
+
   // Sans munitions, elle patiente au lieu de livrer du vide.
   const dry = createDirector(0)
   let deliveredDry = 0

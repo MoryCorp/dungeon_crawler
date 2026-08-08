@@ -290,6 +290,26 @@ function report(run: RunRecord): void {
     }
     const perFloor = run.floors.length ? totalWaves / run.floors.length : 0
     console.log(`\n  ${perFloor.toFixed(1)} vague(s) par étage, ${totalDelivered} monstres livrés`)
+
+    // Le contrôle du correctif présence/mémoire. La présence alimentait
+    // l'accumulateur d'intensité : un seul traînard suffisait à suspendre les
+    // livraisons, et la Directrice était donc absente exactement pendant les
+    // combats. Une part durablement nulle ici veut dire que le défaut est revenu.
+    const waveCount = run.floors.reduce((a, f) => a + (f.hordes ?? []).length, 0)
+    const inFight = run.floors.reduce((a, f) => a + (f.hordesInFight ?? 0), 0)
+    if (waveCount > 0) {
+      const share = inFight / waveCount
+      console.log(
+        `  Livrées pendant un combat : ${inFight} sur ${waveCount} (${(share * 100).toFixed(0)} %)`,
+      )
+      console.log(
+        share < 0.15
+          ? '  → Elle n\'intervient que sur un joueur isolé : la pression manque\n' +
+              '    au moment précis où elle aurait du sens.'
+          : '  → Elle sait renforcer un combat en cours, pas seulement meubler les\n' +
+              '    couloirs vides.',
+      )
+    }
     const recipeTotals: Record<string, number> = {}
     for (const f of run.floors) merge(recipeTotals, f.recipes ?? {})
     const recipeLine = Object.entries(recipeTotals)

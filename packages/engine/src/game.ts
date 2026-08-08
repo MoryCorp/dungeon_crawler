@@ -415,7 +415,7 @@ export function createGame(seed: number, floor = 1): GameState {
     stairsLocked: true,
     pursuers: [],
     reserveCount: 0,
-    director: createDirector(0),
+    director: createDirector(0, seed),
     profiles: {},
     bandit: {},
     floorKills: 0,
@@ -483,7 +483,7 @@ export function descend(state: GameState): void {
     delete actor.kbStackAt
     return { actor }
   })
-  state.director = createDirector(state.tick)
+  state.director = createDirector(state.tick, state.seed)
 
   for (const a of Object.values(state.actors)) {
     if (a.kind === 'monster') delete state.actors[a.id]

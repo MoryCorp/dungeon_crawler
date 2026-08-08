@@ -132,6 +132,14 @@ export interface FloorRecord {
    * deux veulent dire qu'elle a manqué de munitions.
    */
   hordes: number[]
+  /**
+   * Vagues livrées alors qu'un combat était en cours. C'est le contrôle du
+   * correctif de la Directrice : la présence des monstres alimentait son
+   * accumulateur, donc un seul traînard suffisait à suspendre les livraisons —
+   * elle était absente exactement pendant les combats. Un compte durablement
+   * nul ici veut dire que le défaut est revenu.
+   */
+  hordesInFight?: number
   /** Recettes des vagues livrées : combien de fois chacune est sortie. */
   recipes?: Tally
   /**
@@ -285,6 +293,8 @@ export class RunTelemetry {
   private needsCensus = true
   /** PV en fraction au tick précédent, pour dater un ramassage de cœur. */
   private hpBefore = new Map<string, number>()
+  /** Effectif engagé au tick précédent : dit si une vague tombe en plein combat. */
+  private lastEngaged = 0
 
   constructor(
     readonly room: string,
@@ -366,6 +376,7 @@ export class RunTelemetry {
       this.hpBefore.set(a.id, ratio)
     }
     this.current.engaged[Math.min(engagedPeak, ENGAGE_BUCKETS)]! += 1
+    this.lastEngaged = engagedPeak
     // Le terrain suit le même joueur que l'effectif : c'est le plus exposé qui
     // décide de la nature de l'instant, et les deux mesures se croisent.
     if (exposedAt) {
@@ -495,6 +506,11 @@ export class RunTelemetry {
 
       case 'horde':
         this.current.hordes.push(ev.count)
+        // L'effectif du tick précédent : `record` tourne avant que celui de ce
+        // tick-ci soit calculé, et un trentième de seconde ne change rien.
+        if (this.lastEngaged > 0) {
+          this.current.hordesInFight = (this.current.hordesInFight ?? 0) + 1
+        }
         bump((this.current.recipes ??= {}), ev.recipe)
         break
 

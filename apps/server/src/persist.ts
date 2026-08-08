@@ -137,7 +137,7 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     // La Directrice repart d'une ardoise propre : son intensité mesure ce que le
     // joueur vient de vivre, et il ne vient de rien vivre du tout. Recharger un
     // pic vieux de trois jours livrerait une vague sur un donjon endormi.
-    state.director = createDirector(state.tick)
+    state.director = createDirector(state.tick, state.seed)
     return state
   } catch {
     return null
