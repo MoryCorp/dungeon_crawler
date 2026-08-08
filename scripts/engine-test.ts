@@ -11,6 +11,9 @@ import {
   FOV_RADIUS,
   LEVELS_PER_FLOOR,
   HEART_HEAL_MIN,
+  BONE_PER_KILL,
+  BONE_ELITE,
+  chestPrice,
   HEART_HEAL_RATIO,
   MAP_H,
   CARRIED_OF_CAP,
@@ -656,6 +659,56 @@ console.log('\nTests engine\n')
   for (let i = 0; i < 3; i++) step(s, noInputs)
   const heal = Math.max(HEART_HEAL_MIN, Math.round(hero.maxHp * HEART_HEAL_RATIO))
   check('un cœur soigne quand on est blessé', hero.hp >= 5 + heal - 1, `${hero.hp} PV`)
+}
+
+// --- ossements : la monnaie de la descente ----------------------------------
+{
+  const s = createGame(3131)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_os', 'Fossoyeur')
+  hero.weapon = 'spear'
+  s.items.length = 0
+
+  const victim = putMonster(s, 'm_os', 'skeleton', hero.x + 2.2, hero.y)
+  victim.hp = 1
+  step(s, { p_os: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
+  check('un monstre tué laisse des ossements', s.items.some((i) => i.kind === 'bone'))
+  for (let i = 0; i < TICK_RATE * 2; i++) step(s, noInputs)
+  check('les ossements sont aimantés et rejoignent la bourse', s.bones === BONE_PER_KILL, `${s.bones}`)
+
+  // Une élite paie mieux qu'un troupier.
+  const elite = putMonster(s, 'm_elite', 'skeleton', hero.x + 2.2, hero.y)
+  elite.elite = true
+  elite.hp = 1
+  step(s, { p_os: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
+  for (let i = 0; i < TICK_RATE * 2; i++) step(s, noInputs)
+  check('une élite laisse plus d\'ossements', s.bones === BONE_PER_KILL + BONE_ELITE, `${s.bones}`)
+
+  check('le prix du coffre monte avec l\'étage', chestPrice(10) > chestPrice(1),
+    `${chestPrice(1)} -> ${chestPrice(10)}`)
+
+  // Trop pauvre : le coffre reste fermé, la bourse intacte.
+  s.items.length = 0
+  s.bones = chestPrice(s.floor) - 1
+  s.items.push({ id: 'i_chest', kind: 'chest', x: hero.x, y: hero.y })
+  for (let i = 0; i < 3; i++) step(s, noInputs)
+  check('un coffre trop cher reste fermé', s.items.some((i) => i.id === 'i_chest'))
+  check('et la bourse est intacte', s.bones === chestPrice(s.floor) - 1, `${s.bones}`)
+
+  // Assez riche : il s'ouvre, débite le prix, et crache arme + cœur.
+  s.bones = chestPrice(s.floor)
+  hero.hp = hero.maxHp // le cœur craché doit rester au sol, pas fausser le compte
+  step(s, noInputs)
+  const spent = s.events.find((e) => e.t === 'spend')
+  check('un coffre payé s\'ouvre et débite la bourse', !s.items.some((i) => i.id === 'i_chest') && s.bones === 0, `solde ${s.bones}`)
+  check('la dépense est annoncée', spent !== undefined && spent.amount === chestPrice(s.floor))
+  check('le coffre crache une arme et un cœur',
+    s.items.some((i) => i.kind === 'weapon') && s.items.some((i) => i.kind === 'heart'))
+
+  // La bourse survit à la descente : c'est une ressource de la partie, pas de l'étage.
+  s.bones = 17
+  descend(s)
+  check('les ossements passent l\'escalier', s.bones === 17, `${s.bones}`)
 }
 
 // --- échange d'arme : pas de va-et-vient infini -----------------------------

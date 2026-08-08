@@ -134,6 +134,9 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     // dire au rechargement : la vague qu'elle mesurait n'existe plus.
     delete state.banditPending
     state.floorKills ??= 0
+    // Les ossements sont additifs : une bourse absente est une bourse vide,
+    // pas un état faux — pas de changement de version pour ça.
+    state.bones ??= 0
     // La Directrice repart d'une ardoise propre : son intensité mesure ce que le
     // joueur vient de vivre, et il ne vient de rien vivre du tout. Recharger un
     // pic vieux de trois jours livrerait une vague sur un donjon endormi.

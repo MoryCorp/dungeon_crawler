@@ -135,6 +135,8 @@ export type ServerMsg =
        * musique : la bande-son est pilotée par le même signal que les vagues.
        */
       intensity?: number
+      /** Bourse d'équipe : les ossements ramassés, pas encore dépensés. */
+      bones: number
       events: GameEvent[]
     }
   | { t: 'pong'; ts: number }

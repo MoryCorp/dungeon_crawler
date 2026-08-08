@@ -169,6 +169,7 @@ export class Room {
       locked: this.state.stairsLocked,
       chasing: this.state.pursuers.length,
       intensity: Math.round(this.state.director.intensity * 100) / 100,
+      bones: this.state.bones,
       ...(withVis ? { vis: toBase64(packBits(visible)) } : {}),
       events: this.state.events,
     })

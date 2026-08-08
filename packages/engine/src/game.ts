@@ -56,6 +56,10 @@ import {
   FOV_RADIUS,
   CARRIED_OF_CAP,
   HEART_DROP_CHANCE,
+  BONE_PER_KILL,
+  BONE_ELITE,
+  BONE_BOSS,
+  chestPrice,
   HEART_HEAL_MIN,
   HEART_HEAL_RATIO,
   RESPAWN_OF_CAP,
@@ -423,6 +427,7 @@ export function createGame(seed: number, floor = 1): GameState {
     profiles: {},
     bandit: {},
     floorKills: 0,
+    bones: 0,
     events: [],
   }
 
@@ -1001,6 +1006,12 @@ function dropLoot(state: GameState, victim: Actor, rng: Rng): void {
   const xp = Math.round((def?.xp ?? 3) * rank * floorScale(state.floor, FLOOR_XP_GROWTH))
   dropItem(state, { kind: 'xp', x: victim.x, y: victim.y, amount: xp })
 
+  // Les ossements : tout ce qui meurt en laisse. Pas d'indexation sur
+  // l'étage — c'est le prix des choses qui monte, pas la récolte, sinon la
+  // monnaie n'exprime plus l'effort mais la profondeur.
+  const bones = victim.boss ? BONE_BOSS : victim.elite ? BONE_ELITE : BONE_PER_KILL
+  dropItem(state, { kind: 'bone', x: victim.x - 0.4, y: victim.y + 0.3, amount: bones })
+
   if (victim.elite || victim.boss) {
     dropItem(state, { kind: 'key', x: victim.x, y: victim.y })
     state.events.push({ t: 'keydrop', x: victim.x, y: victim.y })
@@ -1362,8 +1373,9 @@ function stepItems(state: GameState, rng: Rng): void {
       }
     }
 
-    // Les orbes d'XP viennent à toi : ramasser à la case près n'est pas du jeu.
-    if (item.kind === 'xp' && bestD < XP_MAGNET_RANGE) {
+    // Les orbes d'XP et les ossements viennent à toi : ramasser à la case
+    // près n'est pas du jeu.
+    if ((item.kind === 'xp' || item.kind === 'bone') && bestD < XP_MAGNET_RANGE) {
       const ang = Math.atan2(nearest.y - item.y, nearest.x - item.x)
       item.x += Math.cos(ang) * XP_MAGNET_SPEED * DT
       item.y += Math.sin(ang) * XP_MAGNET_SPEED * DT
@@ -1372,9 +1384,18 @@ function stepItems(state: GameState, rng: Rng): void {
     const range = item.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
     if (Math.hypot(nearest.x - item.x, nearest.y - item.y) > range) continue
 
+    // Le coffre ne s'ouvre que si l'équipe a de quoi payer. Pas de message
+    // d'erreur côté engine : le prix est affiché au-dessus du coffre, un
+    // coffre qui ne s'ouvre pas est une information, pas une panne.
+    if (item.kind === 'chest' && state.bones < chestPrice(state.floor)) continue
+
     switch (item.kind) {
       case 'xp':
         grantXp(state, item.amount ?? 1)
+        break
+
+      case 'bone':
+        state.bones += item.amount ?? 1
         break
 
       case 'heart': {
@@ -1408,6 +1429,9 @@ function stepItems(state: GameState, rng: Rng): void {
       }
 
       case 'chest': {
+        const price = chestPrice(state.floor)
+        state.bones -= price
+        state.events.push({ t: 'spend', id: nearest.id, amount: price, what: 'chest', x: item.x, y: item.y })
         // Le contenu est verrouillé pour celui qui ouvre : il voit ce qui est
         // tombé avant de décider de changer d'arme, au lieu de subir l'échange.
         dropItem(state, {
@@ -1426,6 +1450,7 @@ function stepItems(state: GameState, rng: Rng): void {
       x: item.x,
       y: item.y,
       label: item.kind === 'weapon' ? WEAPONS[item.weapon ?? '']?.label : undefined,
+      amount: item.kind === 'bone' ? item.amount ?? 1 : undefined,
     })
     state.items.splice(i, 1)
   }

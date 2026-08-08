@@ -7,7 +7,7 @@
  */
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { ActorView, GameEvent, ItemView, ProjectileView } from '@dc/engine'
-import { MONSTERS, MONSTER_HALF_ARC, TICK_RATE, WEAPONS } from '@dc/engine'
+import { MONSTERS, MONSTER_HALF_ARC, TICK_RATE, WEAPONS, chestPrice } from '@dc/engine'
 import {
   WEAPON_ATTACK,
   packAnim,
@@ -177,6 +177,10 @@ export class Renderer {
   selfId = ''
   /** Position prédite du joueur local, en tuiles. */
   predicted: { x: number; y: number } | null = null
+  /** Bourse d'équipe et étage courant : pour l'étiquette de prix des coffres. */
+  bones = 0
+  floor = 1
+  private priceTags = new Map<string, Text>()
 
   constructor(private readonly app: Application) {
     this.entityLayer.sortableChildren = true
@@ -269,6 +273,8 @@ export class Renderer {
       sprite.anchor.set(0.5, 0.5)
       return sprite
     })
+
+    this.syncPriceTags(items)
 
     this.syncMovers(this.projectiles, projectiles, this.fxLayer, (p) => {
       const sprite = new Sprite(makeProjectileTexture())
@@ -460,8 +466,14 @@ export class Renderer {
         this.spawnFloater('la clé !', ev.x, ev.y, 0xe8c95a)
         break
 
+      case 'spend':
+        this.spawnFloater(`−${ev.amount} os`, ev.x, ev.y, 0xe8c95a)
+        break
+
       case 'pickup': {
-        if (ev.kind === 'xp') break // les orbes sont déjà lisibles, inutile de spammer
+        // Les orbes et les ossements tombent à chaque mort : le compteur du
+        // HUD suffit, un flottant par ramassage serait du bruit.
+        if (ev.kind === 'xp' || ev.kind === 'bone') break
         const label =
           ev.kind === 'heart' ? '+soin'
           : ev.kind === 'key' ? 'clé'
@@ -509,6 +521,44 @@ export class Renderer {
     text.y = y * TILE - TILE / 2
     this.fxLayer.addChild(text)
     this.effects.push({ node: text, ttl: 0.9, life: 0.9, vy: -14 })
+  }
+
+  /**
+   * Étiquette de prix au-dessus de chaque coffre visible : dorée quand
+   * l'équipe peut payer, éteinte sinon. Le refus d'ouverture n'a pas besoin
+   * de message — le prix affiché est déjà l'explication.
+   */
+  private syncPriceTags(items: ItemView[]): void {
+    const seen = new Set<string>()
+    const price = chestPrice(this.floor)
+    for (const item of items) {
+      if (item.kind !== 'chest') continue
+      seen.add(item.id)
+      let tag = this.priceTags.get(item.id)
+      if (!tag) {
+        tag = new Text({
+          text: '',
+          style: {
+            fontFamily: 'ui-monospace, monospace',
+            fontSize: 7,
+            fill: 0xffffff,
+            stroke: { color: 0x000000, width: 2 },
+          },
+        })
+        tag.anchor.set(0.5, 1)
+        this.fxLayer.addChild(tag)
+        this.priceTags.set(item.id, tag)
+      }
+      tag.text = `${price} os`
+      tag.style.fill = this.bones >= price ? 0xe8c95a : 0x8a90a2
+      tag.x = item.x * TILE
+      tag.y = item.y * TILE - TILE * 0.55
+    }
+    for (const [id, tag] of this.priceTags) {
+      if (seen.has(id)) continue
+      tag.destroy()
+      this.priceTags.delete(id)
+    }
   }
 
   /** Nombre d'effets visuels actifs — utile pour vérifier que les swings sortent. */

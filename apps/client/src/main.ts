@@ -37,6 +37,7 @@ const floorLabel = $('floor')
 const hpLabel = $('hp')
 const weaponLabel = $('weapon')
 const levelLabel = $('level')
+const bonesLabel = $('bones')
 const xpFill = $('xp-fill')
 const staminaFill = $('stamina-fill')
 const objective = $('objective')
@@ -172,7 +173,10 @@ async function main(): Promise<void> {
         debug.items = msg.items.length
         debug.projectiles = msg.projectiles.length
         const visible = msg.vis ? unpackBits(fromBase64(msg.vis), mapSize) : null
+        renderer.bones = msg.bones ?? 0
+        renderer.floor = msg.floor
         renderer.applyState(msg.actors, msg.projectiles, msg.items, visible, msg.events)
+        bonesLabel.textContent = String(msg.bones ?? 0)
         audio.setIntensity(msg.intensity ?? 0)
         for (const ev of msg.events) audio.onEvent(ev, selfId)
         floorLabel.textContent = String(msg.floor)

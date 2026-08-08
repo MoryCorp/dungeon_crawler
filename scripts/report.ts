@@ -450,6 +450,35 @@ function report(run: RunRecord): void {
     }
   }
 
+  {
+    let earned = 0
+    let spent = 0
+    const atDeath: number[] = []
+    for (const f of run.floors) {
+      earned += f.bonesEarned ?? 0
+      spent += f.bonesSpent ?? 0
+      atDeath.push(...(f.bonesAtDeath ?? []))
+    }
+    if (earned > 0 || spent > 0) {
+      console.log('\n── Économie des ossements ─────────────────────────────────────')
+      console.log(`  ${earned} gagné(s) · ${spent} dépensé(s) — solde ${earned - spent}`)
+      const perFloor = run.floors
+        .map((f) => `${f.floor}:+${f.bonesEarned ?? 0}${f.bonesSpent ? `/-${f.bonesSpent}` : ''}`)
+        .join('  ')
+      console.log(`  Par étage : ${perFloor}`)
+      if (atDeath.length > 0) {
+        const avg = atDeath.reduce((a, b) => a + b, 0) / atDeath.length
+        console.log(`  Solde moyen au moment de mourir : ${avg.toFixed(0)}`)
+        if (avg > 30) {
+          console.log(
+            '  → On meurt riche : la monnaie dort. Le puits est trop cher, trop\n' +
+              '    rare, ou pas assez désirable.',
+          )
+        }
+      }
+    }
+  }
+
   const flat = run.floors.reduce(
     (acc, f) => {
       merge(acc.kills, f.kills)

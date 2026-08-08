@@ -494,6 +494,28 @@ const ITEMS: Record<string, SpriteDef> = {
       '................',
     ],
   },
+  bone: {
+    // Un petit os croisé : la monnaie de la descente, discrète comme une orbe.
+    palette: { o: OUT, b: '#e8e0cc', d: '#b8ae94' },
+    rows: [
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '....oo....oo....',
+      '...obbo..obbo...',
+      '....obbobbdo....',
+      '.....obbbdo.....',
+      '.....obbbdo.....',
+      '....obbobbdo....',
+      '...obdo..oddo...',
+      '....oo....oo....',
+      '................',
+      '................',
+      '................',
+    ],
+  },
   key: {
     palette: { o: OUT, y: '#e8c95a', d: '#b5923a', k: '#2a2412' },
     rows: [

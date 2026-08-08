@@ -401,6 +401,12 @@ export class GameAudio {
               this.tone({ freq: 990 + Math.random() * 220, type: 'sine', dur: 0.07, gain: 0.05 })
             }
             break
+          case 'bone':
+            // Un cliquetis sec, plus grave que l'orbe d'XP, tout aussi discret.
+            if (this.gate('bone', 60)) {
+              this.tone({ freq: 480 + Math.random() * 90, type: 'square', dur: 0.04, gain: 0.04 })
+            }
+            break
           case 'heart':
             this.tone({ freq: 392, type: 'triangle', dur: 0.3, gain: 0.16 })
             this.tone({ freq: 588, type: 'triangle', dur: 0.3, gain: 0.12, at: 0.07 })

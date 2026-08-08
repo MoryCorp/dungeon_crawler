@@ -232,6 +232,33 @@ export const HEART_HEAL_MIN = 6
 export const HEART_DROP_CHANCE = 0.14
 
 /**
+ * Les ossements : la monnaie de la descente. Chaque monstre en laisse, les
+ * élites et les boss davantage. C'est une ressource d'équipe, comme l'XP —
+ * une bourse par tête recréerait l'écart que l'XP commune corrige.
+ *
+ * Règle intangible : les ossements achètent de la soutenabilité (coffres,
+ * plus tard soin et fioles), jamais de la puissance de combat directe.
+ * TTK et K ne bougent pas.
+ */
+export const BONE_PER_KILL = 1
+export const BONE_ELITE = 3
+export const BONE_BOSS = 10
+
+/**
+ * Prix du coffre, indexé sur l'étage. Étalonné sur un nettoyage complet :
+ * ~26 monstres tués par étage (mesuré au laboratoire, baseline 704 runs).
+ * Un nettoyeur peut s'offrir le coffre de son étage ; un rusheur, qui tue
+ * moitié moins, doit choisir. Le coffre est le puits provisoire — la salle
+ * de repos prendra le relais comme puits principal.
+ */
+export const CHEST_PRICE_BASE = 8
+export const CHEST_PRICE_PER_FLOOR = 4
+
+export function chestPrice(floor: number): number {
+  return CHEST_PRICE_BASE + CHEST_PRICE_PER_FLOOR * floor
+}
+
+/**
  * Le plafond de soin, et avec lui l'économie de toute la descente.
  *
  * Les PV étaient une ressource locale : rechargeable sur place, sans limite, à
@@ -818,7 +845,7 @@ export interface Projectile {
 
 export const PROJECTILE_RADIUS = 0.18
 
-export type ItemKind = 'heart' | 'xp' | 'weapon' | 'chest' | 'key'
+export type ItemKind = 'heart' | 'xp' | 'weapon' | 'chest' | 'key' | 'bone'
 
 export interface GroundItem {
   id: string
@@ -827,7 +854,7 @@ export interface GroundItem {
   y: number
   /** kind === 'weapon' */
   weapon?: string
-  /** kind === 'xp' */
+  /** kind === 'xp' ou 'bone' */
   amount?: number
   /**
    * Joueur qui vient de faire apparaître cet objet et ne peut pas le reprendre
@@ -892,7 +919,9 @@ export type GameEvent =
   | { t: 'downed'; id: string; x: number; y: number }
   | { t: 'revived'; id: string; x: number; y: number }
   | { t: 'respawn'; id: string; x: number; y: number }
-  | { t: 'pickup'; id: string; kind: ItemKind; x: number; y: number; label?: string }
+  | { t: 'pickup'; id: string; kind: ItemKind; x: number; y: number; label?: string; amount?: number }
+  /** Des ossements viennent d'être dépensés (le coffre, plus tard l'étal). */
+  | { t: 'spend'; id: string; amount: number; what: 'chest'; x: number; y: number }
   | { t: 'levelup'; id: string; level: number; x: number; y: number }
   | { t: 'keydrop'; x: number; y: number }
   /** Attaque en préparation avortée par un coup encaissé. */
@@ -935,6 +964,8 @@ export interface GameState {
   banditPending?: { id: string; recipe: string; until: number; peak: number; hurt: number }
   /** Monstres tués sur l'étage courant — le dénominateur de la patience. */
   floorKills: number
+  /** Bourse d'équipe : les ossements ramassés, pas encore dépensés. */
+  bones: number
   events: GameEvent[]
 }
 

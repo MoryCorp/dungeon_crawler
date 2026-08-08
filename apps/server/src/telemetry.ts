@@ -108,6 +108,16 @@ export interface FloorRecord {
   staggers?: Tally
 
   /**
+   * Économie des ossements : gagné et dépensé sur l'étage, et le solde
+   * d'équipe au moment de chaque mort. Un solde de mort élevé veut dire que
+   * la monnaie dort — le puits est trop cher, trop rare, ou pas assez
+   * désirable. C'est la mesure d'avant du chantier salle de repos.
+   */
+  bonesEarned?: number
+  bonesSpent?: number
+  bonesAtDeath?: number[]
+
+  /**
    * Usage du sprint, en ticks-joueur. La question n'est pas « combien on
    * court » mais « où » : le sprint a été ajouté pour rendre les allers-retours
    * dans des salles vides moins pénibles, et s'il finit par servir surtout à
@@ -481,7 +491,10 @@ export class RunTelemetry {
 
       case 'death':
         if (ev.kind === 'monster') bump(this.current.kills, ev.species)
-        else this.current.deaths += 1
+        else {
+          this.current.deaths += 1
+          ;(this.current.bonesAtDeath ??= []).push(state.bones)
+        }
         break
 
       case 'downed':
@@ -508,6 +521,13 @@ export class RunTelemetry {
           this.current.heartsTaken += 1
           this.current.heartHpSum += this.hpBefore.get(ev.id) ?? 1
         }
+        if (ev.kind === 'bone') {
+          this.current.bonesEarned = (this.current.bonesEarned ?? 0) + (ev.amount ?? 1)
+        }
+        break
+
+      case 'spend':
+        this.current.bonesSpent = (this.current.bonesSpent ?? 0) + ev.amount
         break
 
       case 'descend': {
