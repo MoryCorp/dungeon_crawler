@@ -237,6 +237,27 @@ function report(run: RunRecord): void {
     }
   }
 
+  // Le sprint a été ajouté pour la traversée. S'il sert surtout à décrocher,
+  // ce n'est plus une commodité, c'est une esquive, et il faudra le régler
+  // comme telle — d'où la séparation.
+  const sprintAll = run.floors.reduce((a, f) => a + (f.sprintTicks ?? 0), 0)
+  const sprintFight = run.floors.reduce((a, f) => a + (f.sprintFightTicks ?? 0), 0)
+  const ticksAll = run.floors.reduce((a, f) => a + f.ticks, 0)
+  if (sprintAll > 0) {
+    const share = ticksAll > 0 ? sprintAll / ticksAll : 0
+    const fightShare = sprintFight / sprintAll
+    console.log(
+      `\n  Sprint : ${(share * 100).toFixed(0)} % du temps de jeu, ` +
+        `dont ${(fightShare * 100).toFixed(0)} % avec un ennemi à portée.`,
+    )
+    console.log(
+      fightShare > 0.4
+        ? '  → Il sert surtout à décrocher. Ce n\'est plus une commodité de\n' +
+            '    traversée : la jauge doit se régler comme une esquive.'
+        : '  → Il sert à traverser, pas à fuir. C\'est ce pour quoi il est là.',
+    )
+  }
+
   const staggerTotal = run.floors.reduce(
     (a, f) => a + Object.values(f.staggers ?? {}).reduce((x, y) => x + y, 0),
     0,

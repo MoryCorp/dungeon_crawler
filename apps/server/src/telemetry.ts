@@ -98,6 +98,16 @@ export interface FloorRecord {
   staggers?: Tally
 
   /**
+   * Usage du sprint, en ticks-joueur. La question n'est pas « combien on
+   * court » mais « où » : le sprint a été ajouté pour rendre les allers-retours
+   * dans des salles vides moins pénibles, et s'il finit par servir surtout à
+   * décrocher d'un combat, ce n'est plus le même objet et il faudra le régler
+   * comme une esquive.
+   */
+  sprintTicks?: number
+  sprintFightTicks?: number
+
+  /**
    * Économie des cœurs. Un joueur qui laisse les cœurs au sol tant qu'il est
    * en pleine vie se constitue une réserve : sa barre de vie n'est plus une
    * ressource qui s'épuise mais un stock qu'il rappelle à volonté, et le sens
@@ -337,6 +347,13 @@ export class RunTelemetry {
       if (near >= engagedPeak) {
         engagedPeak = near
         exposedAt = a
+      }
+
+      // Un joueur par tick : à quatre, les compteurs s'additionnent, et c'est
+      // bien ce qu'on veut mesurer — du temps de course, pas des joueurs.
+      if (a.sprinting === true) {
+        this.current.sprintTicks = (this.current.sprintTicks ?? 0) + 1
+        if (near > 0) this.current.sprintFightTicks = (this.current.sprintFightTicks ?? 0) + 1
       }
 
       if (Math.hypot(a.x - (state.spawn.x + 0.5), a.y - (state.spawn.y + 0.5)) <= ENTRY_RADIUS) {
