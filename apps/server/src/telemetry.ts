@@ -9,7 +9,16 @@
  * Tout est dérivé des `GameEvent` déjà émis par l'engine, plus un échantillon
  * de PV par seconde. L'engine reste pur : il ne sait pas qu'on l'observe.
  */
-import { TICK_RATE, WEAPONS, effectiveHp, type GameEvent, type GameState } from '@dc/engine'
+import {
+  FLOOR_HP_GROWTH,
+  MONSTERS,
+  TICK_RATE,
+  WEAPONS,
+  effectiveHp,
+  floorScale,
+  type GameEvent,
+  type GameState,
+} from '@dc/engine'
 
 /** Compteur par clé, écrit sans avoir à initialiser chaque case. */
 type Tally = Record<string, number>
@@ -98,6 +107,8 @@ const ENGAGE_RANGE = 6
 const ENGAGE_BUCKETS = 11
 /** Distance sous laquelle on considère que le joueur campe l'entrée. */
 const ENTRY_RADIUS = 5
+/** Monstre auquel on rapporte le TTK : le corps à corps le plus banal du jeu. */
+const REFERENCE_SPECIES = MONSTERS.orc!
 
 export interface RunRecord {
   room: string
@@ -328,13 +339,19 @@ export class RunTelemetry {
  * Les deux invariants du modèle de puissance, mesurés sur ce qui s'est
  * réellement passé plutôt que calculés sur le papier.
  *
- * `ttk` — coups **qui touchent** nécessaires pour tuer, multipliés par la
- * cadence de l'arme. Directement comparable à TARGET_TTK.
+ * `ttk` — temps pour tuer le monstre de référence de l'étage, au DPS que le
+ * joueur produit réellement. Directement comparable à TARGET_TTK.
  *
- *   On compte les touches et pas les coups portés, et c'est essentiel : un
- *   joueur qui garde le clic enfoncé en traversant l'étage frappe deux à trois
- *   fois plus souvent qu'il ne touche. Compter les coups mesurerait sa
- *   discipline de gâchette, pas la solidité des monstres.
+ *   Le DPS réel se lit sur les touches, jamais sur les coups portés : un joueur
+ *   qui garde le clic enfoncé en traversant l'étage frappe deux à trois fois
+ *   plus souvent qu'il ne touche, et compter les coups mesurerait sa discipline
+ *   de gâchette plutôt que la solidité des monstres.
+ *
+ *   On rapporte ce DPS à un monstre **de référence** plutôt qu'à la moyenne de
+ *   ce qui est mort. Diviser le temps de frappe par le nombre de morts donnait
+ *   des valeurs ingérables : le gardien d'étage a 3.2× les PV d'un monstre
+ *   normal, donc un étage où on tue peu mais où on tue le gardien affichait un
+ *   TTK triplé sans que rien n'ait changé.
  *
  * `k` — monstres tués avant d'épuiser sa barre de vie.
  *
@@ -352,6 +369,7 @@ export class RunTelemetry {
 export function floorInvariants(f: FloorRecord): { ttk: number | null; k: number | null } {
   const kills = Object.values(f.kills).reduce((a, b) => a + b, 0)
   const taken = Object.values(f.damageTaken).reduce((a, b) => a + b, 0)
+  const dealt = Object.values(f.damageDealt).reduce((a, b) => a + b, 0)
 
   let connectedSeconds = 0
   for (const [weaponId, n] of Object.entries(f.hits)) {
@@ -359,11 +377,14 @@ export function floorInvariants(f: FloorRecord): { ttk: number | null; k: number
     if (w) connectedSeconds += (n * w.cooldown) / TICK_RATE
   }
 
+  const refHp = REFERENCE_SPECIES.maxHp * floorScale(f.floor, FLOOR_HP_GROWTH)
+  const dps = connectedSeconds > 0 ? dealt / connectedSeconds : 0
+
   // `poolHp` manque sur les relevés d'avant le modèle de puissance : mieux vaut
   // ne rien afficher qu'un NaN qui ressemble à une mesure.
   const pool = f.poolHp ?? 0
   return {
-    ttk: kills >= 3 && connectedSeconds > 0 ? connectedSeconds / kills : null,
+    ttk: kills >= 3 && dps > 0 ? refHp / dps : null,
     k: kills >= 3 && taken > 0 && pool > 0 ? (pool * kills) / taken : null,
   }
 }
