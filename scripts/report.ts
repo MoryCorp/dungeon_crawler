@@ -210,6 +210,13 @@ function report(run: RunRecord): void {
     }
     const perFloor = run.floors.length ? totalWaves / run.floors.length : 0
     console.log(`\n  ${perFloor.toFixed(1)} vague(s) par étage, ${totalDelivered} monstres livrés`)
+    const recipeTotals: Record<string, number> = {}
+    for (const f of run.floors) merge(recipeTotals, f.recipes ?? {})
+    const recipeLine = Object.entries(recipeTotals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([r, n]) => `${r} ×${n}`)
+      .join(' · ')
+    if (recipeLine) console.log(`  Recettes : ${recipeLine}`)
     if (perFloor < 1) {
       console.log(
         '  → Presque aucune vague : soit la pression ne retombe jamais assez pour\n' +

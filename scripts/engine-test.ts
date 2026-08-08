@@ -24,7 +24,13 @@ import {
   PURSUE_MAX,
   createDirector,
   profileStats,
+  planWave,
+  resolveBehavior,
+  splitShares,
   updateDirector,
+  RECIPES,
+  type Behavior,
+  type RecipeName,
   REVIVE_TICKS,
   Rng,
   TARGET_TTK,
@@ -763,7 +769,7 @@ console.log('\nTests engine\n')
   // combat : un cobaye qui reste entouré garde une intensité au plafond, et une
   // Directrice qui ne livre plus rien dans ces conditions fait son travail.
   clearMonsters(s)
-  s.reserve = []
+  s.reserveCount = 0
 
   const hordes: { tick: number; count: number; x: number; y: number }[] = []
   for (let i = 1; i <= TICK_RATE * 120; i++) {
@@ -799,7 +805,7 @@ console.log('\nTests engine\n')
   clearMonsters(s)
   s.actors.p_eye!.maxHp = 9000
   s.actors.p_eye!.hp = 9000
-  s.reserve = Array.from({ length: 12 }, () => 'skeleton')
+  s.reserveCount = 12
   s.director = createDirector(s.tick)
 
   let sighted = 0
@@ -1077,7 +1083,7 @@ console.log('\nTests engine\n')
   const s = createGame(3104)
   addPlayer(s, 'p_pat', 'Pressé')
   clearMonsters(s)
-  s.reserve = []
+  s.reserveCount = 0
   s.floorKills = 5
   putMonster(s, 'm_left1', 'skeleton', s.stairs.x + 3, s.stairs.y)
   putMonster(s, 'm_left2', 'skeleton', s.stairs.x + 4, s.stairs.y)
@@ -1100,6 +1106,103 @@ console.log('\nTests engine\n')
     return JSON.stringify({ profiles: s.profiles, tick: s.tick, rng: s.rng, actors: Object.keys(s.actors).length })
   }
   check('deux parties de même graine ont le même profil', runOne() === runOne())
+}
+
+// --- recettes de vagues ------------------------------------------------------
+// La Directrice décide quand, la recette décide quoi et où. Politique pure
+// d'abord : tout se teste sans donjon.
+{
+  // Le repli ne rend jamais un comportement introuvable, quel que soit l'étage.
+  const pools: Behavior[][] = [1, 2, 3, 4, 6, 10].map((floor) => {
+    const s = createGame(4000 + floor, floor)
+    const seen = new Set<Behavior>()
+    for (const a of Object.values(s.actors)) {
+      if (a.kind === 'monster') seen.add(MONSTERS[a.species]!.behavior)
+    }
+    // Le pool réel de l'étage, pas les monstres posés : on le reconstruit.
+    return [...seen]
+  })
+  const wanted: Behavior[] = ['melee', 'archer', 'charger', 'swarm', 'bomber']
+  let allResolved = true
+  for (const pool of pools) {
+    const available = new Set(pool)
+    for (const w of wanted) {
+      if (!available.has(resolveBehavior(w, available))) allResolved = false
+    }
+  }
+  check('resolveBehavior rend toujours de l\'existant', allResolved)
+  check(
+    'l\'étage 1 replie archer sur ce qu\'il a',
+    resolveBehavior('archer', new Set<Behavior>(['melee', 'swarm'])) === 'melee',
+  )
+}
+
+{
+  // Répartition d'effectif : exacte, jamais de groupe vide tant qu'il y a de quoi.
+  const even = splitShares(6, [0.5, 0.5])
+  check('splitShares partage exactement', even[0]! + even[1]! === 6 && even[0] === 3, even.join('/'))
+  const tiny = splitShares(1, [0.5, 0.5])
+  check('à un seul monstre, un seul groupe', tiny[0] === 1 && tiny[1] === 0, tiny.join('/'))
+  const odd = splitShares(5, [0.5, 0.5])
+  check('l\'impair ne perd personne', odd[0]! + odd[1]! === 5, odd.join('/'))
+}
+
+{
+  // planWave : mono-espèce par groupe, et la dette sort toujours en premier —
+  // même quand aucun poursuivant ne colle à la recette.
+  const rng = new Rng(99)
+  const pool = ['skeleton', 'bat', 'orc', 'skeleton_mage', 'skeleton_rogue']
+  const debt = new Map([['orc', 2], ['skeleton', 3]])
+
+  const snipers = RECIPES.find((r) => r.name === 'tireurs')!
+  const plan = planWave(snipers, 5, pool, debt, rng)
+  const debtSpent = plan.reduce((a, g) => a + g.fromDebt, 0)
+  // Une vague est mono-espèce par groupe : elle ne peut vider qu'une bannière
+  // de dette à la fois. Le squelette (le mieux fourni) sort entier, l'orc
+  // attendra la vague suivante — le drainage complet est testé en intégration.
+  check('la dette sort même contre la recette', debtSpent === 3 && plan[0]?.species === 'skeleton', `${debtSpent} de dette, ${plan[0]?.species}`)
+  check(
+    'chaque groupe est mono-espèce et complet',
+    plan.every((g) => g.fromDebt + g.fromReserve > 0) &&
+      new Set(plan.map((g) => g.species)).size === plan.length,
+  )
+
+  const pincer = RECIPES.find((r) => r.name === 'clouage')!
+  const plan2 = planWave(pincer, 6, pool, new Map(), new Rng(7))
+  check('le clouage fait deux groupes', plan2.length === 2, `${plan2.length}`)
+  check(
+    'chargeurs et archers répondent à l\'appel',
+    plan2.some((g) => MONSTERS[g.species]!.behavior === 'charger') &&
+      plan2.some((g) => MONSTERS[g.species]!.behavior === 'archer'),
+    plan2.map((g) => g.species).join(', '),
+  )
+}
+
+{
+  // Intégration : les vagues livrées portent une recette valide et restent
+  // mono-espèce par groupe — on le lit sur les espèces livrées entre deux hordes.
+  const s = createGame(7772, 6)
+  const hero = addPlayer(s, 'p_rec', 'Testeur')
+  clearMonsters(s)
+  hero.maxHp = 9000
+  hero.hp = 9000
+  s.reserveCount = 30
+  s.director = createDirector(s.tick)
+
+  const names = new Set(RECIPES.map((r) => r.name))
+  const seen: string[] = []
+  let allValid = true
+  for (let i = 0; i < TICK_RATE * 240 && seen.length < 4; i++) {
+    step(s, noInputs)
+    for (const ev of s.events) {
+      if (ev.t !== 'horde') continue
+      seen.push(ev.recipe)
+      if (!names.has(ev.recipe as RecipeName)) allValid = false
+    }
+    clearMonsters(s)
+  }
+  check('les vagues portent leur recette', seen.length >= 2, `${seen.length} vague(s) : ${seen.join(', ')}`)
+  check('toutes les recettes sont valides', allValid)
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)

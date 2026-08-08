@@ -108,6 +108,8 @@ export interface FloorRecord {
    * deux veulent dire qu'elle a manqué de munitions.
    */
   hordes: number[]
+  /** Recettes des vagues livrées : combien de fois chacune est sortie. */
+  recipes?: Tally
   /** Monstres gardés en réserve à l'arrivée sur l'étage : ses munitions. */
   held: number
 
@@ -233,7 +235,7 @@ export class RunTelemetry {
       this.current.spawned = Object.values(state.actors).filter(
         (a) => a.kind === 'monster',
       ).length
-      this.current.held = state.reserve?.length ?? 0
+      this.current.held = state.reserveCount ?? 0
     }
 
     const monsters = Object.values(state.actors).filter((a) => a.kind === 'monster' && a.alive)
@@ -376,6 +378,7 @@ export class RunTelemetry {
 
       case 'horde':
         this.current.hordes.push(ev.count)
+        bump((this.current.recipes ??= {}), ev.recipe)
         break
 
       default:

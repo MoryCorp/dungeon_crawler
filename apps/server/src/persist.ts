@@ -30,8 +30,11 @@ const RUNS_DIR = join(DATA_DIR, 'runs')
  *     monstres posés sur la carte et pas de réserve : le rechargement donnerait
  *     un étage que la Directrice ne peut plus animer, donc plus aucune vague
  *     jusqu'à l'escalier suivant.
+ * 5 : profils de style et recettes de vagues. La réserve devient un compteur —
+ *     une réserve v4 pré-tirée en espèces ne peut plus être livrée par recette,
+ *     et un profil absent fausserait la future adaptation : donjon neuf.
  */
-const SAVE_VERSION = 4
+const SAVE_VERSION = 5
 
 let ready: Promise<void> | null = null
 function ensureDir(): Promise<void> {
@@ -102,7 +105,7 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     state.projectiles = []
     state.events = []
     state.pursuers ??= []
-    state.reserve ??= []
+    state.reserveCount ??= 0
     state.profiles ??= {}
     state.floorKills ??= 0
     // La Directrice repart d'une ardoise propre : son intensité mesure ce que le

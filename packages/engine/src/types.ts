@@ -415,6 +415,21 @@ export const HORDE_MAX_DIST = 15
 export const DIRECTOR_WAVES = 5
 export const DIRECTOR_RESERVE = Math.round((DIRECTOR_WAVES * (HORDE_MIN + HORDE_MAX)) / 2)
 
+/**
+ * Bandes de distance des placements de recettes, dans [HORDE_MIN_DIST,
+ * HORDE_MAX_DIST] : « près » engage vite, « loin » laisse les archers tirer
+ * avant qu'on les atteigne.
+ */
+export const RECIPE_NEAR_MAX = 9
+export const RECIPE_FAR_MIN = 12
+/** Demi-ouverture angulaire d'un placement directionnel (flanc, mur). */
+export const RECIPE_FLANK_HALF_ARC = (75 * Math.PI) / 180
+/**
+ * Norme de l'EMA de déplacement (tuiles/s) sous laquelle « mur » n'a pas de
+ * direction à couper et se replie sur un placement standard.
+ */
+export const RECIPE_FRONT_MIN_SPEED = 0.5
+
 // --- Monstres ---------------------------------------------------------------
 
 /**
@@ -636,8 +651,8 @@ export type GameEvent =
   | { t: 'pursuit'; count: number }
   /** Un poursuivant vient de déboucher de l'escalier. */
   | { t: 'arrive'; id: string; species: string; x: number; y: number }
-  /** La Directrice vient de livrer une vague. */
-  | { t: 'horde'; count: number; x: number; y: number }
+  /** La Directrice vient de livrer une vague, selon une recette. */
+  | { t: 'horde'; count: number; x: number; y: number; recipe: string }
   /**
    * Un objet vient d'apparaître au sol. Sans cet événement on ne peut pas
    * distinguer « aucun cœur n'est tombé » de « ils sont tous encore par terre »,
@@ -674,8 +689,13 @@ export interface GameState {
   stairsLocked: boolean
   /** Monstres de l'étage précédent, en attente d'être renvoyés au front. */
   pursuers: Pursuer[]
-  /** Monstres de cet étage gardés en réserve, à livrer par la Directrice. */
-  reserve: string[]
+  /**
+   * Monstres de cet étage gardés en réserve, à livrer par la Directrice. Un
+   * simple compteur : l'espèce n'est décidée qu'au moment de la livraison, par
+   * la recette — une réserve pré-tirée rendrait « tireurs » impossible les
+   * jours où le tirage n'a pas mis d'archers dedans.
+   */
+  reserveCount: number
   director: DirectorState
   /** Profil de style de chaque joueur, cumulé sur toute la partie. */
   profiles: Record<string, PlayerProfile>

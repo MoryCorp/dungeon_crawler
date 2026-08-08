@@ -9,6 +9,7 @@
 import { buildFlowField, decideMonsterAction } from './ai.js'
 import { createDirector, updateDirector } from './director.js'
 import { profileOf } from './profile.js'
+import { RECIPES, planWave, type Placement } from './recipes.js'
 import { computeFov } from './fov.js'
 import { generateFloor, type Rect } from './mapgen.js'
 import { inAttackArc, moveWithCollision, separateActors, solidAt, unstick } from './physics.js'
@@ -75,12 +76,17 @@ import {
   PROJECTILE_RADIUS,
   PURSUE_MAX,
   PURSUE_STRIKE_GRACE,
+  RECIPE_FAR_MIN,
+  RECIPE_FLANK_HALF_ARC,
+  RECIPE_FRONT_MIN_SPEED,
+  RECIPE_NEAR_MAX,
   RESPAWN_GRACE,
   RESPAWN_TICKS,
   REVIVE_HP_RATIO,
   REVIVE_RANGE,
   REVIVE_TICKS,
   STARTING_WEAPON,
+  TICK_RATE,
   Tile,
   WEAPONS,
   isWalkable,
@@ -223,16 +229,9 @@ function populate(state: GameState, rooms: Rect[], rng: Rng): void {
   const pool = monsterPool(state.floor)
   const count = Math.min(PLACED_MAX_COUNT, PLACED_BASE_COUNT + state.floor * PLACED_PER_FLOOR)
 
-  // La réserve de la Directrice est constituée **par espèces entières** : une
-  // vague livrée doit être d'une seule espèce, sinon les vitesses diffèrent, le
-  // groupe s'étire pendant l'approche et arrive en file indienne — exactement le
-  // défaut des meutes posées qu'on cherche à corriger.
-  state.reserve = []
-  while (state.reserve.length < DIRECTOR_RESERVE) {
-    const species = rng.pick(pool)
-    const n = Math.min(DIRECTOR_RESERVE - state.reserve.length, rng.range(HORDE_MIN, HORDE_MAX))
-    for (let i = 0; i < n; i++) state.reserve.push(species)
-  }
+  // La réserve est un simple compteur : c'est la recette qui décidera des
+  // espèces au moment de livrer, pas le peuplement.
+  state.reserveCount = DIRECTOR_RESERVE
   // On exclut la salle de spawn : arriver au milieu d'un comité d'accueil
   // n'est pas une difficulté, c'est une frustration.
   const spawnable = rooms.slice(1)
@@ -364,7 +363,7 @@ export function createGame(seed: number, floor = 1): GameState {
     spawn: layout.spawn,
     stairsLocked: true,
     pursuers: [],
-    reserve: [],
+    reserveCount: 0,
     director: createDirector(0),
     profiles: {},
     floorKills: 0,
@@ -384,7 +383,7 @@ export function descend(state: GameState): void {
   // suit l'assume autant que celui qui appuie.
   const remaining =
     Object.values(state.actors).filter((a) => a.kind === 'monster' && a.alive).length +
-    state.reserve.length
+    state.reserveCount
   const cleared = state.floorKills / Math.max(1, state.floorKills + remaining)
   for (const a of Object.values(state.actors)) {
     if (a.kind !== 'player') continue
@@ -578,7 +577,7 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
   // Livrer sur une équipe déjà à terre ne produit pas de la tension, ça
   // s'acharne — et le dire ici plutôt qu'après coup lui évite de dépenser sa
   // patience pour une décision qu'on va jeter.
-  const available = players.length > 0 ? state.pursuers.length + state.reserve.length : 0
+  const available = players.length > 0 ? state.pursuers.length + state.reserveCount : 0
   const wanted = updateDirector(state.director, state.tick, {
     damageFraction,
     engaged,
@@ -589,131 +588,211 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
 }
 
 /**
- * Choisit où livrer une vague : hors de vue, à une distance qui laisse le temps
- * de la voir venir sans qu'elle mette une minute à arriver, et de préférence
- * dans un couloir.
+ * Choisit où poser un groupe : hors de vue, praticable, dans une bande de
+ * distance mesurée à la cible, et — si la recette l'exige — dans un secteur
+ * angulaire autour d'elle.
  *
  * Hors de vue est la contrainte importante. Des monstres qui apparaissent sous
  * les yeux du joueur cassent la fiction et transforment une vague en tricherie
  * visible ; les mêmes monstres qui débouchent d'un couloir sont une rencontre.
+ *
+ * Les contraintes se relâchent en cascade plutôt que d'échouer : d'abord sans
+ * le secteur angulaire, puis sur la bande standard. Une recette contrariée par
+ * la carte doit dégénérer en vague ordinaire, jamais en absence de vague.
  */
-function hordeAnchor(
+function recipeAnchor(
   state: GameState,
   visible: Uint8Array,
   rng: Rng,
+  target: Actor,
+  opts: { minDist: number; maxDist: number; dir?: number; halfArc?: number },
 ): { x: number; y: number } | null {
-  const players = Object.values(state.actors).filter((a) => a.kind === 'player' && a.alive)
-  if (players.length === 0) return null
+  const sample = (
+    minDist: number,
+    maxDist: number,
+    dir?: number,
+    halfArc?: number,
+  ): { x: number; y: number } | null => {
+    let best: { x: number; y: number; score: number } | null = null
+    // Un échantillon suffit : on cherche un bon emplacement, pas le meilleur.
+    for (let tries = 0; tries < 220; tries++) {
+      const x = 1 + rng.int(state.width - 2)
+      const y = 1 + rng.int(state.height - 2)
+      const idx = y * state.width + x
+      if (!isWalkable(state.tiles[idx]!)) continue
+      if (visible[idx]) continue
 
-  let best: { x: number; y: number; score: number } | null = null
-  // Un échantillon suffit : on cherche un bon emplacement, pas le meilleur.
-  for (let tries = 0; tries < 220; tries++) {
-    const x = 1 + rng.int(state.width - 2)
-    const y = 1 + rng.int(state.height - 2)
-    const idx = y * state.width + x
-    if (!isWalkable(state.tiles[idx]!)) continue
-    if (visible[idx]) continue
+      const dist = Math.hypot(target.x - x, target.y - y)
+      if (dist < minDist || dist > maxDist) continue
 
-    let nearest = Infinity
-    for (const p of players) nearest = Math.min(nearest, Math.hypot(p.x - x, p.y - y))
-    if (nearest < HORDE_MIN_DIST || nearest > HORDE_MAX_DIST) continue
+      if (dir !== undefined && halfArc !== undefined) {
+        const angle = Math.atan2(y - target.y, x - target.x)
+        let delta = angle - dir
+        while (delta > Math.PI) delta -= 2 * Math.PI
+        while (delta < -Math.PI) delta += 2 * Math.PI
+        if (Math.abs(delta) > halfArc) continue
+      }
 
-    // À distance égale, on préfère le plus proche : la vague doit arriver
-    // pendant que le joueur est encore là, pas trois salles plus loin.
-    const score = -nearest
-    if (!best || score > best.score) best = { x, y, score }
+      // À contraintes égales, on préfère le plus proche : la vague doit arriver
+      // pendant que le joueur est encore là, pas trois salles plus loin.
+      const score = -dist
+      if (!best || score > best.score) best = { x, y, score }
+    }
+    return best ? { x: best.x + 0.5, y: best.y + 0.5 } : null
   }
-  return best ? { x: best.x + 0.5, y: best.y + 0.5 } : null
+
+  return (
+    sample(opts.minDist, opts.maxDist, opts.dir, opts.halfArc) ??
+    sample(opts.minDist, opts.maxDist) ??
+    sample(HORDE_MIN_DIST, HORDE_MAX_DIST)
+  )
+}
+
+/** Bande de distance et secteur d'un placement de recette, pour cette cible. */
+function placementOpts(
+  state: GameState,
+  target: Actor,
+  placement: Placement,
+  flankAngle: number,
+): { minDist: number; maxDist: number; dir?: number; halfArc?: number } {
+  switch (placement) {
+    case 'near':
+      return { minDist: HORDE_MIN_DIST, maxDist: RECIPE_NEAR_MAX }
+    case 'far':
+      return { minDist: RECIPE_FAR_MIN, maxDist: HORDE_MAX_DIST }
+    case 'flankA':
+      return {
+        minDist: HORDE_MIN_DIST,
+        maxDist: HORDE_MAX_DIST,
+        dir: flankAngle,
+        halfArc: RECIPE_FLANK_HALF_ARC,
+      }
+    case 'flankB':
+      return {
+        minDist: HORDE_MIN_DIST,
+        maxDist: HORDE_MAX_DIST,
+        dir: flankAngle + Math.PI,
+        halfArc: RECIPE_FLANK_HALF_ARC,
+      }
+    case 'front': {
+      // Couper la route : devant la direction de déplacement récente de la
+      // cible. Sans direction nette (joueur à l'arrêt), il n'y a rien à couper.
+      const prof = state.profiles[target.id]
+      const speed = prof ? Math.hypot(prof.moveX, prof.moveY) * TICK_RATE : 0
+      if (prof && speed >= RECIPE_FRONT_MIN_SPEED) {
+        return {
+          minDist: HORDE_MIN_DIST,
+          maxDist: HORDE_MAX_DIST,
+          dir: Math.atan2(prof.moveY, prof.moveX),
+          halfArc: RECIPE_FLANK_HALF_ARC,
+        }
+      }
+      return { minDist: HORDE_MIN_DIST, maxDist: HORDE_MAX_DIST }
+    }
+    case 'standard':
+      return { minDist: HORDE_MIN_DIST, maxDist: HORDE_MAX_DIST }
+  }
 }
 
 /**
- * Livre une vague : d'abord la dette de l'étage précédent, puis la réserve.
+ * Livre une vague selon une recette tirée au hasard — uniforme pour l'instant :
+ * on veut de la variété et des échantillons, l'adaptation au style viendra.
  *
- * Les poursuivants passent en premier, et c'est ce qui rend la dette réellement
- * coûteuse : ce qu'on a laissé en vie ne revient plus en file indienne à un
- * endroit qu'on peut camper, il revient en groupe, au moment où on ne s'y
- * attend pas.
- *
- * Une vague est **d'une seule espèce**. Ce n'est pas un détail cosmétique :
- * deux espèces n'ont pas la même vitesse, donc un groupe mixte s'étire sur le
- * trajet et arrive un par un. C'est précisément ce qui faisait échouer les
- * meutes posées sur la carte, et une vague mixte échouerait de la même façon.
+ * La cible est le joueur le mieux portant : c'est lui qui donne le tempo de
+ * l'équipe, et c'est contre lui que la vague doit compter. La dette de l'étage
+ * précédent passe en premier, quelle que soit la recette — ce qu'on a laissé
+ * en vie ne revient plus en file indienne à un endroit qu'on peut camper, il
+ * revient en groupe, au moment où on ne s'y attend pas.
  */
 function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng: Rng): void {
-  const species = waveSpecies(state)
-  if (!species) return
-  const anchor = hordeAnchor(state, visible, rng)
-  if (!anchor) return
+  const recipe = RECIPES[rng.int(RECIPES.length)]!
+  const stock = state.pursuers.length + state.reserveCount
+  const total = Math.min(stock, Math.max(1, Math.round(count * recipe.sizeMult)))
+  if (total <= 0) return
+
+  let target: Actor | null = null
+  for (const a of Object.values(state.actors)) {
+    if (a.kind !== 'player' || !a.alive || a.downed || a.maxHp <= 0) continue
+    if (!target || a.hp / a.maxHp > target.hp / target.maxHp) target = a
+  }
+  if (!target) return
+
+  const owed = new Map<string, number>()
+  for (const p of state.pursuers) {
+    owed.set(p.actor.species, (owed.get(p.actor.species) ?? 0) + 1)
+  }
+  const plan = planWave(recipe, total, monsterPool(state.floor), owed, rng)
+
+  // Le même axe pour les deux flancs d'une tenaille : c'est l'opposition qui
+  // fait la prise, pas deux directions au hasard.
+  const flankAngle = rng.next() * Math.PI * 2
 
   let placed = 0
-  for (let i = 0; i < count; i++) {
-    const debtAt = state.pursuers.findIndex((p) => p.actor.species === species)
-    const stockAt = debtAt >= 0 ? -1 : state.reserve.indexOf(species)
-    if (debtAt < 0 && stockAt < 0) break
-
-    const angle = rng.next() * Math.PI * 2
-    const radius = rng.next() * HORDE_SPREAD
-    const spot = findFreeSpot(
-      state,
-      anchor.x + Math.cos(angle) * radius,
-      anchor.y + Math.sin(angle) * radius,
+  let eventAnchor: { x: number; y: number } | null = null
+  for (const group of plan) {
+    const anchor = recipeAnchor(
+      state, visible, rng, target,
+      placementOpts(state, target, group.placement, flankAngle),
     )
+    // Pas d'emplacement pour ce groupe : sa part reste en stock pour la
+    // prochaine vague, dette comprise.
+    if (!anchor) continue
+    eventAnchor ??= anchor
 
-    let actor: Actor
-    if (debtAt >= 0) {
-      actor = state.pursuers.splice(debtAt, 1)[0]!.actor
-      actor.x = spot.x
-      actor.y = spot.y
-      state.actors[actor.id] = actor
-    } else {
-      state.reserve.splice(stockAt, 1)
-      actor = spawnMonster(
+    const groupSize = group.fromDebt + group.fromReserve
+    let debtLeft = group.fromDebt
+    for (let i = 0; i < groupSize; i++) {
+      const angle = rng.next() * Math.PI * 2
+      const radius = rng.next() * HORDE_SPREAD
+      const spot = findFreeSpot(
         state,
-        `d${state.floor}_${state.nextId++}`,
-        species,
-        spot.x,
-        spot.y,
-        'normal',
-        rng,
+        anchor.x + Math.cos(angle) * radius,
+        anchor.y + Math.sin(angle) * radius,
       )
-    }
 
-    // Sans ce délai, un monstre qui avait fini de récupérer frappe dans la
-    // seconde où il apparaît, sans télégraphe visible.
-    actor.readyAt = state.tick + PURSUE_STRIKE_GRACE
-    // Livrés déjà en chasse : une vague qui flâne n'est plus une vague.
-    actor.aggroUntil = state.tick + AGGRO_MEMORY * 4
-    placed++
-  }
+      let actor: Actor | null = null
+      if (debtLeft > 0) {
+        const at = state.pursuers.findIndex((p) => p.actor.species === group.species)
+        if (at >= 0) {
+          actor = state.pursuers.splice(at, 1)[0]!.actor
+          actor.x = spot.x
+          actor.y = spot.y
+          state.actors[actor.id] = actor
+          debtLeft--
+        }
+      }
+      if (!actor) {
+        if (state.reserveCount <= 0) break
+        state.reserveCount--
+        actor = spawnMonster(
+          state,
+          `d${state.floor}_${state.nextId++}`,
+          group.species,
+          spot.x,
+          spot.y,
+          'normal',
+          rng,
+        )
+      }
 
-  if (placed > 0) {
-    state.events.push({ t: 'horde', count: placed, x: anchor.x, y: anchor.y })
-  }
-}
-
-/**
- * Espèce de la prochaine vague : la mieux fournie, la dette comptant double.
- *
- * Compter la dette double la fait sortir en premier sans jamais fabriquer une
- * vague de deux traînards : si l'espèce qu'on doit n'a pas les effectifs, la
- * réserve fournit le reste sous la même bannière.
- */
-function waveSpecies(state: GameState): string | null {
-  const stock = new Map<string, number>()
-  for (const p of state.pursuers) {
-    stock.set(p.actor.species, (stock.get(p.actor.species) ?? 0) + 2)
-  }
-  for (const s of state.reserve) stock.set(s, (stock.get(s) ?? 0) + 1)
-
-  let best: string | null = null
-  let bestN = 0
-  for (const [species, n] of stock) {
-    if (n > bestN) {
-      best = species
-      bestN = n
+      // Sans ce délai, un monstre qui avait fini de récupérer frappe dans la
+      // seconde où il apparaît, sans télégraphe visible.
+      actor.readyAt = state.tick + PURSUE_STRIKE_GRACE
+      // Livrés déjà en chasse : une vague qui flâne n'est plus une vague.
+      actor.aggroUntil = state.tick + AGGRO_MEMORY * 4
+      placed++
     }
   }
-  return best
+
+  if (placed > 0 && eventAnchor) {
+    state.events.push({
+      t: 'horde',
+      count: placed,
+      x: eventAnchor.x,
+      y: eventAnchor.y,
+      recipe: recipe.name,
+    })
+  }
 }
 
 export function addPlayer(state: GameState, id: string, name: string): Actor {
