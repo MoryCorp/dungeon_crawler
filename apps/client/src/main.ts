@@ -14,6 +14,7 @@ import {
   type PlayerInput,
   type ServerMsg,
 } from '@dc/engine'
+import { GameAudio } from './audio.js'
 import { InputManager, sameInput } from './input.js'
 import { Net } from './net.js'
 import { Renderer } from './render.js'
@@ -60,6 +61,14 @@ async function main(): Promise<void> {
 
   const renderer = new Renderer(app)
   const input = new InputManager(app.canvas as HTMLCanvasElement)
+  const audio = new GameAudio()
+
+  // M coupe le son — sauf quand on tape son pseudo dans le lobby.
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() !== 'm') return
+    if (document.activeElement instanceof HTMLInputElement) return
+    audio.toggleMute()
+  })
 
   let selfId = ''
   let mapSize = 0
@@ -131,6 +140,7 @@ async function main(): Promise<void> {
         mapSize = msg.width * msg.height
         tiles = fromBase64(msg.tiles)
         renderer.setFloor(msg.width, msg.height, tiles)
+        audio.setFloor(msg.floor)
         floorLabel.textContent = String(msg.floor)
         // Nouvel étage : la position prédite n'a plus de sens.
         localReady = false
@@ -148,6 +158,8 @@ async function main(): Promise<void> {
         debug.projectiles = msg.projectiles.length
         const visible = msg.vis ? unpackBits(fromBase64(msg.vis), mapSize) : null
         renderer.applyState(msg.actors, msg.projectiles, msg.items, visible, msg.events)
+        audio.setIntensity(msg.intensity ?? 0)
+        for (const ev of msg.events) audio.onEvent(ev, selfId)
         floorLabel.textContent = String(msg.floor)
         updateHud(msg.actors, msg.locked, msg.chasing)
 
@@ -313,6 +325,8 @@ async function main(): Promise<void> {
     if (!name || !room) return
     localStorage.setItem('dc:name', name)
     localStorage.setItem('dc:room', room)
+    // Le clic « rejoindre » est le geste utilisateur qui débloque l'audio.
+    audio.start()
     net.connect({ t: 'join', room, name })
   })
 }

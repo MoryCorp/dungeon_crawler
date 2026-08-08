@@ -128,6 +128,11 @@ export type ServerMsg =
       chasing: number
       /** Absent sur la plupart des paquets : le brouillard bouge lentement. */
       vis?: string
+      /**
+       * Intensité de la Directrice, 0 à 1. Le client ne s'en sert que pour la
+       * musique : la bande-son est pilotée par le même signal que les vagues.
+       */
+      intensity?: number
       events: GameEvent[]
     }
   | { t: 'pong'; ts: number }
