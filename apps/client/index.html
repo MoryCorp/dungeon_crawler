@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dungeon Crawler</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0c10;
+        --panel: #16181f;
+        --line: #2a2e3a;
+        --text: #e6e8ef;
+        --muted: #8a90a2;
+        --accent: #d9a441;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        overflow: hidden;
+      }
+      canvas { display: block; }
+
+      #lobby {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at 50% 40%, #191c26 0%, var(--bg) 70%);
+        z-index: 10;
+      }
+      #lobby form {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 28px 32px;
+        width: min(90vw, 380px);
+        display: grid;
+        gap: 14px;
+      }
+      #lobby h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      #lobby p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+      label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+      input {
+        background: #0e1017;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--text);
+        padding: 10px 12px;
+        font: inherit;
+        font-size: 14px;
+      }
+      input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+      button {
+        background: var(--accent);
+        color: #17130a;
+        border: 0;
+        border-radius: 6px;
+        padding: 11px;
+        font: inherit;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      button:hover { filter: brightness(1.08); }
+      #error { color: #e2686d; font-size: 12px; min-height: 1em; }
+
+      #hud {
+        position: fixed;
+        left: 14px;
+        top: 14px;
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        text-shadow: 0 1px 3px #000;
+        pointer-events: none;
+      }
+      #hud .row { color: var(--muted); }
+      #hud b { color: var(--text); font-weight: 600; }
+      #party { position: fixed; right: 14px; top: 14px; display: grid; gap: 4px; font-size: 12px; text-align: right; pointer-events: none; text-shadow: 0 1px 3px #000; }
+      #hint { position: fixed; left: 14px; bottom: 12px; color: var(--muted); font-size: 11px; pointer-events: none; }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="lobby">
+      <form id="join-form">
+        <h1>Dungeon Crawler</h1>
+        <p>
+          Partagez le même code de partie pour jouer ensemble (4 max). Le donjon
+          est sauvegardé : revenez plus tard, vous reprendrez où vous en étiez.
+        </p>
+        <label>
+          Pseudo
+          <input id="name" name="name" maxlength="20" autocomplete="off" required />
+        </label>
+        <label>
+          Code de partie
+          <input id="room" name="room" maxlength="8" autocomplete="off" required />
+        </label>
+        <div id="error"></div>
+        <button type="submit">Entrer dans le donjon</button>
+      </form>
+    </div>
+
+    <div id="hud" class="hidden">
+      <div class="row">Étage <b id="floor">1</b> · Partie <b id="room-label">—</b></div>
+      <div class="row">PV <b id="hp">—</b></div>
+    </div>
+    <div id="party" class="hidden"></div>
+    <div id="hint" class="hidden">ZQSD / WASD / flèches · Espace : attaquer · Manette supportée</div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

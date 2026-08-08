@@ -1,0 +1,22 @@
+{
+  "name": "dungeon-crawler",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build --workspace=@dc/client",
+    "start": "node --import tsx apps/server/src/index.ts",
+    "typecheck": "tsc --noEmit -p packages/engine && tsc --noEmit -p apps/server && tsc --noEmit -p apps/client"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
