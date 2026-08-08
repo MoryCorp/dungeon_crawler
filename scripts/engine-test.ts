@@ -23,6 +23,7 @@ import {
   HORDE_MIN,
   PURSUE_MAX,
   createDirector,
+  profileStats,
   updateDirector,
   REVIVE_TICKS,
   Rng,
@@ -974,6 +975,131 @@ console.log('\nTests engine\n')
     `${dmgAt1} → ${dmgNow} (×${(dmgNow / dmgAt1).toFixed(2)})`,
   )
   check('ses PV ont monté aussi', hero.maxHp > hpAt1, `${hpAt1} → ${hero.maxHp}`)
+}
+
+// --- profils de style --------------------------------------------------------
+// L'engine mesure comment chacun joue. Rien ne s'adapte encore : ces tests
+// vérifient seulement que les chiffres décrivent bien ce qui s'est passé.
+{
+  // Portée : un coup de lance à 2 tuiles doit se mesurer ~2 tuiles.
+  const s = createGame(3100)
+  const hero = addPlayer(s, 'p_prof', 'Mesuré')
+  clearMonsters(s)
+  hero.weapon = 'spear'
+  const target = putMonster(s, 'm_far', 'orc', hero.x + 2, hero.y)
+  target.hp = 9999
+  target.maxHp = 9999
+  target.readyAt = 999999
+  step(s, { p_prof: { mx: 0, my: 0, aim: 0, attack: true } })
+  const range = profileStats(s.profiles.p_prof!).range
+  check('la portée mesure la distance du coup', range !== null && Math.abs(range - 2) < 0.5, `${range?.toFixed(2)} t`)
+}
+
+{
+  // Mobilité : immobile en combat ≈ 0, en cerclant > 1 t/s. Le monstre est
+  // engagé (≤ 6 tuiles) mais hors de portée de coup, pour ne pas polluer la
+  // mesure de recul.
+  const still = createGame(3101)
+  const h1 = addPlayer(still, 'p_still', 'Statue')
+  clearMonsters(still)
+  const m1 = putMonster(still, 'm_watch', 'skeleton', h1.x + 5, h1.y)
+  m1.readyAt = 999999
+  for (let i = 0; i < TICK_RATE * 2; i++) {
+    m1.x = h1.x + 5
+    m1.y = h1.y
+    step(still, { p_still: idle })
+  }
+  const still_mob = profileStats(still.profiles.p_still!).mobility
+
+  const moving = createGame(3101)
+  const h2 = addPlayer(moving, 'p_move', 'Danseur')
+  clearMonsters(moving)
+  const m2 = putMonster(moving, 'm_watch2', 'skeleton', h2.x + 5, h2.y)
+  m2.readyAt = 999999
+  for (let i = 0; i < TICK_RATE * 2; i++) {
+    m2.x = h2.x + 5
+    m2.y = h2.y
+    const angle = (i / (TICK_RATE * 2)) * Math.PI * 4
+    step(moving, { p_move: { mx: Math.cos(angle), my: Math.sin(angle), aim: 0, attack: false } })
+  }
+  const move_mob = profileStats(moving.profiles.p_move!).mobility
+
+  check('immobile, la mobilité est nulle', still_mob !== null && still_mob < 0.3, `${still_mob?.toFixed(2)} t/s`)
+  check('en cerclant, elle se voit', move_mob !== null && move_mob > 1, `${move_mob?.toFixed(2)} t/s`)
+}
+
+{
+  // Encombrement : encaisser entouré de trois doit compter trois.
+  const s = createGame(3102)
+  const hero = addPlayer(s, 'p_crowd', 'Cerné')
+  hero.invulnUntil = 0 // pas de grâce d'apparition : on teste la mesure, pas la survie
+  clearMonsters(s)
+  for (let i = 0; i < 3; i++) {
+    putMonster(s, `m_c${i}`, 'skeleton', hero.x + 1.2 * Math.cos((i * 2 * Math.PI) / 3), hero.y + 1.2 * Math.sin((i * 2 * Math.PI) / 3))
+  }
+  for (let i = 0; i < TICK_RATE * 3; i++) {
+    step(s, { p_crowd: idle })
+    if ((s.profiles.p_crowd?.hitsTakenCount ?? 0) > 0) break
+  }
+  const crowding = profileStats(s.profiles.p_crowd!).crowding
+  check('l\'encombrement compte les assaillants', crowding !== null && crowding >= 2.5, `${crowding?.toFixed(1)}`)
+}
+
+{
+  // Cohésion : nulle en solo, mesurée à deux.
+  const solo = createGame(3103)
+  addPlayer(solo, 'p_solo', 'Ermite')
+  clearMonsters(solo)
+  const ms = putMonster(solo, 'm_s', 'skeleton', solo.actors.p_solo!.x + 4, solo.actors.p_solo!.y)
+  ms.readyAt = 999999
+  for (let i = 0; i < TICK_RATE; i++) step(solo, { p_solo: idle })
+  check('la cohésion reste vide en solo', profileStats(solo.profiles.p_solo!).cohesion === null)
+
+  const duo = createGame(3103)
+  const a = addPlayer(duo, 'p_a', 'Alice')
+  const b = addPlayer(duo, 'p_b', 'Basile')
+  clearMonsters(duo)
+  b.x = a.x + 2
+  b.y = a.y
+  const md = putMonster(duo, 'm_d', 'skeleton', a.x + 4, a.y)
+  md.readyAt = 999999
+  for (let i = 0; i < TICK_RATE; i++) {
+    b.x = a.x + 2
+    b.y = a.y
+    step(duo, { p_a: idle, p_b: idle })
+  }
+  const cohesion = profileStats(duo.profiles.p_a!).cohesion
+  check('à deux, la cohésion mesure la distance', cohesion !== null && Math.abs(cohesion - 2) < 0.5, `${cohesion?.toFixed(2)} t`)
+}
+
+{
+  // Patience : descendre en laissant la moitié doit se lire dans le profil.
+  const s = createGame(3104)
+  addPlayer(s, 'p_pat', 'Pressé')
+  clearMonsters(s)
+  s.reserve = []
+  s.floorKills = 5
+  putMonster(s, 'm_left1', 'skeleton', s.stairs.x + 3, s.stairs.y)
+  putMonster(s, 'm_left2', 'skeleton', s.stairs.x + 4, s.stairs.y)
+  putMonster(s, 'm_left3', 'skeleton', s.stairs.x + 5, s.stairs.y)
+  putMonster(s, 'm_left4', 'skeleton', s.stairs.x + 6, s.stairs.y)
+  putMonster(s, 'm_left5', 'skeleton', s.stairs.x + 7, s.stairs.y)
+  descend(s)
+  const patience = profileStats(s.profiles.p_pat!).patience
+  check('la patience mesure la part tuée', patience !== null && Math.abs(patience - 0.5) < 0.01, `${((patience ?? 0) * 100).toFixed(0)} %`)
+}
+
+{
+  // Déterminisme : les profils n'introduisent aucune divergence entre deux
+  // parties de même graine — et sont eux-mêmes identiques au bit près.
+  const runOne = (): string => {
+    const s = createGame(3105)
+    addPlayer(s, 'p_det', 'Jumeau')
+    const input: PlayerInput = { mx: 1, my: 0.3, aim: 1, attack: true }
+    for (let i = 0; i < TICK_RATE * 5; i++) step(s, { p_det: input })
+    return JSON.stringify({ profiles: s.profiles, tick: s.tick, rng: s.rng, actors: Object.keys(s.actors).length })
+  }
+  check('deux parties de même graine ont le même profil', runOne() === runOne())
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)

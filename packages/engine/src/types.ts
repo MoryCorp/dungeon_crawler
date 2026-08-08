@@ -677,8 +677,57 @@ export interface GameState {
   /** Monstres de cet étage gardés en réserve, à livrer par la Directrice. */
   reserve: string[]
   director: DirectorState
+  /** Profil de style de chaque joueur, cumulé sur toute la partie. */
+  profiles: Record<string, PlayerProfile>
+  /** Monstres tués sur l'étage courant — le dénominateur de la patience. */
+  floorKills: number
   events: GameEvent[]
 }
+
+// --- Profils de style ---------------------------------------------------------
+
+/**
+ * Ce que l'engine sait du style d'un joueur — la matière première de la future
+ * adaptation (player modeling). L'engine ne fait que mesurer : aucune décision
+ * de gameplay ne se prend là-dessus pour l'instant, et aucun de ces champs ne
+ * touche au RNG — deux parties de même graine restent identiques au bit près.
+ *
+ * Tout est en sommes + comptes plutôt qu'en moyennes mobiles : les moyennes
+ * sont exactes, l'ordre d'accumulation ne compte pas, et une room rechargée
+ * trois jours plus tard reprend son profil exactement où il en était — une EMA
+ * pèserait encore le style d'avant-hier. Les seules EMA sont les vecteurs de
+ * direction, parce que là c'est précisément la récence qui est l'information.
+ */
+export interface PlayerProfile {
+  /** Portée : somme des distances attaquant → victime à chaque coup infligé. */
+  hitDistSum: number
+  hitCount: number
+  /** Mobilité : distance parcourue et ticks passés en combat. */
+  combatMoveSum: number
+  combatTicks: number
+  /** Encombrement : ennemis engagés aux moments où le joueur encaisse. */
+  crowdSum: number
+  hitsTakenCount: number
+  /** Cohésion : distance au coéquipier le plus proche, en combat, s'il existe. */
+  allyDistSum: number
+  allyTicks: number
+  /** Patience : part de l'étage tuée avant de descendre, par descente vécue. */
+  clearedSum: number
+  floorsSeen: number
+  /** Direction de déplacement en combat (EMA) : où ce joueur fuit d'habitude. */
+  fleeX: number
+  fleeY: number
+  /**
+   * Direction de déplacement tout court (EMA). C'est elle que lira une recette
+   * qui coupe la route : la Directrice livre pendant le calme, donc au moment
+   * de la décision le vecteur de fuite date du dernier combat — il est périmé.
+   */
+  moveX: number
+  moveY: number
+}
+
+/** Lissage des EMA de direction : environ 0,7 s de demi-vie à 30 ticks/s. */
+export const PROFILE_EMA_ALPHA = 0.033
 
 /** Portée à laquelle un monstre pèse sur la décision immédiate du joueur. */
 export const DIRECTOR_ENGAGE_RANGE = 6

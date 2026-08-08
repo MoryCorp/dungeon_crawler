@@ -223,6 +223,27 @@ function report(run: RunRecord): void {
     }
   }
 
+  // --- les profils de style --------------------------------------------------
+  // Le profil est cumulatif : celui du dernier étage qui en porte est le bon.
+  const profiled = [...run.floors].reverse().find((f) => f.profiles && Object.keys(f.profiles).length)
+  if (profiled?.profiles) {
+    console.log('\n── Profils de style ───────────────────────────────────────────')
+    console.log('  Comment chacun joue, mesuré — pas déclaré. C\'est la matière')
+    console.log('  première de la future adaptation : avant de s\'en servir, il faut')
+    console.log('  vérifier que ces chiffres décrivent vraiment le joueur.\n')
+    const fmt = (v: number | null, digits = 1, suffix = '') =>
+      v === null ? '—' : v.toFixed(digits) + suffix
+    for (const p of Object.values(profiled.profiles)) {
+      console.log(
+        `  ${p.name.padEnd(12)} portée ${fmt(p.range)} t · ` +
+          `mobilité ${fmt(p.mobility)} t/s · ` +
+          `encombrement ${fmt(p.crowding)} · ` +
+          `cohésion ${fmt(p.cohesion)}${p.cohesion === null ? '' : ' t'} · ` +
+          `patience ${p.patience === null ? '—' : (p.patience * 100).toFixed(0) + ' %'}`,
+      )
+    }
+  }
+
   // --- l'économie des cœurs --------------------------------------------------
   const hearts = run.floors.reduce(
     (a, f) => {

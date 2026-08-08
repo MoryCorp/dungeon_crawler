@@ -8,6 +8,7 @@
  */
 import { buildFlowField, decideMonsterAction } from './ai.js'
 import { createDirector, updateDirector } from './director.js'
+import { profileOf } from './profile.js'
 import { computeFov } from './fov.js'
 import { generateFloor, type Rect } from './mapgen.js'
 import { inAttackArc, moveWithCollision, separateActors, solidAt, unstick } from './physics.js'
@@ -70,6 +71,7 @@ import {
   PLACED_PER_FLOOR,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
+  PROFILE_EMA_ALPHA,
   PROJECTILE_RADIUS,
   PURSUE_MAX,
   PURSUE_STRIKE_GRACE,
@@ -364,6 +366,8 @@ export function createGame(seed: number, floor = 1): GameState {
     pursuers: [],
     reserve: [],
     director: createDirector(0),
+    profiles: {},
+    floorKills: 0,
     events: [],
   }
 
@@ -374,6 +378,22 @@ export function createGame(seed: number, floor = 1): GameState {
 
 export function descend(state: GameState): void {
   const rng = new Rng(state.rng)
+
+  // Patience : part de l'étage qu'on vient de quitter réellement tuée. Créditée
+  // à toute l'équipe présente — descendre est une décision de groupe, celui qui
+  // suit l'assume autant que celui qui appuie.
+  const remaining =
+    Object.values(state.actors).filter((a) => a.kind === 'monster' && a.alive).length +
+    state.reserve.length
+  const cleared = state.floorKills / Math.max(1, state.floorKills + remaining)
+  for (const a of Object.values(state.actors)) {
+    if (a.kind !== 'player') continue
+    const prof = profileOf(state, a.id)
+    prof.clearedSum += cleared
+    prof.floorsSeen += 1
+  }
+  state.floorKills = 0
+
   state.floor += 1
   const layout = generateFloor(rng, state.floor)
 
@@ -440,6 +460,86 @@ export function descend(state: GameState): void {
   state.events.push({ t: 'descend', floor: state.floor })
   if (state.pursuers.length > 0) {
     state.events.push({ t: 'pursuit', count: state.pursuers.length })
+  }
+}
+
+/**
+ * Accumulation du profil de style à chaque déplacement d'un joueur debout.
+ *
+ * `dx/dy` est le déplacement réel — murs, glissements et recul compris. Le
+ * recul encaissé compte donc comme du mouvement : c'est voulu, être ballotté en
+ * combat fait partie de la façon dont on le vit.
+ */
+function profileMovement(
+  state: GameState,
+  actor: Actor,
+  threats: Actor[],
+  dx: number,
+  dy: number,
+): void {
+  const prof = profileOf(state, actor.id)
+  prof.moveX += (dx - prof.moveX) * PROFILE_EMA_ALPHA
+  prof.moveY += (dy - prof.moveY) * PROFILE_EMA_ALPHA
+
+  const engaged = threats.some(
+    (m) => Math.hypot(m.x - actor.x, m.y - actor.y) <= DIRECTOR_ENGAGE_RANGE,
+  )
+  if (!engaged) return
+
+  prof.combatMoveSum += Math.hypot(dx, dy)
+  prof.combatTicks += 1
+  prof.fleeX += (dx - prof.fleeX) * PROFILE_EMA_ALPHA
+  prof.fleeY += (dy - prof.fleeY) * PROFILE_EMA_ALPHA
+
+  // Cohésion : à quelle distance du coéquipier le plus proche on se bat. Les
+  // ticks solo ne comptent pas — une moyenne polluée de parties jouées seul ne
+  // dirait rien du style, seulement de la fréquentation.
+  let nearest = Infinity
+  for (const other of Object.values(state.actors)) {
+    if (other.kind !== 'player' || other.id === actor.id || !other.alive || other.downed) continue
+    nearest = Math.min(nearest, Math.hypot(other.x - actor.x, other.y - actor.y))
+  }
+  if (nearest < Infinity) {
+    prof.allyDistSum += nearest
+    prof.allyTicks += 1
+  }
+}
+
+/**
+ * Lecture des événements du tick pour le profil : portée des coups infligés,
+ * encombrement au moment d'encaisser. Appelée après les projectiles — les
+ * touches à l'arc du tick font partie du tick — et sur la même liste
+ * d'événements que la Directrice.
+ */
+function updateProfilesFromEvents(state: GameState): void {
+  for (const ev of state.events) {
+    if (ev.t !== 'hit') continue
+
+    if (ev.fromSpecies === 'hero') {
+      // L'événement porte la position de la victime ; l'attaquant joueur est
+      // encore dans l'état au même tick — sauf s'il vient de se déconnecter,
+      // auquel cas la mesure saute, pas le tick.
+      const attacker = state.actors[ev.from]
+      if (attacker?.kind === 'player') {
+        const prof = profileOf(state, attacker.id)
+        prof.hitDistSum += Math.hypot(attacker.x - ev.x, attacker.y - ev.y)
+        prof.hitCount += 1
+      }
+    }
+
+    if (ev.toSpecies === 'hero') {
+      const victim = state.actors[ev.to]
+      if (victim?.kind === 'player') {
+        let near = 0
+        for (const m of Object.values(state.actors)) {
+          if (m.kind !== 'monster' || !m.alive) continue
+          if (Math.hypot(m.x - victim.x, m.y - victim.y) <= DIRECTOR_ENGAGE_RANGE) near++
+        }
+        const prof = profileOf(state, victim.id)
+        prof.crowdSum += near
+        prof.hitsTakenCount += 1
+      }
+    }
   }
 }
 
@@ -619,6 +719,8 @@ function waveSpecies(state: GameState): string | null {
 export function addPlayer(state: GameState, id: string, name: string): Actor {
   const existing = state.actors[id]
   if (existing) return existing
+  // Le profil, lui, survit aux allers-retours : il décrit le joueur, pas la session.
+  profileOf(state, id)
 
   const anchor = Object.values(state.actors).find(
     (a) => a.kind === 'player' && a.alive && !a.downed,
@@ -745,6 +847,7 @@ function killOrDown(state: GameState, victim: Actor, rng: Rng): void {
 
   victim.hp = 0
   victim.alive = false
+  state.floorKills += 1
   state.events.push({ t: 'death', id: victim.id, kind: victim.kind, species: victim.species, x: victim.x, y: victim.y })
   dropLoot(state, victim, rng)
   delete state.actors[victim.id]
@@ -898,6 +1001,8 @@ function explode(state: GameState, m: Actor, rng: Rng): void {
 
   m.hp = 0
   m.alive = false
+  // Le kamikaze meurt hors de killOrDown : il compte quand même pour l'étage.
+  state.floorKills += 1
   state.events.push({ t: 'death', id: m.id, kind: m.kind, species: m.species, x: m.x, y: m.y })
   dropLoot(state, m, rng)
   delete state.actors[m.id]
@@ -1197,6 +1302,9 @@ export function step(
   buildFlowField(state, flow, AGGRO_MAX_DIST + 4)
 
   // 3. Joueurs.
+  // Les monstres n'ont pas encore bougé ce tick : le profil mesure l'engagement
+  // à un tick près, ce qui ne change rien à une moyenne sur des minutes.
+  const threats = Object.values(state.actors).filter((a) => a.kind === 'monster' && a.alive)
   for (const actor of Object.values(state.actors)) {
     if (actor.kind !== 'player' || !actor.alive) continue
     const input = inputs[actor.id]
@@ -1213,11 +1321,16 @@ export function step(
     }
 
     const weapon = weaponOf(actor.weapon)
+    const beforeX = actor.x
+    const beforeY = actor.y
     movePhysical(
       state.tiles, state.width, state.height, actor,
       input.mx, input.my,
       playerSpeed(actor, state.tick < actor.swingUntil ? weapon.movePenalty : 1),
     )
+    if (!actor.downed) {
+      profileMovement(state, actor, threats, actor.x - beforeX, actor.y - beforeY)
+    }
   }
 
   // 4. Monstres.
@@ -1286,6 +1399,10 @@ export function step(
   for (const a of Object.values(state.actors)) {
     if (a.alive) unstick(state.tiles, state.width, state.height, a)
   }
+
+  // 4a. Profils de style : sur les mêmes événements que la Directrice, après
+  // les projectiles pour que les touches à l'arc du tick soient comptées.
+  updateProfilesFromEvents(state)
 
   // 4b. La Directrice. Elle passe en fin de tick, une fois les événements du
   // tick écrits : c'est là-dedans qu'elle lit les dégâts subis, et un appel plus

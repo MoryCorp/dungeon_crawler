@@ -16,6 +16,7 @@ import {
   WEAPONS,
   effectiveHp,
   floorScale,
+  profileStats,
   type GameEvent,
   type GameState,
 } from '@dc/engine'
@@ -109,6 +110,23 @@ export interface FloorRecord {
   hordes: number[]
   /** Monstres gardés en réserve à l'arrivée sur l'étage : ses munitions. */
   held: number
+
+  /**
+   * Profil de style de chaque joueur, tel qu'il était à la fin de l'étage.
+   * C'est un instantané du cumul de la partie, pas une mesure de l'étage : le
+   * dernier étage du relevé porte donc le profil le plus à jour.
+   */
+  profiles?: Record<
+    string,
+    {
+      name: string
+      range: number | null
+      mobility: number | null
+      crowding: number | null
+      cohesion: number | null
+      patience: number | null
+    }
+  >
 }
 
 /** Portée au-delà de laquelle un monstre ne pèse plus sur la décision immédiate. */
@@ -269,6 +287,25 @@ export class RunTelemetry {
       if (this.xpSeen >= 0 && xp > this.xpSeen) this.current.xpGained += xp - this.xpSeen
       this.xpSeen = xp
     }
+
+    // Instantané des profils : réécrit chaque tick, le relevé de l'étage garde
+    // donc l'état de fin d'étage. Coût nul à quatre joueurs.
+    const profiles: NonNullable<FloorRecord['profiles']> = {}
+    for (const a of Object.values(state.actors)) {
+      if (a.kind !== 'player') continue
+      const p = state.profiles?.[a.id]
+      if (!p) continue
+      const stats = profileStats(p)
+      profiles[a.id] = {
+        name: a.name,
+        range: stats.range,
+        mobility: stats.mobility,
+        crowding: stats.crowding,
+        cohesion: stats.cohesion,
+        patience: stats.patience,
+      }
+    }
+    if (Object.keys(profiles).length > 0) this.current.profiles = profiles
   }
 
   private record(state: GameState, ev: GameEvent): void {

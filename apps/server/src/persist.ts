@@ -103,6 +103,8 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     state.events = []
     state.pursuers ??= []
     state.reserve ??= []
+    state.profiles ??= {}
+    state.floorKills ??= 0
     // La Directrice repart d'une ardoise propre : son intensité mesure ce que le
     // joueur vient de vivre, et il ne vient de rien vivre du tout. Recharger un
     // pic vieux de trois jours livrerait une vague sur un donjon endormi.
