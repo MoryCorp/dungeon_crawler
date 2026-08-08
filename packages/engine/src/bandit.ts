@@ -44,16 +44,23 @@ import {
  * garde longtemps le bénéfice du doute, une recette éprouvée doit son rang à
  * ses résultats. Les recettes jamais tirées passent d'office en premier.
  */
-export function pickRecipe(arms: BanditArms, rng: Rng): Recipe {
+/**
+ * `allowed` restreint le tirage aux recettes jouables là où se trouve la
+ * cible : le bandit choisit parmi ce que la salle permet, pas dans l'absolu —
+ * une tenaille dans un couloir n'est pas une mauvaise idée à apprendre, c'est
+ * une impossibilité géométrique qu'il n'a pas à payer pour découvrir.
+ */
+export function pickRecipe(arms: BanditArms, rng: Rng, allowed: Recipe[] = RECIPES): Recipe {
+  if (allowed.length === 0) allowed = RECIPES
   // Part d'exploration pure : la surprise est une composante de la difficulté.
-  if (rng.next() < BANDIT_EXPLORE) return RECIPES[rng.int(RECIPES.length)]!
+  if (rng.next() < BANDIT_EXPLORE) return allowed[rng.int(allowed.length)]!
 
   let total = 0
-  for (const r of RECIPES) total += arms[r.name]?.n ?? 0
+  for (const r of allowed) total += arms[r.name]?.n ?? 0
 
-  let best: Recipe = RECIPES[0]!
+  let best: Recipe = allowed[0]!
   let bestScore = -Infinity
-  for (const r of RECIPES) {
+  for (const r of allowed) {
     const arm = arms[r.name]
     if (!arm || arm.n === 0) return r // jamais essayée : elle passe devant
     const mean = arm.sum / arm.n

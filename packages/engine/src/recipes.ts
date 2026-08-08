@@ -15,6 +15,7 @@
  * groupes (clouage, tenaille) livre donc deux groupes homogènes, chacun le sien.
  */
 import type { Rng } from './rng.js'
+import type { RoomKind } from './mapgen.js'
 import { MONSTERS, type Behavior } from './types.js'
 
 export type RecipeName = 'ruee' | 'clouage' | 'tenaille' | 'mur' | 'tireurs' | 'harcelement'
@@ -66,6 +67,32 @@ export const RECIPES: Recipe[] = [
   // Noyer sous le nombre : de l'essaim, plus nombreux mais fragile.
   { name: 'harcelement', sizeMult: 1.5, groups: [{ behavior: 'swarm', share: 1, placement: 'standard' }] },
 ]
+
+/**
+ * Les recettes jouables selon l'endroit où se trouve la cible. Le principe :
+ * on n'interdit que ce que la géométrie rend mensonger — une tenaille sans
+ * espace pour deux mâchoires, des tireurs sans ligne de vue. Le bandit
+ * apprend sur le reste.
+ *
+ * - arène : tout est jouable, c'est sa définition ;
+ * - galerie : longue et étroite — pas de tenaille, tout le reste brille ;
+ * - piliers : les lignes de vue sont cassées — ni tireurs ni clouage ;
+ * - couloir (hors de toute salle) : la ruée, le mur, le harcèlement — ce qui
+ *   n'a besoin ni de flancs ni de distance ;
+ * - standard et trésor : tout, comme avant le typage.
+ */
+export function recipesFor(kind: RoomKind | 'couloir'): Recipe[] {
+  switch (kind) {
+    case 'galerie':
+      return RECIPES.filter((r) => r.name !== 'tenaille')
+    case 'piliers':
+      return RECIPES.filter((r) => r.name !== 'tireurs' && r.name !== 'clouage')
+    case 'couloir':
+      return RECIPES.filter((r) => r.name === 'ruee' || r.name === 'mur' || r.name === 'harcelement')
+    default:
+      return RECIPES
+  }
+}
 
 /**
  * Chaînes de repli quand la classe demandée n'existe pas à cet étage — le

@@ -9,6 +9,8 @@
  * Tous les réglages de game feel sont ici et nulle part ailleurs.
  */
 
+import type { Room } from './mapgen.js'
+
 export const TICK_RATE = 30
 export const TICK_MS = 1000 / TICK_RATE
 export const DT = 1 / TICK_RATE
@@ -21,6 +23,12 @@ export const Tile = {
   Floor: 1,
   Door: 2,
   Stairs: 3,
+  /**
+   * Grille de la salle piégée : infranchissable mais transparente — on voit
+   * la vague qu'on affronte et les coéquipiers restés dehors voient tout.
+   * C'est un mur temporaire posé par le piège, jamais par la génération.
+   */
+  Gate: 4,
 } as const
 export type TileId = (typeof Tile)[keyof typeof Tile]
 
@@ -256,6 +264,21 @@ export const CHEST_PRICE_PER_FLOOR = 4
 
 export function chestPrice(floor: number): number {
   return CHEST_PRICE_BASE + CHEST_PRICE_PER_FLOOR * floor
+}
+
+// --- Salle piégée -----------------------------------------------------------
+
+/** Le tas d'ossements posé avec la récompense de la salle piégée. */
+export const TRAP_BONE_REWARD = 10
+/** Braseros allumés → grille : le temps de ressortir si on refuse le pari. */
+export const TRAP_WARNING_TICKS = ticks(1.5)
+/**
+ * Effectif de la vague enfermée avec les joueurs. Grossit avec l'étage mais
+ * plafonne : la salle est petite, au-delà ce n'est plus un combat, c'est une
+ * compression.
+ */
+export function trapWaveSize(floor: number): number {
+  return Math.min(10, 5 + Math.floor(floor / 2))
 }
 
 /**
@@ -906,8 +929,14 @@ export type GameEvent =
   | { t: 'pursuit'; count: number }
   /** Un poursuivant vient de déboucher de l'escalier. */
   | { t: 'arrive'; id: string; species: string; x: number; y: number }
-  /** La Directrice vient de livrer une vague, selon une recette. */
-  | { t: 'horde'; count: number; x: number; y: number; recipe: string }
+  /**
+   * La Directrice vient de livrer une vague, selon une recette. `groups` dit
+   * combien de groupes la recette demandait, `placed` combien ont trouvé un
+   * ancrage, `degraded` combien ont dû se rabattre sur un placement moins
+   * exigeant que demandé — c'est la mesure de ce que la carte refuse aux
+   * recettes, celle que les salles typées doivent faire baisser.
+   */
+  | { t: 'horde'; count: number; x: number; y: number; recipe: string; groups: number; placed: number; degraded: number }
   /**
    * Un objet vient d'apparaître au sol. Sans cet événement on ne peut pas
    * distinguer « aucun cœur n'est tombé » de « ils sont tous encore par terre »,
@@ -927,6 +956,12 @@ export type GameEvent =
   /** Attaque en préparation avortée par un coup encaissé. */
   | { t: 'stagger'; id: string; species: string; x: number; y: number }
   | { t: 'unlock' }
+  /** Salle piégée : braseros allumés, la grille tombe dans un instant. */
+  | { t: 'trapwarn'; x: number; y: number }
+  /** La grille est tombée : la salle est close, la vague arrive. */
+  | { t: 'trapclose'; x: number; y: number }
+  /** Salle nettoyée : la grille se relève. */
+  | { t: 'trapclear'; x: number; y: number }
   | { t: 'descend'; floor: number }
 
 export interface GameState {
@@ -966,7 +1001,25 @@ export interface GameState {
   floorKills: number
   /** Bourse d'équipe : les ossements ramassés, pas encore dépensés. */
   bones: number
+  /** Salles typées de l'étage courant — la matière des recettes filtrées. */
+  rooms: Room[]
+  /** La salle piégée de l'étage, si l'étage en a une. */
+  trap?: TrapState
   events: GameEvent[]
+}
+
+/**
+ * La salle piégée : un pari, pas une embuscade. La récompense est visible
+ * depuis la porte, les braseros s'allument dès qu'on entre, la grille laisse
+ * 1,5 s pour ressortir — celui qui reste a choisi de rester.
+ */
+export interface TrapState {
+  room: Room
+  phase: 'armed' | 'warning' | 'sprung' | 'done'
+  /** Tuiles rendues au sol quand la salle est nettoyée. */
+  gates: { x: number; y: number }[]
+  /** Phase warning : le tick où la grille tombe. */
+  closeAt?: number
 }
 
 // --- Profils de style ---------------------------------------------------------

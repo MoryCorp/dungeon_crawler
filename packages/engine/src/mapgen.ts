@@ -14,11 +14,29 @@ export interface Rect {
   h: number
 }
 
+/**
+ * Type d'une salle — décidé par sa forme, pas par un tirage : une salle longue
+ * EST une galerie, la typer autrement serait un mensonge que le joueur voit.
+ *
+ * - arène : grande et ouverte, tout y est jouable ;
+ * - galerie : longue, des lignes de vue — le terrain des tireurs ;
+ * - piliers : grande mais encombrée d'obstacles — les charges y ratent,
+ *   les projectiles s'y bloquent, la mêlée y tourne autour des blocs ;
+ * - trésor : la salle piégée, une récompense visible et une grille (au plus
+ *   une par étage, jamais celle du spawn ni de l'escalier) ;
+ * - standard : le reste.
+ */
+export type RoomKind = 'standard' | 'arene' | 'galerie' | 'piliers' | 'tresor'
+
+export interface Room extends Rect {
+  kind: RoomKind
+}
+
 export interface FloorLayout {
   width: number
   height: number
   tiles: Uint8Array
-  rooms: Rect[]
+  rooms: Room[]
   spawn: { x: number; y: number }
   stairs: { x: number; y: number }
 }
@@ -69,13 +87,40 @@ function carveCorridor(
   line(corner[0], corner[1], bx, by)
 }
 
+/**
+ * Piliers : des blocs de mur en quinconce dans la salle, à deux tuiles d'écart
+ * — assez pour circuler partout, assez serré pour casser les lignes de charge
+ * et les tirs tendus. La marge de 2 avec les murs garantit qu'aucun couloir
+ * débouchant ne peut être bouché par un pilier.
+ */
+function carvePillars(tiles: Uint8Array, w: number, room: Rect): void {
+  const [cx, cy] = center(room)
+  for (let py = room.y + 2; py < room.y + room.h - 2; py += 3) {
+    for (let px = room.x + 2; px < room.x + room.w - 2; px += 3) {
+      // Le centre reste libre : c'est là que se posent le spawn, l'escalier
+      // et les extrémités de couloir.
+      if (px === cx && py === cy) continue
+      tiles[py * w + px] = Tile.Wall
+    }
+  }
+}
+
+/** Le type que la forme impose. Les piliers se décident (et se creusent) après. */
+function kindOf(room: Rect, rng: Rng): RoomKind {
+  const long = Math.max(room.w, room.h)
+  const short = Math.min(room.w, room.h)
+  if (long >= 10 && long >= short * 2.2) return 'galerie'
+  if (room.w >= 9 && room.h >= 9) return rng.chance(0.5) ? 'arene' : 'piliers'
+  return 'standard'
+}
+
 function bsp(
   rng: Rng,
   area: Rect,
   depth: number,
   tiles: Uint8Array,
   w: number,
-  rooms: Rect[],
+  rooms: Room[],
 ): [number, number] {
   const canSplitV = area.w >= MIN_ROOM * 2 + 2
   const canSplitH = area.h >= MIN_ROOM * 2 + 2
@@ -124,8 +169,10 @@ function bsp(
   const rx = area.x + 1 + rng.int(Math.max(1, area.w - rw - 1))
   const ry = area.y + 1 + rng.int(Math.max(1, area.h - rh - 1))
 
-  const room: Rect = { x: rx, y: ry, w: rw, h: rh }
+  const room: Room = { x: rx, y: ry, w: rw, h: rh, kind: 'standard' }
   carveRect(tiles, w, room)
+  room.kind = kindOf(room, rng)
+  if (room.kind === 'piliers') carvePillars(tiles, w, room)
   rooms.push(room)
   return center(room)
 }
@@ -134,14 +181,14 @@ export function generateFloor(rng: Rng, floor: number): FloorLayout {
   const width = MAP_W
   const height = MAP_H
   const tiles = new Uint8Array(width * height).fill(Tile.Wall)
-  const rooms: Rect[] = []
+  const rooms: Room[] = []
 
   bsp(rng, { x: 1, y: 1, w: width - 2, h: height - 2 }, 0, tiles, width, rooms)
 
   // Sécurité : une carte sans salle est injouable. Ne devrait pas arriver avec
   // les dimensions actuelles, mais on ne veut pas d'un crash serveur pour ça.
   if (rooms.length === 0) {
-    const fallback: Rect = { x: 2, y: 2, w: 10, h: 10 }
+    const fallback: Room = { x: 2, y: 2, w: 10, h: 10, kind: 'standard' }
     carveRect(tiles, width, fallback)
     rooms.push(fallback)
   }
@@ -163,6 +210,23 @@ export function generateFloor(rng: Rng, floor: number): FloorLayout {
   }
   const [stx, sty] = center(stairsRoom)
   tiles[sty * width + stx] = Tile.Stairs
+
+  // La salle piégée : une par étage à partir du 3, petite — le pari doit se
+  // lire d'un coup d'œil depuis la porte, pas se découvrir au fond d'une
+  // arène. Jamais la salle du spawn ni celle de l'escalier : on ne piège ni
+  // l'arrivée ni l'objectif.
+  if (floor >= 3) {
+    const candidates = rooms.filter(
+      (r) =>
+        r !== spawnRoom &&
+        r !== stairsRoom &&
+        r.kind !== 'piliers' && // la grille + les blocs = un combat illisible
+        r.w >= 5 && r.h >= 5 && r.w <= 9 && r.h <= 9,
+    )
+    if (candidates.length > 0) {
+      candidates[rng.int(candidates.length)]!.kind = 'tresor'
+    }
+  }
 
   return {
     width,

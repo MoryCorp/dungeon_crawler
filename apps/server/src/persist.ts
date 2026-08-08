@@ -137,6 +137,9 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     // Les ossements sont additifs : une bourse absente est une bourse vide,
     // pas un état faux — pas de changement de version pour ça.
     state.bones ??= 0
+    // Salles typées : une sauvegarde d'avant n'en a pas. L'étage courant se
+    // joue alors « tout couloir » pour les recettes, le suivant sera typé.
+    state.rooms ??= []
     // La Directrice repart d'une ardoise propre : son intensité mesure ce que le
     // joueur vient de vivre, et il ne vient de rien vivre du tout. Recharger un
     // pic vieux de trois jours livrerait une vague sur un donjon endormi.

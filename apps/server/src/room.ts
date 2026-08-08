@@ -146,6 +146,12 @@ export class Room {
 
     this.telemetry.observe(this.state, this.state.events)
 
+    // La grille de la salle piégée modifie les tuiles en cours d'étage : le
+    // client repeint sa carte sur le prochain paquet `floor`.
+    for (const ev of this.state.events) {
+      if (ev.t === 'trapclose' || ev.t === 'trapclear') this.floorDirty = true
+    }
+
     if (this.floorDirty) {
       this.broadcast(this.floorMsg())
       this.floorDirty = false

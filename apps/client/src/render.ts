@@ -189,10 +189,14 @@ export class Renderer {
     app.stage.addChild(this.world)
   }
 
-  setFloor(width: number, height: number, tiles: Uint8Array): void {
+  setFloor(width: number, height: number, tiles: Uint8Array, keepExplored = false): void {
     this.width = width
     this.height = height
-    this.explored = new Uint8Array(width * height)
+    // Repeindre le même étage (la grille du piège vient de bouger) ne doit
+    // pas effacer ce qu'on a déjà exploré.
+    if (!keepExplored || this.explored.length !== width * height) {
+      this.explored = new Uint8Array(width * height)
+    }
 
     const canvas = makeCanvas(width * TILE, height * TILE)
     const ctx = canvas.getContext('2d')!
@@ -468,6 +472,18 @@ export class Renderer {
 
       case 'spend':
         this.spawnFloater(`−${ev.amount} os`, ev.x, ev.y, 0xe8c95a)
+        break
+
+      case 'trapwarn':
+        this.spawnFloater('les braseros s\'allument…', ev.x, ev.y, 0xe8845a)
+        break
+
+      case 'trapclose':
+        this.spawnFloater('LA GRILLE TOMBE', ev.x, ev.y, 0xe2686d)
+        break
+
+      case 'trapclear':
+        this.spawnFloater('la grille se relève', ev.x, ev.y, 0x8ee6a0)
         break
 
       case 'pickup': {

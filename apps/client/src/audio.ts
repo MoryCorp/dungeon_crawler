@@ -443,6 +443,23 @@ export class GameAudio {
         this.burst({ dur: 0.35, gain: 0.2, from: 500, to: 90, at: 0.1 })
         break
 
+      case 'trapwarn':
+        // Le crépitement des braseros : l'avertissement, pas encore la menace.
+        this.burst({ dur: 0.3, gain: 0.12, from: 2400, to: 900 })
+        this.tone({ freq: 220, type: 'triangle', dur: 0.4, gain: 0.1, at: 0.05 })
+        break
+
+      case 'trapclose':
+        // La grille : du métal qui tombe, sec et définitif.
+        this.tone({ freq: 90, to: 45, type: 'square', dur: 0.4, gain: 0.22 })
+        this.burst({ dur: 0.25, gain: 0.24, from: 3000, to: 200 })
+        break
+
+      case 'trapclear':
+        this.tone({ freq: 55, to: 110, type: 'square', dur: 0.5, gain: 0.16 })
+        this.burst({ dur: 0.3, gain: 0.12, from: 200, to: 1500, at: 0.15 })
+        break
+
       case 'descend':
         this.burst({ dur: 1.1, gain: 0.2, from: 1200, to: 70 })
         this.tone({ freq: 165, to: 82, type: 'triangle', dur: 1.0, gain: 0.14 })

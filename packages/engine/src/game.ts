@@ -10,9 +10,9 @@ import { buildFlowField, decideMonsterAction } from './ai.js'
 import { createDirector, updateDirector } from './director.js'
 import { profileOf } from './profile.js'
 import { pickRecipe, recordReward } from './bandit.js'
-import { planWave, type Placement } from './recipes.js'
+import { planWave, recipesFor, type Placement } from './recipes.js'
 import { computeFov } from './fov.js'
-import { generateFloor, type Rect } from './mapgen.js'
+import { generateFloor, type Rect, type Room } from './mapgen.js'
 import { inAttackArc, moveWithCollision, separateActors, solidAt, unstick } from './physics.js'
 import { Rng } from './rng.js'
 import type {
@@ -56,6 +56,9 @@ import {
   FOV_RADIUS,
   CARRIED_OF_CAP,
   HEART_DROP_CHANCE,
+  TRAP_BONE_REWARD,
+  TRAP_WARNING_TICKS,
+  trapWaveSize,
   BONE_PER_KILL,
   BONE_ELITE,
   BONE_BOSS,
@@ -284,7 +287,7 @@ function corridorTiles(state: GameState, rooms: Rect[]): { x: number; y: number 
   return out
 }
 
-function populate(state: GameState, rooms: Rect[], rng: Rng): void {
+function populate(state: GameState, rooms: Room[], rng: Rng): void {
   const pool = monsterPool(state.floor)
   const count = Math.min(PLACED_MAX_COUNT, PLACED_BASE_COUNT + state.floor * PLACED_PER_FLOOR)
 
@@ -292,8 +295,9 @@ function populate(state: GameState, rooms: Rect[], rng: Rng): void {
   // espèces au moment de livrer, pas le peuplement.
   state.reserveCount = DIRECTOR_RESERVE
   // On exclut la salle de spawn : arriver au milieu d'un comité d'accueil
-  // n'est pas une difficulté, c'est une frustration.
-  const spawnable = rooms.slice(1)
+  // n'est pas une difficulté, c'est une frustration. Et la salle piégée : son
+  // contenu, c'est le piège — la peupler d'office éventerait le pari.
+  const spawnable = rooms.slice(1).filter((r) => r.kind !== 'tresor')
   if (spawnable.length === 0) return
 
   // Les archers et les chargeurs sont ceux qui rendent un couloir terrifiant :
@@ -369,6 +373,20 @@ function populate(state: GameState, rooms: Rect[], rng: Rng): void {
     if (!isWalkableAt(state, x, y)) continue
     dropItem(state, { kind: 'chest', x, y })
   }
+
+  // La salle piégée : la récompense est posée au centre, visible depuis la
+  // porte — une arme, des cœurs, un tas d'ossements. Le piège s'arme, et tout
+  // le reste se joue dans stepTrap().
+  const treasure = rooms.find((r) => r.kind === 'tresor')
+  if (treasure) {
+    const tx = treasure.x + Math.floor(treasure.w / 2) + 0.5
+    const ty = treasure.y + Math.floor(treasure.h / 2) + 0.5
+    dropItem(state, { kind: 'weapon', x: tx, y: ty, weapon: rng.pick(LOOT_WEAPONS) })
+    dropItem(state, { kind: 'heart', x: tx - 0.8, y: ty + 0.6 })
+    dropItem(state, { kind: 'heart', x: tx + 0.8, y: ty + 0.6 })
+    dropItem(state, { kind: 'bone', x: tx, y: ty - 0.7, amount: TRAP_BONE_REWARD })
+    state.trap = { room: treasure, phase: 'armed', gates: [] }
+  }
 }
 
 function isWalkableAt(state: GameState, x: number, y: number): boolean {
@@ -428,6 +446,7 @@ export function createGame(seed: number, floor = 1): GameState {
     bandit: {},
     floorKills: 0,
     bones: 0,
+    rooms: layout.rooms,
     events: [],
   }
 
@@ -469,6 +488,8 @@ export function descend(state: GameState): void {
   state.stairsLocked = true
   state.projectiles = []
   state.items = []
+  state.rooms = layout.rooms
+  delete state.trap
 
   // Ce qu'on n'a pas tué nous suit. On garde en priorité les plus proches de
   // l'escalier : ce sont ceux qui nous collaient réellement, et ça laisse au
@@ -679,6 +700,7 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
   }
 
   if (wanted > 0) deliverHorde(state, wanted, visible, rng)
+  stepTrap(state, rng)
 }
 
 /**
@@ -700,7 +722,7 @@ function recipeAnchor(
   rng: Rng,
   target: Actor,
   opts: { minDist: number; maxDist: number; dir?: number; halfArc?: number },
-): { x: number; y: number } | null {
+): { x: number; y: number; degraded: boolean } | null {
   const sample = (
     minDist: number,
     maxDist: number,
@@ -735,11 +757,16 @@ function recipeAnchor(
     return best ? { x: best.x + 0.5, y: best.y + 0.5 } : null
   }
 
-  return (
-    sample(opts.minDist, opts.maxDist, opts.dir, opts.halfArc) ??
-    sample(opts.minDist, opts.maxDist) ??
-    sample(HORDE_MIN_DIST, HORDE_MAX_DIST)
-  )
+  // Le niveau de repli est une mesure, pas un détail : c'est la part des
+  // demandes de recette que la carte actuelle refuse — la géométrie typée
+  // doit la faire baisser, et sans chiffre d'avant il n'y a pas de chantier.
+  const asAsked = sample(opts.minDist, opts.maxDist, opts.dir, opts.halfArc)
+  if (asAsked) return { ...asAsked, degraded: false }
+  // Sans secteur c'est un repli ; sans secteur demandé, une simple relance.
+  const noSector = sample(opts.minDist, opts.maxDist)
+  if (noSector) return { ...noSector, degraded: opts.dir !== undefined }
+  const anyBand = sample(HORDE_MIN_DIST, HORDE_MAX_DIST)
+  return anyBand ? { ...anyBand, degraded: true } : null
 }
 
 /** Bande de distance et secteur d'un placement de recette, pour cette cible. */
@@ -816,7 +843,12 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   // joueur à l'arc — changer d'arme ouvre un carnet neuf, que l'UCB remplit
   // en quelques vagues, sans polluer ni perdre le carnet précédent.
   const context = `${target.id}:${target.weapon ?? 'sword'}`
-  const recipe = pickRecipe((state.bandit[context] ??= {}), rng)
+  // Le bandit ne choisit que parmi les recettes jouables là où est la cible :
+  // le type de la salle filtre, le couloir plus encore.
+  const targetRoom = state.rooms.find((r) => insideRoom(r, target.x, target.y))
+  const recipe = pickRecipe(
+    (state.bandit[context] ??= {}), rng, recipesFor(targetRoom?.kind ?? 'couloir'),
+  )
   const stock = state.pursuers.length + state.reserveCount
   const total = Math.min(stock, Math.max(1, Math.round(count * recipe.sizeMult)))
   if (total <= 0) return
@@ -832,6 +864,8 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   const flankAngle = rng.next() * Math.PI * 2
 
   let placed = 0
+  let groupsPlaced = 0
+  let groupsDegraded = 0
   let eventAnchor: { x: number; y: number } | null = null
   // Une escouade par groupe, pas par vague : les deux mâchoires d'une tenaille
   // arrivent de deux côtés opposés et n'ont aucune raison de s'attendre l'une
@@ -846,6 +880,8 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
     // Pas d'emplacement pour ce groupe : sa part reste en stock pour la
     // prochaine vague, dette comprise.
     if (!anchor) continue
+    groupsPlaced++
+    if (anchor.degraded) groupsDegraded++
     eventAnchor ??= anchor
 
     const groupSize = group.fromDebt + group.fromReserve
@@ -903,6 +939,9 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
       x: eventAnchor.x,
       y: eventAnchor.y,
       recipe: recipe.name,
+      groups: plan.length,
+      placed: groupsPlaced,
+      degraded: groupsDegraded,
     })
     // La fenêtre s'ouvre : ce que cette vague produit s'inscrira à son levier.
     state.banditPending = {
@@ -912,6 +951,107 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
       peak: 0,
       hurt: 0,
     }
+  }
+}
+
+const insideRoom = (r: Rect, x: number, y: number): boolean =>
+  x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
+
+/**
+ * La salle piégée, phase par phase. Armée : entrer allume les braseros et
+ * annonce la grille — 1,5 s pour ressortir, le pari se refuse. Ressortis à
+ * temps : le piège se réarme, rien n'est perdu. Restés dedans : la grille
+ * tombe, une vague composée par la Directrice apparaît DANS la salle — hors
+ * réserve, c'est du contenu en plus, pas un emprunt sur les vagues normales.
+ * Salle vide de monstres : la grille se relève, définitivement.
+ */
+function stepTrap(state: GameState, rng: Rng): void {
+  const trap = state.trap
+  if (!trap || trap.phase === 'done') return
+  const room = trap.room
+  const cx = room.x + room.w / 2
+  const cy = room.y + room.h / 2
+
+  const playersInside = Object.values(state.actors).filter(
+    (a) => a.kind === 'player' && a.alive && insideRoom(room, a.x, a.y),
+  )
+
+  if (trap.phase === 'armed') {
+    if (playersInside.length > 0) {
+      trap.phase = 'warning'
+      trap.closeAt = state.tick + TRAP_WARNING_TICKS
+      state.events.push({ t: 'trapwarn', x: cx, y: cy })
+    }
+    return
+  }
+
+  if (trap.phase === 'warning') {
+    if (state.tick < (trap.closeAt ?? 0)) return
+    if (playersInside.length === 0) {
+      // Sortis à temps : pari refusé, le piège se réarme sans rancune.
+      trap.phase = 'armed'
+      delete trap.closeAt
+      return
+    }
+    // La grille tombe : toutes les tuiles franchissables du pourtour immédiat.
+    for (let y = room.y - 1; y <= room.y + room.h; y++) {
+      for (let x = room.x - 1; x <= room.x + room.w; x++) {
+        const onRing = x < room.x || x >= room.x + room.w || y < room.y || y >= room.y + room.h
+        if (!onRing || x < 0 || y < 0 || x >= state.width || y >= state.height) continue
+        const idx = y * state.width + x
+        if (state.tiles[idx] === Tile.Floor || state.tiles[idx] === Tile.Door) {
+          state.tiles[idx] = Tile.Gate
+          trap.gates.push({ x, y })
+        }
+      }
+    }
+    state.events.push({ t: 'trapclose', x: cx, y: cy })
+
+    // La vague, composée comme n'importe quelle vague : recette du bandit
+    // (contexte du joueur le mieux portant dans la salle), groupes mono-espèce.
+    const target = playersInside.reduce((b, a) => (a.hp / a.maxHp > b.hp / b.maxHp ? a : b))
+    const context = `${target.id}:${target.weapon ?? 'sword'}`
+    const recipe = pickRecipe((state.bandit[context] ??= {}), rng)
+    const plan = planWave(recipe, trapWaveSize(state.floor), monsterPool(state.floor), new Map(), rng)
+    for (const group of plan) {
+      const squad = `t${state.tick}_${group.placement}`
+      for (let i = 0; i < group.fromDebt + group.fromReserve; i++) {
+        // Dans la salle, mais jamais collé à un joueur : le monstre apparaît
+        // à au moins deux tuiles, sinon le premier coup part sans télégraphe.
+        let sx = cx
+        let sy = cy
+        for (let tries = 0; tries < 30; tries++) {
+          const x = room.x + 0.5 + rng.next() * (room.w - 1)
+          const y = room.y + 0.5 + rng.next() * (room.h - 1)
+          if (!isWalkableAt(state, x, y)) continue
+          if (playersInside.some((p) => Math.hypot(p.x - x, p.y - y) < 2)) continue
+          sx = x
+          sy = y
+          break
+        }
+        const spot = findFreeSpot(state, sx, sy)
+        const actor = spawnMonster(
+          state, `t${state.floor}_${state.nextId++}`, group.species, spot.x, spot.y, 'normal', rng,
+        )
+        actor.readyAt = state.tick + PURSUE_STRIKE_GRACE
+        actor.aggroUntil = state.tick + AGGRO_MEMORY * 4
+        actor.squad = squad
+        actor.squadUntil = state.tick + SQUAD_PATIENCE
+      }
+    }
+    trap.phase = 'sprung'
+    return
+  }
+
+  // sprung : la grille tient tant qu'il reste un monstre dans la salle.
+  const monstersInside = Object.values(state.actors).some(
+    (a) => a.kind === 'monster' && a.alive && insideRoom(room, a.x, a.y),
+  )
+  if (!monstersInside) {
+    for (const g of trap.gates) state.tiles[g.y * state.width + g.x] = Tile.Floor
+    trap.gates = []
+    trap.phase = 'done'
+    state.events.push({ t: 'trapclear', x: cx, y: cy })
   }
 }
 

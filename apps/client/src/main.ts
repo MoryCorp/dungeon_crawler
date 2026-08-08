@@ -84,6 +84,7 @@ async function main(): Promise<void> {
   let tiles: Uint8Array | null = null
   let mapW = 0
   let mapH = 0
+  let lastFloor = 0
   let alive = true
   let downed = false
   let weaponId = STARTING_WEAPON
@@ -150,16 +151,19 @@ async function main(): Promise<void> {
       }
 
       case 'floor': {
+        // Même étage : c'est une mise à jour de tuiles (la grille du piège),
+        // pas une descente — on garde l'exploration et la position prédite.
+        const samefloor = msg.floor === lastFloor && mapSize === msg.width * msg.height
+        lastFloor = msg.floor
         mapW = msg.width
         mapH = msg.height
         debug.floors++
         mapSize = msg.width * msg.height
         tiles = fromBase64(msg.tiles)
-        renderer.setFloor(msg.width, msg.height, tiles)
+        renderer.setFloor(msg.width, msg.height, tiles, samefloor)
         audio.setFloor(msg.floor)
         floorLabel.textContent = String(msg.floor)
-        // Nouvel étage : la position prédite n'a plus de sens.
-        localReady = false
+        if (!samefloor) localReady = false
         break
       }
 

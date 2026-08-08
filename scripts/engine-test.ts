@@ -14,6 +14,8 @@ import {
   BONE_PER_KILL,
   BONE_ELITE,
   chestPrice,
+  TRAP_WARNING_TICKS,
+  trapWaveSize,
   HEART_HEAL_RATIO,
   MAP_H,
   CARRIED_OF_CAP,
@@ -659,6 +661,116 @@ console.log('\nTests engine\n')
   for (let i = 0; i < 3; i++) step(s, noInputs)
   const heal = Math.max(HEART_HEAL_MIN, Math.round(hero.maxHp * HEART_HEAL_RATIO))
   check('un cœur soigne quand on est blessé', hero.hp >= 5 + heal - 1, `${hero.hp} PV`)
+}
+
+// --- salles typées : la forme ne ment pas -----------------------------------
+{
+  const kinds = new Set<string>()
+  let lies = 0
+  let treasures = 0
+  let isolated = 0
+  for (const seed of [11, 222, 3333, 44444, 20260808]) {
+    const layout = generateFloor(new Rng(seed), 5)
+    let tresorHere = 0
+    for (const r of layout.rooms) {
+      kinds.add(r.kind)
+      const long = Math.max(r.w, r.h)
+      const short = Math.min(r.w, r.h)
+      if (r.kind === 'galerie' && (long < 10 || long < short * 2.2)) lies++
+      if ((r.kind === 'arene' || r.kind === 'piliers') && (r.w < 9 || r.h < 9)) lies++
+      if (r.kind === 'tresor') tresorHere++
+    }
+    if (tresorHere > 1) lies++
+    treasures += tresorHere
+
+    // Les piliers ne doivent isoler aucune case : BFS sur tout le praticable.
+    const seen2 = new Uint8Array(MAP_W * MAP_H)
+    const q = [layout.spawn.y * MAP_W + layout.spawn.x]
+    seen2[q[0]!] = 1
+    let h2 = 0
+    while (h2 < q.length) {
+      const idx = q[h2++]!
+      const x = idx % MAP_W
+      const y = (idx / MAP_W) | 0
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const ni = (y + dy) * MAP_W + (x + dx)
+        if (x + dx < 0 || y + dy < 0 || x + dx >= MAP_W || y + dy >= MAP_H) continue
+        if (seen2[ni] || !isWalkable(layout.tiles[ni]!)) continue
+        seen2[ni] = 1
+        q.push(ni)
+      }
+    }
+    for (let i = 0; i < MAP_W * MAP_H; i++) {
+      if (isWalkable(layout.tiles[i]!) && !seen2[i]) isolated++
+    }
+  }
+  check('les types de salle sortent tous', kinds.size >= 4, [...kinds].join(', '))
+  check('aucun type ne ment sur sa forme', lies === 0, `${lies} mensonge(s)`)
+  check('des salles au trésor existent en profondeur', treasures >= 1, `${treasures} sur 5 graines`)
+  check('les piliers n\'isolent aucune case', isolated === 0, `${isolated} case(s) coupée(s)`)
+  const early = generateFloor(new Rng(77), 1)
+  check('pas de salle piégée à l\'étage 1', !early.rooms.some((r) => r.kind === 'tresor'))
+}
+
+// --- salle piégée : un pari, pas une embuscade ------------------------------
+{
+  // On cherche une graine dont l'étage 3 a une salle piégée.
+  let s: GameState | null = null
+  for (const seed of [101, 202, 303, 404, 505, 606]) {
+    const cand = createGame(seed)
+    addPlayer(cand, 'p_trap', 'Parieur')
+    clearMonsters(cand)
+    descend(cand)
+    clearMonsters(cand)
+    descend(cand)
+    clearMonsters(cand)
+    if (cand.trap) {
+      s = cand
+      break
+    }
+  }
+  check('une salle piégée finit par apparaître', s !== null)
+  if (s) {
+    const trap = s.trap!
+    const hero = s.actors['p_trap']!
+    const room = trap.room
+    check('sa récompense est posée dedans', s.items.some(
+      (i) => i.kind === 'weapon' && i.x >= room.x && i.x < room.x + room.w,
+    ))
+
+    // Entrer allume les braseros…
+    hero.x = room.x + room.w / 2
+    hero.y = room.y + room.h / 2
+    step(s, noInputs)
+    check('entrer déclenche l\'avertissement', trap.phase === 'warning')
+    check('l\'avertissement est annoncé', s.events.some((e) => e.t === 'trapwarn'))
+
+    // …ressortir à temps refuse le pari.
+    hero.x = room.x - 3
+    for (let i = 0; i < TRAP_WARNING_TICKS + 2; i++) step(s, noInputs)
+    check('ressortir à temps réarme le piège', trap.phase === 'armed')
+
+    // Rester : la grille tombe, une vague apparaît dans la salle.
+    hero.x = room.x + room.w / 2
+    hero.hp = hero.maxHp
+    for (let i = 0; i < TRAP_WARNING_TICKS + 3; i++) step(s, noInputs)
+    check('rester fait tomber la grille', trap.phase === 'sprung')
+    check('la grille est posée en tuiles', trap.gates.length > 0 &&
+      trap.gates.every((g) => s!.tiles[g.y * s!.width + g.x] === Tile.Gate), `${trap.gates.length} tuile(s)`)
+    const inside = Object.values(s.actors).filter(
+      (a) => a.kind === 'monster' && a.alive &&
+        a.x >= room.x && a.x < room.x + room.w && a.y >= room.y && a.y < room.y + room.h,
+    )
+    check('la vague apparaît dans la salle', inside.length >= 3, `${inside.length} monstre(s)`)
+    check('la vague grossit avec l\'étage', trapWaveSize(10) > trapWaveSize(3),
+      `${trapWaveSize(3)} -> ${trapWaveSize(10)}`)
+
+    // Salle nettoyée : la grille se relève, et c'est fini.
+    clearMonsters(s)
+    step(s, noInputs)
+    check('salle vide : la grille se relève', trap.phase === 'done' &&
+      trap.gates.length === 0 && s.events.some((e) => e.t === 'trapclear'))
+  }
 }
 
 // --- ossements : la monnaie de la descente ----------------------------------

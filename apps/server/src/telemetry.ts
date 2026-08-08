@@ -163,6 +163,24 @@ export interface FloorRecord {
   /** Recettes des vagues livrées : combien de fois chacune est sortie. */
   recipes?: Tally
   /**
+   * Ce que la carte refuse aux recettes : groupes demandés, placés, et placés
+   * en mode dégradé (secteur abandonné ou bande élargie). La mesure d'avant
+   * du chantier salles typées — s'il marche, `degraded` baisse.
+   */
+  recipeGroups?: number
+  recipeGroupsPlaced?: number
+  recipeGroupsDegraded?: number
+  /** Salle piégée : grilles tombées, salles nettoyées (la différence = fuites ou morts dedans). */
+  trapsSprung?: number
+  trapsCleared?: number
+  /**
+   * Part de chaque vague encore groupée au moment du premier contact : 1 =
+   * tous les membres à portée d'escouade du premier engagé. Une vague qui
+   * arrive en file indienne est exactement ce que les vagues devaient
+   * corriger — cette liste est le contrôle de la promesse.
+   */
+  waveWholeness?: number[]
+  /**
    * Ce que le bandit a appris, par contexte `joueur:arme` : tirages et gain
    * moyen de chaque recette. Un carnet par arme portée — ce qui marche contre
    * un joueur à la dague ne dit rien contre le même joueur à l'arc.
@@ -245,6 +263,8 @@ export function terrainAt(state: GameState, x: number, y: number): Terrain {
 
 /** Portée au-delà de laquelle un monstre ne pèse plus sur la décision immédiate. */
 const ENGAGE_RANGE = 6
+/** Rayon « encore groupé » d'une vague au contact : la portée d'escouade. */
+const WHOLE_RADIUS = 7
 /** Au-delà, on regroupe : distinguer 11 de 12 assaillants n'apprend rien. */
 const ENGAGE_BUCKETS = 11
 /** Distance sous laquelle on considère que le joueur campe l'entrée. */
@@ -315,6 +335,9 @@ export class RunTelemetry {
   private hpBefore = new Map<string, number>()
   /** Effectif engagé au tick précédent : dit si une vague tombe en plein combat. */
   private lastEngaged = 0
+  /** Effectif livré de chaque escouade, et celles déjà arrivées au contact. */
+  private squadSize = new Map<string, number>()
+  private squadArrived = new Set<string>()
 
   constructor(
     readonly room: string,
@@ -408,6 +431,37 @@ export class RunTelemetry {
     }
     this.current.engaged[Math.min(engagedPeak, ENGAGE_BUCKETS)]! += 1
     this.lastEngaged = engagedPeak
+
+    // Vagues entières : au premier contact d'une escouade, quelle part est
+    // encore groupée ? L'effectif de référence est le maximum observé — les
+    // membres tombés en route comptent comme dispersés, c'est le but.
+    const squads = new Map<string, typeof monsters>()
+    for (const m of monsters) {
+      if (m.squad === undefined) continue
+      const list = squads.get(m.squad) ?? []
+      list.push(m)
+      squads.set(m.squad, list)
+    }
+    const standing = Object.values(state.actors).filter(
+      (a) => a.kind === 'player' && a.alive && !a.downed,
+    )
+    for (const [id, members] of squads) {
+      const size = Math.max(this.squadSize.get(id) ?? 0, members.length)
+      this.squadSize.set(id, size)
+      if (this.squadArrived.has(id)) continue
+      let contact: (typeof members)[number] | null = null
+      for (const m of members) {
+        if (standing.some((p) => Math.hypot(m.x - p.x, m.y - p.y) <= ENGAGE_RANGE)) {
+          contact = m
+          break
+        }
+      }
+      if (!contact) continue
+      this.squadArrived.add(id)
+      const c = contact
+      const together = members.filter((m) => Math.hypot(m.x - c.x, m.y - c.y) <= WHOLE_RADIUS).length
+      ;(this.current.waveWholeness ??= []).push(Math.round((together / size) * 100) / 100)
+    }
     // Le terrain suit le même joueur que l'effectif : c'est le plus exposé qui
     // décide de la nature de l'instant, et les deux mesures se croisent.
     if (exposedAt) {
@@ -530,12 +584,22 @@ export class RunTelemetry {
         this.current.bonesSpent = (this.current.bonesSpent ?? 0) + ev.amount
         break
 
+      case 'trapclose':
+        this.current.trapsSprung = (this.current.trapsSprung ?? 0) + 1
+        break
+
+      case 'trapclear':
+        this.current.trapsCleared = (this.current.trapsCleared ?? 0) + 1
+        break
+
       case 'descend': {
         const level = this.current.levelOut
         this.current = emptyFloor(ev.floor, level)
         this.floors.push(this.current)
         this.dangerTicks = 0
         this.needsCensus = true
+        this.squadSize.clear()
+        this.squadArrived.clear()
         break
       }
 
@@ -553,6 +617,9 @@ export class RunTelemetry {
           this.current.hordesInFight = (this.current.hordesInFight ?? 0) + 1
         }
         bump((this.current.recipes ??= {}), ev.recipe)
+        this.current.recipeGroups = (this.current.recipeGroups ?? 0) + ev.groups
+        this.current.recipeGroupsPlaced = (this.current.recipeGroupsPlaced ?? 0) + ev.placed
+        this.current.recipeGroupsDegraded = (this.current.recipeGroupsDegraded ?? 0) + ev.degraded
         break
 
       default:

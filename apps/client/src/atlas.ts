@@ -434,6 +434,18 @@ export function paintTile(
     ctx.fillRect(px + 2, py + 2, TILE - 4, 1)
     ctx.fillStyle = '#8a8f9e'
     ctx.fillRect(px + 11, py + 8, 2, 2)
+  } else if (tile === Tile.Gate) {
+    // La grille de la salle piégée : des barreaux sur fond de sol — on voit
+    // au travers, on ne passe pas.
+    ctx.fillStyle = FLOOR_DARK
+    ctx.fillRect(px, py, TILE, TILE)
+    ctx.fillStyle = '#23252e'
+    ctx.fillRect(px, py, TILE, 2)
+    ctx.fillRect(px, py + TILE - 2, TILE, 2)
+    ctx.fillStyle = '#8a8f9e'
+    for (let i = 0; i < 4; i++) ctx.fillRect(px + 2 + i * 4, py, 2, TILE)
+    ctx.fillStyle = '#b8bdc9'
+    for (let i = 0; i < 4; i++) ctx.fillRect(px + 2 + i * 4, py, 1, 1)
   } else if (tile === Tile.Stairs) {
     // Marches qui s'enfoncent dans le noir : la destination est l'obscurité.
     ctx.fillStyle = FLOOR_BASE

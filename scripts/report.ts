@@ -354,6 +354,33 @@ function report(run: RunRecord): void {
       .map(([r, n]) => `${r} ×${n}`)
       .join(' · ')
     if (recipeLine) console.log(`  Recettes : ${recipeLine}`)
+
+    // Ce que la carte refuse aux recettes — la mesure d'avant des salles
+    // typées. Un groupe « dégradé » a perdu son secteur ou sa bande : la
+    // tenaille livrée en tas n'est plus une tenaille.
+    const gAsked = run.floors.reduce((a, f) => a + (f.recipeGroups ?? 0), 0)
+    const gPlaced = run.floors.reduce((a, f) => a + (f.recipeGroupsPlaced ?? 0), 0)
+    const gDegraded = run.floors.reduce((a, f) => a + (f.recipeGroupsDegraded ?? 0), 0)
+    if (gAsked > 0) {
+      console.log(
+        `  Géométrie : ${gPlaced}/${gAsked} groupes placés, ` +
+          `${gDegraded} dégradés (${((gDegraded / Math.max(1, gPlaced)) * 100).toFixed(0)} % du placé)`,
+      )
+    }
+    const wholeness = run.floors.flatMap((f) => f.waveWholeness ?? [])
+    if (wholeness.length > 0) {
+      const whole = wholeness.filter((w) => w >= 0.8).length
+      const mean = wholeness.reduce((a, b) => a + b, 0) / wholeness.length
+      console.log(
+        `  Vagues entières au contact : ${whole}/${wholeness.length} ` +
+          `(≥80 % groupée) · part groupée moyenne ${(mean * 100).toFixed(0)} %`,
+      )
+    }
+    const sprung = run.floors.reduce((a, f) => a + (f.trapsSprung ?? 0), 0)
+    const cleared = run.floors.reduce((a, f) => a + (f.trapsCleared ?? 0), 0)
+    if (sprung > 0) {
+      console.log(`  Salles piégées : ${sprung} grille(s) tombée(s), ${cleared} nettoyée(s)`)
+    }
     if (perFloor < 1) {
       console.log(
         '  → Presque aucune vague : soit la pression ne retombe jamais assez pour\n' +
