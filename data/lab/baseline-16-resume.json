@@ -1,0 +1,1023 @@
+[
+ {
+  "name": "quatuor·prudent·humain",
+  "runs": 16,
+  "floorMed": 7,
+  "floorP25": 6,
+  "floorP75": 9,
+  "firstDeathMed": 5,
+  "reach10": 0.0625,
+  "deathsPerFloor": 1.5420560747663552,
+  "downedBy": {
+   "skeleton_mage": 188,
+   "orc_bomber": 1,
+   "skeleton_rogue": 37,
+   "orc_warrior": 91,
+   "orc_mage": 82,
+   "skeleton_warrior": 10,
+   "orc_rogue": 4,
+   "bat": 2,
+   "skeleton": 3,
+   "orc": 1
+  },
+  "downTerrain": {
+   "grande": 191,
+   "couloir": 152,
+   "petite": 76
+  },
+  "stalled": 13
+ },
+ {
+  "name": "quatuor·prudent·optimal",
+  "runs": 16,
+  "floorMed": 7,
+  "floorP25": 6,
+  "floorP75": 8,
+  "firstDeathMed": 6,
+  "reach10": 0.0625,
+  "deathsPerFloor": 0.8888888888888888,
+  "downedBy": {
+   "skeleton_mage": 210,
+   "orc_mage": 190,
+   "orc_warrior": 46,
+   "skeleton_warrior": 3,
+   "skeleton_rogue": 6,
+   "bat": 3
+  },
+  "downTerrain": {
+   "grande": 134,
+   "couloir": 195,
+   "petite": 129
+  },
+  "stalled": 15
+ },
+ {
+  "name": "duo·prudent·optimal",
+  "runs": 16,
+  "floorMed": 5,
+  "floorP25": 4,
+  "floorP75": 6,
+  "firstDeathMed": 4,
+  "reach10": 0,
+  "deathsPerFloor": 1.105263157894737,
+  "downedBy": {
+   "skeleton_mage": 76,
+   "orc_warrior": 20,
+   "skeleton_rogue": 3,
+   "orc_mage": 23,
+   "orc_rogue": 2,
+   "skeleton_warrior": 4,
+   "orc": 2,
+   "orc_bomber": 1
+  },
+  "downTerrain": {
+   "couloir": 54,
+   "grande": 40,
+   "petite": 37
+  },
+  "stalled": 12
+ },
+ {
+  "name": "bow·presse·humain",
+  "runs": 16,
+  "floorMed": 5,
+  "floorP25": 3,
+  "floorP75": 5,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.9838709677419355,
+  "downedBy": {
+   "skeleton_mage": 21,
+   "skeleton_rogue": 6,
+   "skeleton_warrior": 3,
+   "orc_rogue": 14,
+   "bat": 9,
+   "orc": 7,
+   "orc_bomber": 1
+  },
+  "downTerrain": {
+   "grande": 33,
+   "petite": 11,
+   "couloir": 17
+  },
+  "stalled": 8
+ },
+ {
+  "name": "spear·kite·humain",
+  "runs": 16,
+  "floorMed": 4,
+  "floorP25": 3,
+  "floorP75": 5,
+  "firstDeathMed": 4,
+  "reach10": 0,
+  "deathsPerFloor": 1.2033898305084745,
+  "downedBy": {
+   "skeleton_rogue": 10,
+   "skeleton_mage": 48,
+   "orc_rogue": 3,
+   "orc_warrior": 8,
+   "skeleton_warrior": 1,
+   "orc": 1
+  },
+  "downTerrain": {
+   "couloir": 27,
+   "petite": 26,
+   "grande": 18
+  },
+  "stalled": 6
+ },
+ {
+  "name": "bow·kite·humain",
+  "runs": 16,
+  "floorMed": 4,
+  "floorP25": 3,
+  "floorP75": 5,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.8245614035087719,
+  "downedBy": {
+   "skeleton_mage": 22,
+   "bat": 6,
+   "orc": 7,
+   "orc_rogue": 7,
+   "skeleton": 4,
+   "skeleton_rogue": 2
+  },
+  "downTerrain": {
+   "petite": 16,
+   "grande": 15,
+   "couloir": 17
+  },
+  "stalled": 11
+ },
+ {
+  "name": "bow·bourrin·humain",
+  "runs": 16,
+  "floorMed": 4,
+  "floorP25": 3,
+  "floorP75": 5,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.2666666666666666,
+  "downedBy": {
+   "bat": 8,
+   "orc_rogue": 7,
+   "skeleton_mage": 36,
+   "orc": 7,
+   "skeleton_rogue": 11,
+   "orc_warrior": 7
+  },
+  "downTerrain": {
+   "petite": 19,
+   "couloir": 28,
+   "grande": 29
+  },
+  "stalled": 6
+ },
+ {
+  "name": "duo·prudent·humain",
+  "runs": 16,
+  "floorMed": 4,
+  "floorP25": 3,
+  "floorP75": 5,
+  "firstDeathMed": 4,
+  "reach10": 0,
+  "deathsPerFloor": 1.564516129032258,
+  "downedBy": {
+   "orc": 5,
+   "skeleton_mage": 117,
+   "skeleton_rogue": 6,
+   "orc_warrior": 11,
+   "skeleton": 1,
+   "orc_rogue": 1,
+   "orc_bomber": 2,
+   "orc_mage": 3
+  },
+  "downTerrain": {
+   "grande": 47,
+   "couloir": 70,
+   "petite": 29
+  },
+  "stalled": 11
+ },
+ {
+  "name": "sword·kite·humain",
+  "runs": 16,
+  "floorMed": 4,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.4464285714285714,
+  "downedBy": {
+   "skeleton": 1,
+   "skeleton_mage": 62,
+   "orc_warrior": 7,
+   "orc": 3,
+   "orc_rogue": 2,
+   "skeleton_warrior": 2,
+   "skeleton_rogue": 5
+  },
+  "downTerrain": {
+   "petite": 22,
+   "grande": 31,
+   "couloir": 29
+  },
+  "stalled": 4
+ },
+ {
+  "name": "axe·presse·humain",
+  "runs": 16,
+  "floorMed": 4,
+  "floorP25": 2,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.163265306122449,
+  "downedBy": {
+   "skeleton_mage": 54,
+   "skeleton_rogue": 3
+  },
+  "downTerrain": {
+   "petite": 10,
+   "couloir": 27,
+   "grande": 20
+  },
+  "stalled": 7
+ },
+ {
+  "name": "axe·kite·humain",
+  "runs": 16,
+  "floorMed": 4,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 4,
+  "reach10": 0,
+  "deathsPerFloor": 1.2241379310344827,
+  "downedBy": {
+   "skeleton_mage": 54,
+   "skeleton_rogue": 7,
+   "skeleton": 1,
+   "bat": 2,
+   "orc_warrior": 6,
+   "orc": 1
+  },
+  "downTerrain": {
+   "grande": 40,
+   "couloir": 22,
+   "petite": 9
+  },
+  "stalled": 8
+ },
+ {
+  "name": "axe·bourrin·humain",
+  "runs": 16,
+  "floorMed": 4,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.1785714285714286,
+  "downedBy": {
+   "skeleton_mage": 39,
+   "skeleton_rogue": 11,
+   "orc_rogue": 5,
+   "skeleton": 2,
+   "skeleton_warrior": 5,
+   "orc": 3,
+   "orc_warrior": 1
+  },
+  "downTerrain": {
+   "couloir": 26,
+   "grande": 28,
+   "petite": 12
+  },
+  "stalled": 6
+ },
+ {
+  "name": "spear·kite·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 4,
+  "reach10": 0,
+  "deathsPerFloor": 1.1090909090909091,
+  "downedBy": {
+   "skeleton_mage": 50,
+   "skeleton_rogue": 5,
+   "orc_warrior": 4,
+   "orc": 1,
+   "skeleton": 1
+  },
+  "downTerrain": {
+   "petite": 12,
+   "couloir": 19,
+   "grande": 30
+  },
+  "stalled": 7
+ },
+ {
+  "name": "sword·bourrin·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.0666666666666667,
+  "downedBy": {
+   "skeleton_mage": 33,
+   "skeleton_rogue": 12,
+   "skeleton_warrior": 1,
+   "orc": 1,
+   "orc_bomber": 1
+  },
+  "downTerrain": {
+   "couloir": 18,
+   "grande": 21,
+   "petite": 9
+  },
+  "stalled": 10
+ },
+ {
+  "name": "bow·presse·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.5476190476190477,
+  "downedBy": {
+   "orc_rogue": 4,
+   "bat": 4,
+   "skeleton_mage": 6,
+   "skeleton": 1,
+   "orc": 3,
+   "skeleton_rogue": 3,
+   "orc_warrior": 2
+  },
+  "downTerrain": {
+   "petite": 6,
+   "grande": 10,
+   "couloir": 7
+  },
+  "stalled": 14
+ },
+ {
+  "name": "sword·bourrin·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.2391304347826086,
+  "downedBy": {
+   "skeleton_mage": 41,
+   "skeleton_rogue": 7,
+   "orc": 4,
+   "bat": 1,
+   "skeleton": 2,
+   "skeleton_warrior": 2
+  },
+  "downTerrain": {
+   "petite": 15,
+   "grande": 21,
+   "couloir": 21
+  },
+  "stalled": 8
+ },
+ {
+  "name": "sword·kite·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.1333333333333333,
+  "downedBy": {
+   "skeleton_mage": 49,
+   "skeleton_rogue": 2
+  },
+  "downTerrain": {
+   "couloir": 12,
+   "grande": 21,
+   "petite": 18
+  },
+  "stalled": 8
+ },
+ {
+  "name": "spear·bourrin·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.509433962264151,
+  "downedBy": {
+   "skeleton_mage": 63,
+   "skeleton_rogue": 13,
+   "orc": 2,
+   "orc_rogue": 1,
+   "skeleton_warrior": 1
+  },
+  "downTerrain": {
+   "grande": 34,
+   "couloir": 37,
+   "petite": 9
+  },
+  "stalled": 4
+ },
+ {
+  "name": "spear·presse·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1,
+  "downedBy": {
+   "skeleton_mage": 32,
+   "skeleton_rogue": 12,
+   "skeleton_warrior": 1,
+   "orc_rogue": 2,
+   "orc": 3,
+   "skeleton": 2
+  },
+  "downTerrain": {
+   "couloir": 22,
+   "petite": 18,
+   "grande": 12
+  },
+  "stalled": 9
+ },
+ {
+  "name": "bow·prudent·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.0377358490566038,
+  "downedBy": {
+   "orc": 2,
+   "orc_rogue": 8,
+   "skeleton_rogue": 4,
+   "skeleton_mage": 32,
+   "skeleton_warrior": 1,
+   "bat": 7,
+   "skeleton": 2,
+   "orc_warrior": 1
+  },
+  "downTerrain": {
+   "couloir": 18,
+   "petite": 23,
+   "grande": 16
+  },
+  "stalled": 11
+ },
+ {
+  "name": "sword·presse·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.0425531914893618,
+  "downedBy": {
+   "bat": 2,
+   "skeleton_mage": 38,
+   "skeleton_rogue": 7,
+   "orc": 2
+  },
+  "downTerrain": {
+   "petite": 18,
+   "couloir": 17,
+   "grande": 14
+  },
+  "stalled": 9
+ },
+ {
+  "name": "bow·kite·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.5434782608695652,
+  "downedBy": {
+   "skeleton_warrior": 2,
+   "skeleton_mage": 13,
+   "skeleton_rogue": 2,
+   "orc_rogue": 3,
+   "orc_warrior": 2,
+   "bat": 2,
+   "skeleton": 1
+  },
+  "downTerrain": {
+   "petite": 9,
+   "couloir": 11,
+   "grande": 5
+  },
+  "stalled": 14
+ },
+ {
+  "name": "axe·kite·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 4,
+  "reach10": 0,
+  "deathsPerFloor": 0.8431372549019608,
+  "downedBy": {
+   "skeleton_mage": 39,
+   "skeleton_rogue": 5
+  },
+  "downTerrain": {
+   "grande": 15,
+   "petite": 15,
+   "couloir": 14
+  },
+  "stalled": 11
+ },
+ {
+  "name": "axe·presse·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.5434782608695652,
+  "downedBy": {
+   "skeleton_mage": 23,
+   "skeleton_rogue": 2
+  },
+  "downTerrain": {
+   "couloir": 11,
+   "grande": 7,
+   "petite": 7
+  },
+  "stalled": 12
+ },
+ {
+  "name": "bow·bourrin·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 4,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.9215686274509803,
+  "downedBy": {
+   "skeleton_mage": 29,
+   "orc_rogue": 4,
+   "orc": 4,
+   "skeleton_rogue": 4,
+   "bat": 4,
+   "orc_warrior": 1,
+   "skeleton": 1
+  },
+  "downTerrain": {
+   "couloir": 15,
+   "grande": 23,
+   "petite": 9
+  },
+  "stalled": 11
+ },
+ {
+  "name": "sword·prudent·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.3863636363636365,
+  "downedBy": {
+   "skeleton_mage": 48,
+   "orc_rogue": 2,
+   "skeleton_rogue": 11,
+   "skeleton_warrior": 1,
+   "skeleton": 1
+  },
+  "downTerrain": {
+   "couloir": 31,
+   "petite": 16,
+   "grande": 16
+  },
+  "stalled": 8
+ },
+ {
+  "name": "spear·prudent·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1,
+  "downedBy": {
+   "skeleton_mage": 43,
+   "orc": 1,
+   "skeleton_warrior": 1,
+   "skeleton_rogue": 1
+  },
+  "downTerrain": {
+   "grande": 11,
+   "petite": 15,
+   "couloir": 20
+  },
+  "stalled": 10
+ },
+ {
+  "name": "sword·prudent·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 1,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1,
+  "downedBy": {
+   "skeleton_mage": 34,
+   "skeleton_rogue": 2
+  },
+  "downTerrain": {
+   "grande": 8,
+   "couloir": 12,
+   "petite": 16
+  },
+  "stalled": 11
+ },
+ {
+  "name": "spear·bourrin·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.1875,
+  "downedBy": {
+   "skeleton_rogue": 11,
+   "skeleton_mage": 46
+  },
+  "downTerrain": {
+   "grande": 27,
+   "petite": 13,
+   "couloir": 17
+  },
+  "stalled": 8
+ },
+ {
+  "name": "spear·presse·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 1,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.9024390243902439,
+  "downedBy": {
+   "orc": 1,
+   "skeleton_mage": 31,
+   "skeleton_rogue": 4,
+   "skeleton_warrior": 1
+  },
+  "downTerrain": {
+   "petite": 20,
+   "couloir": 12,
+   "grande": 5
+  },
+  "stalled": 11
+ },
+ {
+  "name": "spear·prudent·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.76,
+  "downedBy": {
+   "skeleton_mage": 77,
+   "orc": 3,
+   "skeleton_rogue": 4,
+   "skeleton": 1,
+   "skeleton_warrior": 2,
+   "orc_rogue": 1
+  },
+  "downTerrain": {
+   "couloir": 39,
+   "grande": 25,
+   "petite": 24
+  },
+  "stalled": 3
+ },
+ {
+  "name": "axe·prudent·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 3,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1.3333333333333333,
+  "downedBy": {
+   "skeleton_mage": 53,
+   "orc": 3,
+   "skeleton_rogue": 3,
+   "skeleton_warrior": 1
+  },
+  "downTerrain": {
+   "couloir": 35,
+   "grande": 15,
+   "petite": 10
+  },
+  "stalled": 7
+ },
+ {
+  "name": "dagger·bourrin·humain",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 3,
+  "firstDeathMed": 2,
+  "reach10": 0,
+  "deathsPerFloor": 1.951219512195122,
+  "downedBy": {
+   "skeleton": 22,
+   "orc": 32,
+   "skeleton_mage": 13,
+   "bat": 5,
+   "orc_rogue": 7,
+   "skeleton_rogue": 2
+  },
+  "downTerrain": {
+   "petite": 23,
+   "grande": 31,
+   "couloir": 27
+  },
+  "stalled": 4
+ },
+ {
+  "name": "sword·presse·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 1,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.8780487804878049,
+  "downedBy": {
+   "skeleton_rogue": 3,
+   "skeleton_mage": 33
+  },
+  "downTerrain": {
+   "petite": 22,
+   "couloir": 8,
+   "grande": 6
+  },
+  "stalled": 12
+ },
+ {
+  "name": "axe·bourrin·optimal",
+  "runs": 16,
+  "floorMed": 3,
+  "floorP25": 2,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.7435897435897436,
+  "downedBy": {
+   "skeleton_mage": 26,
+   "orc": 1,
+   "skeleton_rogue": 2
+  },
+  "downTerrain": {
+   "couloir": 10,
+   "grande": 10,
+   "petite": 9
+  },
+  "stalled": 12
+ },
+ {
+  "name": "bow·prudent·optimal",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 2,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.8,
+  "downedBy": {
+   "bat": 2,
+   "orc": 4,
+   "orc_rogue": 2,
+   "orc_mage": 2,
+   "orc_warrior": 5,
+   "skeleton_rogue": 1,
+   "skeleton_mage": 15,
+   "skeleton": 1
+  },
+  "downTerrain": {
+   "grande": 7,
+   "couloir": 10,
+   "petite": 15
+  },
+  "stalled": 12
+ },
+ {
+  "name": "dagger·prudent·optimal",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 1,
+  "floorP75": 3,
+  "firstDeathMed": 2,
+  "reach10": 0,
+  "deathsPerFloor": 0.896551724137931,
+  "downedBy": {
+   "orc": 6,
+   "skeleton_mage": 14,
+   "skeleton": 3,
+   "skeleton_rogue": 2,
+   "orc_rogue": 1
+  },
+  "downTerrain": {
+   "petite": 10,
+   "couloir": 9,
+   "grande": 7
+  },
+  "stalled": 13
+ },
+ {
+  "name": "axe·prudent·optimal",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 1,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 1,
+  "downedBy": {
+   "skeleton_mage": 33,
+   "skeleton_rogue": 1
+  },
+  "downTerrain": {
+   "couloir": 12,
+   "petite": 5,
+   "grande": 17
+  },
+  "stalled": 11
+ },
+ {
+  "name": "dagger·kite·optimal",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 2,
+  "floorP75": 3,
+  "firstDeathMed": 3,
+  "reach10": 0,
+  "deathsPerFloor": 0.8181818181818182,
+  "downedBy": {
+   "skeleton": 3,
+   "orc": 6,
+   "skeleton_mage": 11,
+   "orc_rogue": 1,
+   "skeleton_rogue": 6
+  },
+  "downTerrain": {
+   "petite": 9,
+   "grande": 12,
+   "couloir": 6
+  },
+  "stalled": 12
+ },
+ {
+  "name": "dagger·presse·humain",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 2,
+  "floorP75": 3,
+  "firstDeathMed": 2,
+  "reach10": 0,
+  "deathsPerFloor": 1.6857142857142857,
+  "downedBy": {
+   "skeleton": 22,
+   "bat": 4,
+   "orc": 22,
+   "orc_rogue": 8,
+   "skeleton_mage": 2,
+   "skeleton_rogue": 1
+  },
+  "downTerrain": {
+   "petite": 30,
+   "grande": 18,
+   "couloir": 11
+  },
+  "stalled": 9
+ },
+ {
+  "name": "dagger·kite·humain",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 2,
+  "floorP75": 3,
+  "firstDeathMed": 2,
+  "reach10": 0,
+  "deathsPerFloor": 1.5,
+  "downedBy": {
+   "orc": 18,
+   "skeleton": 22,
+   "orc_rogue": 4,
+   "skeleton_mage": 5,
+   "bat": 2
+  },
+  "downTerrain": {
+   "petite": 20,
+   "grande": 20,
+   "couloir": 11
+  },
+  "stalled": 11
+ },
+ {
+  "name": "dagger·bourrin·optimal",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 1,
+  "floorP75": 3,
+  "firstDeathMed": 1,
+  "reach10": 0,
+  "deathsPerFloor": 1.8709677419354838,
+  "downedBy": {
+   "skeleton": 26,
+   "orc": 19,
+   "skeleton_mage": 4,
+   "skeleton_rogue": 5,
+   "orc_rogue": 4
+  },
+  "downTerrain": {
+   "grande": 25,
+   "couloir": 23,
+   "petite": 10
+  },
+  "stalled": 8
+ },
+ {
+  "name": "dagger·presse·optimal",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 1,
+  "floorP75": 2,
+  "firstDeathMed": 2,
+  "reach10": 0,
+  "deathsPerFloor": 1.0769230769230769,
+  "downedBy": {
+   "skeleton": 13,
+   "orc": 11,
+   "skeleton_mage": 3,
+   "skeleton_rogue": 1,
+   "orc_rogue": 1
+  },
+  "downTerrain": {
+   "couloir": 10,
+   "grande": 7,
+   "petite": 12
+  },
+  "stalled": 14
+ },
+ {
+  "name": "dagger·prudent·humain",
+  "runs": 16,
+  "floorMed": 2,
+  "floorP25": 1,
+  "floorP75": 2,
+  "firstDeathMed": 1,
+  "reach10": 0,
+  "deathsPerFloor": 1.5384615384615385,
+  "downedBy": {
+   "orc": 13,
+   "skeleton": 16,
+   "orc_rogue": 3,
+   "skeleton_mage": 5,
+   "bat": 3
+  },
+  "downTerrain": {
+   "couloir": 4,
+   "petite": 20,
+   "grande": 16
+  },
+  "stalled": 13
+ }
+]
