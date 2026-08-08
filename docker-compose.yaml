@@ -1,0 +1,37 @@
+# Déploiement Coolify.
+#
+# À utiliser avec le build pack "Docker Compose" (pas "Dockerfile") : c'est le
+# seul mode où Coolify lit ce fichier et crée tout seul le volume persistant,
+# les variables et le domaine. Avec le build pack Dockerfile, rien n'est
+# détecté et il faut tout ressaisir dans l'UI.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # Variable magique Coolify : génère le domaine et le route vers le port
+      # 3000. Le nom du service ("app") ne doit pas contenir d'underscore,
+      # sinon le suffixe de port n'est pas interprété.
+      - SERVICE_FQDN_APP_3000
+      - PORT=3000
+      # Volontairement figés : les rendre éditables dans l'UI ne servirait qu'à
+      # les désynchroniser du montage du volume et du domaine.
+      - DATA_DIR=/data
+    expose:
+      - '3000'
+    volumes:
+      # Volume nommé -> Coolify le crée comme stockage persistant. Sans lui, les
+      # parties sauvegardées disparaissent à chaque redéploiement.
+      - dungeon-data:/data
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/healthz']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  dungeon-data:

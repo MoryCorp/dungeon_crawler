@@ -86,15 +86,26 @@ Un seul container : le serveur Node sert le client statique **et** la WebSocket
 sur le même port. Rien à câbler entre deux services.
 
 1. **New Resource → Application → Private Repository** → ce dépôt
-2. **Build Pack : Dockerfile**
-3. **Port exposé : 3000**
-4. **Persistent Storage** : monter un volume sur `/data`
-   → sans ça, les parties sont perdues à chaque redéploiement
-5. Domaine + HTTPS : le client choisit `wss://` tout seul selon l'origine
-6. Activer le webhook de déploiement automatique
+2. **Build Pack : `Docker Compose`** — pas `Dockerfile`
+3. Compose file : `docker-compose.yaml` (détecté à la racine)
+4. Activer le webhook de déploiement automatique
 
-Aucune variable d'environnement n'est requise (`PORT` et `DATA_DIR` sont dans le
-Dockerfile). `/healthz` répond pour le healthcheck.
+C'est tout. Avec le build pack Docker Compose, Coolify lit le fichier et crée
+lui-même :
+
+- le **volume persistant** `dungeon-data` monté sur `/data`
+- les **variables** `PORT` et `DATA_DIR`
+- le **domaine**, via la variable magique `SERVICE_FQDN_APP_3000` qui génère le
+  FQDN et le route vers le port 3000
+- le **healthcheck** sur `/healthz`
+
+Le client choisit `wss://` ou `ws://` tout seul selon l'origine : rien à
+configurer côté WebSocket.
+
+> Le build pack **Dockerfile** fonctionne aussi, mais Coolify ne lit alors ni
+> `ENV` ni `EXPOSE` ni `VOLUME` : il faut ressaisir le port et créer le volume
+> `/data` à la main dans l'UI. Sans ce volume, les parties sauvegardées
+> disparaissent à chaque redéploiement.
 
 ## Sauvegarde
 
