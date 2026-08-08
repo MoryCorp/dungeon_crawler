@@ -540,6 +540,8 @@ function damage(
   knockback: number,
   originX: number,
   originY: number,
+  /** Espèce à imputer quand la source n'existe plus — une flèche sans archer. */
+  fromSpecies = from?.species ?? '',
 ): void {
   if (!to.alive) return
   // Un joueur déjà à terre n'est plus une cible : le finir en boucle n'apporte
@@ -556,7 +558,7 @@ function damage(
   state.events.push({
     t: 'hit',
     from: from?.id ?? '',
-    fromSpecies: from?.species ?? '',
+    fromSpecies,
     to: to.id,
     toSpecies: to.species,
     dmg: amount,
@@ -578,6 +580,7 @@ function spawnProjectile(
   state.projectiles.push({
     id: `pr${state.nextId++}`,
     ownerId: owner.id,
+    ownerSpecies: owner.species,
     hostileToPlayers: owner.kind === 'monster',
     // On décale du rayon de l'acteur, sinon le tir naît dans son propre corps.
     x: owner.x + Math.cos(aim) * (ACTOR_RADIUS + PROJECTILE_RADIUS + 0.02),
@@ -750,7 +753,7 @@ function stepProjectiles(state: GameState, rng: Rng): void {
       if (Math.hypot(target.x - p.x, target.y - p.y) > ACTOR_RADIUS + PROJECTILE_RADIUS) continue
 
       const owner = state.actors[p.ownerId] ?? null
-      damage(state, owner, target, p.damage, p.knockback, p.x, p.y)
+      damage(state, owner, target, p.damage, p.knockback, p.x, p.y, p.ownerSpecies)
       if (target.hp <= 0) killOrDown(state, target, rng)
       consumed = true
       break

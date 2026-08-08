@@ -329,6 +329,12 @@ export interface Actor {
 export interface Projectile {
   id: string
   ownerId: string
+  /**
+   * Espèce du tireur, figée au départ. Une flèche survit à son archer : sans
+   * ça, tuer l'archer puis se prendre sa flèche n'est imputé à personne et
+   * disparaît des mesures — or c'est précisément un moment intéressant.
+   */
+  ownerSpecies: string
   /** Un projectile de monstre ne touche que les joueurs, et inversement. */
   hostileToPlayers: boolean
   x: number
