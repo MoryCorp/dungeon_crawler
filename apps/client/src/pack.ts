@@ -1,36 +1,45 @@
 /**
  * Pack de sprites Pixel Crawler (Anokolisa) — chargement et découpage.
  *
- * Les feuilles vivent dans `public/assets/pack/` et NE SONT PAS dans le git
- * tant que le dépôt est public : la licence autorise leur usage dans le jeu,
- * pas leur redistribution en fichiers bruts. D'où la règle de conception de ce
- * module : **tout est optionnel**. Si les feuilles manquent (build sans
- * assets, dépôt cloné à nu), `loadPack()` rend false et le jeu retombe sur
- * l'atlas procédural — il reste jouable partout, juste moins beau.
+ * Tout est optionnel : si les feuilles manquent (dépôt cloné sans les assets),
+ * `loadPack()` rend false et le jeu retombe sur l'atlas procédural — il reste
+ * jouable partout, juste moins beau. La correspondance espèce → fichiers est
+ * produite par `scripts/pack-assets.py`, seule vérité sur le contenu du pack.
  *
  * Convention des feuilles : cadres carrés, côté = hauteur de l'image, animation
- * de gauche à droite. C'est vrai pour toutes les feuilles du pack (idle 32×32,
- * course 64×64), donc aucun fichier de métadonnées n'est nécessaire.
+ * de gauche à droite. Les cadres d'une même espèce changent de taille selon
+ * l'animation (idle 32 px, course 64 px chez les mobs) mais **les pieds
+ * touchent toujours le bord bas du cadre** : c'est l'invariant d'alignement.
+ * Le rendu ancre donc les personnages aux pieds — jamais au centre, sinon le
+ * corps saute de plusieurs pixels à chaque changement d'animation.
+ * Exception : la chauve-souris vole, ses cadres sont centrés.
  */
 import { Assets, Rectangle, Texture } from 'pixi.js'
 
+export type Dir = 'down' | 'side' | 'up'
+export type AttackKind = 'slice' | 'pierce' | 'crush'
+
 /**
- * Un jeu d'animations. Les cadres idle (32×32) et course (64×64) n'ont pas la
- * même taille mais dessinent le personnage à la même échelle source : on ne
- * normalise donc RIEN — 1 pixel source = 1 pixel monde, ancre au centre, et le
- * personnage garde sa taille en passant de l'un à l'autre.
+ * Un jeu d'animations. Toutes les listes sont indexées par direction pour que
+ * le rendu n'ait qu'un chemin ; les mobs, dessinés de côté et retournés selon
+ * la visée, répètent la même feuille sur les trois directions.
  */
 export interface AnimSet {
-  idle: Texture[]
-  run: Texture[]
+  idle: Record<Dir, Texture[]>
+  run: Record<Dir, Texture[]>
+  /** Jouée une fois à la mort, puis le sprite disparaît. Vue de côté. */
+  death?: Texture[]
+  /** Héros uniquement : le geste d'arme, arc de coup inclus dans les cadres. */
+  attack?: Record<AttackKind, Record<Dir, Texture[]>>
+  /** Ancré aux pieds (marcheurs) ou au centre (volants). */
+  grounded: boolean
 }
 
 const BASE = '/assets/pack/'
 
 /** Espèces couvertes par le pack. Le kamikaze garde son sprite maison : une
  * bombe ronde reste plus lisible que n'importe quel monstre à pattes. */
-const SPECIES = [
-  'hero',
+const MOBS = [
   'skeleton',
   'skeleton_warrior',
   'skeleton_mage',
@@ -41,6 +50,18 @@ const SPECIES = [
   'orc_rogue',
   'bat',
 ]
+
+const DIRS: Dir[] = ['down', 'side', 'up']
+const ATTACKS: AttackKind[] = ['slice', 'pierce', 'crush']
+
+/** Arme du joueur → geste du héros. L'arc n'a pas de geste : la flèche qui
+ * part est déjà toute la lisibilité nécessaire. */
+export const WEAPON_ATTACK: Record<string, AttackKind> = {
+  sword: 'slice',
+  axe: 'crush',
+  dagger: 'pierce',
+  spear: 'pierce',
+}
 
 const sets = new Map<string, AnimSet>()
 let ready = false
@@ -57,18 +78,47 @@ function slice(sheet: Texture): Texture[] {
   return frames
 }
 
+async function sheet(name: string): Promise<Texture[]> {
+  const tex = await Assets.load<Texture>(`${BASE}${name}.png`)
+  tex.source.scaleMode = 'nearest'
+  return slice(tex)
+}
+
+const allDirs = (frames: Texture[]): Record<Dir, Texture[]> => ({
+  down: frames,
+  side: frames,
+  up: frames,
+})
+
 /** Charge toutes les feuilles. Rend false si le pack n'est pas là — sans bruit. */
 export async function loadPack(): Promise<boolean> {
   try {
-    for (const sp of SPECIES) {
-      const [idleSheet, runSheet] = await Promise.all([
-        Assets.load<Texture>(`${BASE}${sp}_idle.png`),
-        Assets.load<Texture>(`${BASE}${sp}_run.png`),
+    for (const sp of MOBS) {
+      const [idle, run, death] = await Promise.all([
+        sheet(`${sp}_idle`),
+        sheet(`${sp}_run`),
+        sheet(`${sp}_death`),
       ])
-      idleSheet.source.scaleMode = 'nearest'
-      runSheet.source.scaleMode = 'nearest'
-      sets.set(sp, { idle: slice(idleSheet), run: slice(runSheet) })
+      sets.set(sp, { idle: allDirs(idle), run: allDirs(run), death, grounded: sp !== 'bat' })
     }
+
+    const hero: AnimSet = {
+      idle: { down: [], side: [], up: [] },
+      run: { down: [], side: [], up: [] },
+      attack: {
+        slice: { down: [], side: [], up: [] },
+        pierce: { down: [], side: [], up: [] },
+        crush: { down: [], side: [], up: [] },
+      },
+      grounded: true,
+    }
+    for (const d of DIRS) {
+      hero.idle[d] = await sheet(`hero_idle_${d}`)
+      hero.run[d] = await sheet(`hero_run_${d}`)
+      for (const a of ATTACKS) hero.attack![a][d] = await sheet(`hero_${a}_${d}`)
+    }
+    sets.set('hero', hero)
+
     ready = true
     return true
   } catch {
