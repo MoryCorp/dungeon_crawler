@@ -29,6 +29,9 @@ const ATTACK_KEYS = new Set(['Space'])
 /** Sprint : les deux Maj, sous les deux mains selon qu'on joue ZQSD ou flèches. */
 const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight'])
 
+/** Boire la fiole portée — R près de ZQSD, F près des flèches. */
+const DRINK_KEYS = new Set(['KeyR', 'KeyF'])
+
 /**
  * Touches que le navigateur détournerait. Tab passe au champ suivant, ce qui
  * sort du jeu sans prévenir — on se le réserve dès maintenant, l'inventaire à
@@ -41,6 +44,7 @@ const AIM_DEADZONE = 0.35
 
 export class InputManager {
   private held = new Set<string>()
+  private drinkQueued = false
   private mouseDown = false
   private mouseX = 0
   private mouseY = 0
@@ -54,6 +58,12 @@ export class InputManager {
       if (KEY_VECTORS[e.code] || ATTACK_KEYS.has(e.code) || SPRINT_KEYS.has(e.code)) {
         e.preventDefault()
         this.held.add(e.code)
+      }
+      // Boire est une impulsion, pas un état : on la consomme au prochain
+      // échantillon, une seule fois.
+      if (DRINK_KEYS.has(e.code)) {
+        e.preventDefault()
+        this.drinkQueued = true
       }
     })
     window.addEventListener('keyup', (e) => this.held.delete(e.code))
@@ -161,7 +171,9 @@ export class InputManager {
       sprint ||= pad.sprint
     }
 
-    return { mx, my, aim: this.aim, attack, sprint }
+    const drink = this.drinkQueued
+    this.drinkQueued = false
+    return { mx, my, aim: this.aim, attack, sprint, drink }
   }
 }
 
@@ -172,6 +184,7 @@ export function sameInput(a: PlayerInput, b: PlayerInput): boolean {
     a.my === b.my &&
     a.attack === b.attack &&
     a.sprint === b.sprint &&
+    a.drink === b.drink &&
     Math.abs(a.aim - b.aim) < 0.02
   )
 }

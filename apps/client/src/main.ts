@@ -38,6 +38,8 @@ const hpLabel = $('hp')
 const weaponLabel = $('weapon')
 const levelLabel = $('level')
 const bonesLabel = $('bones')
+const potionRow = $('potion-row')
+const potionLabel = $('potion')
 const xpFill = $('xp-fill')
 const staminaFill = $('stamina-fill')
 const objective = $('objective')
@@ -87,6 +89,7 @@ async function main(): Promise<void> {
   let lastFloor = 0
   let alive = true
   let downed = false
+  let hasted = false
   let weaponId = STARTING_WEAPON
   /**
    * Copie locale de l'état de frappe. Le serveur ralentit le joueur pendant son
@@ -214,6 +217,7 @@ async function main(): Promise<void> {
 
   function reconcile(self: ActorView): void {
     alive = self.alive
+    hasted = self.hasted === true
     // Le serveur fait autorité sur le souffle : la prédiction locale ne sert
     // qu'à remplir les 33 ms entre deux paquets.
     if (self.stamina !== undefined) localSprint.stamina = self.stamina
@@ -246,6 +250,8 @@ async function main(): Promise<void> {
     hpLabel.textContent = self ? `${self.hp}/${self.maxHp}` : '—'
     weaponLabel.textContent = WEAPONS[self?.weapon ?? '']?.label ?? '—'
     levelLabel.textContent = String(self?.level ?? 1)
+    potionRow.classList.toggle('hidden', !self?.potion)
+    if (self?.potion) potionLabel.textContent = self.potion
 
     // La barre d'XP est relative au palier courant, pas au total cumulé :
     // sinon elle n'avance visiblement plus passé quelques niveaux.
@@ -333,7 +339,7 @@ async function main(): Promise<void> {
         movePhysical(
           tiles, mapW, mapH, local,
           current.mx, current.my,
-          playerSpeed({ downed }, penalty, sprinting),
+          playerSpeed({ downed }, penalty, sprinting, hasted),
         )
         predictTick++
         accumulator -= DT

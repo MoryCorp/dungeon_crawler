@@ -73,6 +73,35 @@ export function pickRecipe(arms: BanditArms, rng: Rng, allowed: Recipe[] = RECIP
   return best
 }
 
+/**
+ * Démarrage à chaud d'un carnet neuf : quand un joueur change d'arme, son
+ * nouveau contexte hérite du carnet le mieux rempli de ses autres armes, chaque
+ * levier décoté à `n = 1` — la moyenne est gardée comme premier a priori, mais
+ * elle pèse comme un seul tirage : trois vagues suffisent à la contredire.
+ * Sans ça, chaque changement d'arme rendait la Directrice amnésique et le
+ * joueur avait quelques vagues « gratuites » en tournant son inventaire.
+ */
+export function warmStart(bandit: Record<string, BanditArms>, playerId: string): BanditArms {
+  let source: BanditArms | null = null
+  let bestN = 0
+  for (const [ctx, arms] of Object.entries(bandit)) {
+    if (!ctx.startsWith(`${playerId}:`)) continue
+    let n = 0
+    for (const a of Object.values(arms)) n += a.n
+    if (n > bestN) {
+      bestN = n
+      source = arms
+    }
+  }
+  const fresh: BanditArms = {}
+  if (source) {
+    for (const [name, arm] of Object.entries(source)) {
+      if (arm.n > 0) fresh[name] = { n: 1, sum: arm.sum / arm.n }
+    }
+  }
+  return fresh
+}
+
 /** Inscrit le gain d'une vague au levier correspondant. */
 export function recordReward(arms: BanditArms, recipe: string, reward: number): void {
   const arm: BanditArm = (arms[recipe] ??= { n: 0, sum: 0 })

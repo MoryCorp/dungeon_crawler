@@ -486,6 +486,14 @@ export class Renderer {
         this.spawnFloater('la grille se relève', ev.x, ev.y, 0x8ee6a0)
         break
 
+      case 'rest':
+        this.spawnFloater('la Directrice se tait ici', ev.x, ev.y, 0x9ecbe8)
+        break
+
+      case 'drink':
+        this.spawnFloater(ev.potion === 'souffle' ? 'souffle !' : 'vitesse !', ev.x, ev.y, 0x9ecbe8)
+        break
+
       case 'pickup': {
         // Les orbes et les ossements tombent à chaque mort : le compteur du
         // HUD suffit, un flottant par ramassage serait du bruit.
@@ -494,6 +502,9 @@ export class Renderer {
           ev.kind === 'heart' ? '+soin'
           : ev.kind === 'key' ? 'clé'
           : ev.kind === 'chest' ? 'coffre !'
+          : ev.kind === 'cap' ? 'plafond de soin +10 %'
+          : ev.kind === 'soin' ? 'soigné'
+          : ev.kind === 'fiole_souffle' || ev.kind === 'fiole_vitesse' ? 'fiole en poche'
           : (ev.label ?? 'arme')
         this.spawnFloater(label, ev.x, ev.y, 0xbfe8d8)
         break
@@ -546,9 +557,9 @@ export class Renderer {
    */
   private syncPriceTags(items: ItemView[]): void {
     const seen = new Set<string>()
-    const price = chestPrice(this.floor)
     for (const item of items) {
-      if (item.kind !== 'chest') continue
+      const price = item.kind === 'chest' ? chestPrice(this.floor) : item.price
+      if (price === undefined) continue
       seen.add(item.id)
       let tag = this.priceTags.get(item.id)
       if (!tag) {

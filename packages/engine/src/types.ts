@@ -281,6 +281,55 @@ export function trapWaveSize(floor: number): number {
   return Math.min(10, 5 + Math.floor(floor / 2))
 }
 
+// --- Signal lent et salle de repos ------------------------------------------
+
+/**
+ * Le signal lent : l'usure de toute la descente, là où l'intensité de la
+ * Directrice ne mesure que les dernières secondes. Il ne déclenche rien —
+ * il **biaise** la boucle rapide (patience plus longue, vagues plus petites,
+ * repos plus long) et décide si la prochaine salle de repos est méritée.
+ * Sous ce seuil, pas de salle : le repos se gagne, il ne se distribue pas.
+ */
+export const WEAR_LOW_HP = 0.35
+export const REST_STRAIN = 0.4
+/** Au moins deux étages entre deux salles de repos, quelle que soit l'usure. */
+export const REST_MIN_GAP = 2
+/** Biais de la boucle rapide à usure maximale : patience +60 %, repos +50 %. */
+export const STRAIN_PATIENCE_MULT = 0.6
+export const STRAIN_REST_MULT = 0.5
+/** Au-delà de cette usure, les vagues perdent un monstre. */
+export const STRAIN_SIZE_AT = 0.5
+
+/**
+ * L'étal de la salle de repos. Les prix sont en ossements, l'achat se fait en
+ * marchant sur l'objet, le prix est affiché au-dessus — zéro menu. Remonter
+ * le plafond de soin est LE puits conçu pour cette monnaie : c'est le seul
+ * achat qui rende de la soutenabilité durable, et son prix monte à chaque
+ * achat de la partie.
+ */
+export const CAP_BONUS_STEP = 0.1
+export const CAP_PRICE_BASE = 20
+export const CAP_PRICE_STEP = 10
+export function capPrice(bought: number): number {
+  return CAP_PRICE_BASE + CAP_PRICE_STEP * bought
+}
+/** Le soin direct : ramène au plafond courant, prix indexé sur l'étage. */
+export function soinPrice(floor: number): number {
+  return 6 + 2 * floor
+}
+export const FIOLE_PRICE = 10
+
+/** Les fioles : une fente d'inventaire, une touche pour boire. */
+export const HASTE_MULT = 1.25
+export const HASTE_TICKS = ticks(6)
+/** Souffle : la jauge de sprint ne se vide plus pendant quelques secondes. */
+export const FRESH_TICKS = ticks(6)
+
+/** Le plafond de soin effectif : la courbe de l'étage, plus ce qu'on a acheté. */
+export function healCapOf(s: { floor: number; capBonus: number }): number {
+  return Math.min(1, healCap(s.floor) + s.capBonus)
+}
+
 /**
  * Le plafond de soin, et avec lui l'économie de toute la descente.
  *
@@ -825,6 +874,12 @@ export interface Actor {
   sprinting?: boolean
   /** Dernier tick où le sprint a servi : la jauge ne remonte qu'après un délai. */
   sprintedAt?: number
+  /** La fente d'inventaire : une fiole portée, une seule. */
+  potion?: 'souffle' | 'vitesse'
+  /** Fiole de vitesse bue : vitesse accrue jusqu'à ce tick. */
+  hasteUntil?: number
+  /** Fiole de souffle bue : la jauge de sprint ne se vide pas jusqu'à ce tick. */
+  freshUntil?: number
 
   /** Monstres. */
   elite?: boolean
@@ -868,7 +923,18 @@ export interface Projectile {
 
 export const PROJECTILE_RADIUS = 0.18
 
-export type ItemKind = 'heart' | 'xp' | 'weapon' | 'chest' | 'key' | 'bone'
+export type ItemKind =
+  | 'heart'
+  | 'xp'
+  | 'weapon'
+  | 'chest'
+  | 'key'
+  | 'bone'
+  // L'étal de la salle de repos — tout se paie en ossements.
+  | 'cap'
+  | 'soin'
+  | 'fiole_souffle'
+  | 'fiole_vitesse'
 
 export interface GroundItem {
   id: string
@@ -879,6 +945,8 @@ export interface GroundItem {
   weapon?: string
   /** kind === 'xp' ou 'bone' */
   amount?: number
+  /** Objets de l'étal : prix en ossements, affiché au-dessus de l'objet. */
+  price?: number
   /**
    * Joueur qui vient de faire apparaître cet objet et ne peut pas le reprendre
    * tant qu'il ne s'en est pas éloigné. Sans ça, échanger d'arme sur place
@@ -900,6 +968,8 @@ export interface PlayerInput {
   aim: number
   attack: boolean
   sprint: boolean
+  /** Boire la fiole portée. Optionnel : les vieux clients n'envoient rien. */
+  drink?: boolean
 }
 
 export const NEUTRAL_INPUT: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }
@@ -949,8 +1019,12 @@ export type GameEvent =
   | { t: 'revived'; id: string; x: number; y: number }
   | { t: 'respawn'; id: string; x: number; y: number }
   | { t: 'pickup'; id: string; kind: ItemKind; x: number; y: number; label?: string; amount?: number }
-  /** Des ossements viennent d'être dépensés (le coffre, plus tard l'étal). */
-  | { t: 'spend'; id: string; amount: number; what: 'chest'; x: number; y: number }
+  /** Des ossements viennent d'être dépensés — au coffre ou à l'étal. */
+  | { t: 'spend'; id: string; amount: number; what: ItemKind; x: number; y: number }
+  /** L'étage propose une salle de repos : l'usure l'a méritée. */
+  | { t: 'rest'; x: number; y: number }
+  /** Une fiole vient d'être bue. */
+  | { t: 'drink'; id: string; potion: string; x: number; y: number }
   | { t: 'levelup'; id: string; level: number; x: number; y: number }
   | { t: 'keydrop'; x: number; y: number }
   /** Attaque en préparation avortée par un coup encaissé. */
@@ -1005,6 +1079,19 @@ export interface GameState {
   rooms: Room[]
   /** La salle piégée de l'étage, si l'étage en a une. */
   trap?: TrapState
+  /** Plafond de soin racheté à l'étal, cumulé sur la partie. */
+  capBonus: number
+  /** Nombre d'achats de plafond — le prix monte à chaque fois. */
+  capBought: number
+  /**
+   * L'usure de la descente, cumulée depuis le début — le signal lent. Jamais
+   * remise à zéro : c'est précisément sa différence avec l'intensité.
+   */
+  wear: { lowTicks: number; ticks: number; downs: number }
+  /** Dernier étage où une salle de repos a été proposée. */
+  lastRestFloor?: number
+  /** L'annonce « la Directrice se tait ici » n'est faite qu'une fois par salle. */
+  restAnnounced?: boolean
   events: GameEvent[]
 }
 

@@ -423,6 +423,33 @@ export class GameAudio {
           case 'chest':
             this.tone({ freq: 260, type: 'triangle', dur: 0.2, gain: 0.14 })
             break
+          case 'cap':
+            // L'achat le plus cher du jeu mérite trois notes solennelles.
+            for (const [i, f] of [392, 494, 588].entries()) {
+              this.tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.12, at: i * 0.1 })
+            }
+            break
+          case 'soin':
+            this.tone({ freq: 392, type: 'triangle', dur: 0.3, gain: 0.16 })
+            this.tone({ freq: 588, type: 'triangle', dur: 0.3, gain: 0.12, at: 0.07 })
+            break
+          case 'fiole_souffle':
+          case 'fiole_vitesse':
+            this.tone({ freq: 700, type: 'sine', dur: 0.12, gain: 0.1 })
+            this.tone({ freq: 1050, type: 'sine', dur: 0.12, gain: 0.08, at: 0.06 })
+            break
+        }
+        break
+
+      case 'drink':
+        this.burst({ dur: 0.2, gain: 0.12, from: 900, to: 2200 })
+        this.tone({ freq: 523, to: 784, type: 'sine', dur: 0.25, gain: 0.1 })
+        break
+
+      case 'rest':
+        // Le calme annoncé : un accord doux, rien qui ressemble à une menace.
+        for (const [i, f] of [262, 330, 392].entries()) {
+          this.tone({ freq: f, type: 'sine', dur: 0.8, gain: 0.07, at: i * 0.05 })
         }
         break
 

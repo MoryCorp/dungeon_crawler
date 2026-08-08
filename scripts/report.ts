@@ -493,6 +493,17 @@ function report(run: RunRecord): void {
         .map((f) => `${f.floor}:+${f.bonesEarned ?? 0}${f.bonesSpent ? `/-${f.bonesSpent}` : ''}`)
         .join('  ')
       console.log(`  Par étage : ${perFloor}`)
+      const spendBy: Record<string, number> = {}
+      for (const f of run.floors) merge(spendBy, f.spendBy ?? {})
+      const spendLine = Object.entries(spendBy)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `${k} ×${v}`)
+        .join(' · ')
+      if (spendLine) console.log(`  Achats : ${spendLine}`)
+      const drinks: Record<string, number> = {}
+      for (const f of run.floors) merge(drinks, f.drinks ?? {})
+      const drinkLine = Object.entries(drinks).map(([k, v]) => `${k} ×${v}`).join(' · ')
+      if (drinkLine) console.log(`  Fioles bues : ${drinkLine}`)
       if (atDeath.length > 0) {
         const avg = atDeath.reduce((a, b) => a + b, 0) / atDeath.length
         console.log(`  Solde moyen au moment de mourir : ${avg.toFixed(0)}`)
@@ -503,6 +514,13 @@ function report(run: RunRecord): void {
           )
         }
       }
+    }
+    const strains = run.floors.filter((f) => f.strainOut !== undefined)
+    if (strains.length > 0) {
+      console.log(
+        `  Signal lent en fin d'étage : ` +
+          strains.map((f) => `${f.floor}:${(f.strainOut! * 100).toFixed(0)}%`).join('  '),
+      )
     }
   }
 

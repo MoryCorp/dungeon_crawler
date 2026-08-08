@@ -16,6 +16,11 @@ import {
   chestPrice,
   TRAP_WARNING_TICKS,
   trapWaveSize,
+  slowStrain,
+  healCapOf,
+  capPrice,
+  playerSpeed,
+  NEUTRAL_INPUT,
   HEART_HEAL_RATIO,
   MAP_H,
   CARRIED_OF_CAP,
@@ -821,6 +826,107 @@ console.log('\nTests engine\n')
   s.bones = 17
   descend(s)
   check('les ossements passent l\'escalier', s.bones === 17, `${s.bones}`)
+}
+
+// --- signal lent : l'usure biaise, elle ne déclenche pas ---------------------
+{
+  const s = createGame(4141)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_use', 'Fatigué')
+  step(s, noInputs)
+  check('une équipe fraîche n\'a pas d\'usure', slowStrain(s) < 0.1, slowStrain(s).toFixed(2))
+
+  // On simule une descente éprouvante : la moitié du temps sous le seuil,
+  // des mises à terre, des PV bas.
+  hero.hp = Math.round(hero.maxHp * 0.2)
+  s.wear.ticks = 10000
+  s.wear.lowTicks = 5000
+  s.wear.downs = 3
+  const worn = slowStrain(s)
+  check('l\'usure monte avec la descente', worn > 0.5, worn.toFixed(2))
+
+  // Le biais : à usure maximale, la Directrice attend plus longtemps.
+  const fresh = createDirector(0, 1)
+  const tired = createDirector(0, 1)
+  const calm = { damageFraction: 0, engaged: 0, downed: false, available: 10 }
+  let freshAt = -1
+  let tiredAt = -1
+  for (let t = 1; t < TICK_RATE * 60; t++) {
+    if (freshAt < 0 && updateDirector(fresh, t, { ...calm, strain: 0 }) > 0) freshAt = t
+    if (tiredAt < 0 && updateDirector(tired, t, { ...calm, strain: 1 }) > 0) tiredAt = t
+    if (freshAt >= 0 && tiredAt >= 0) break
+  }
+  check('l\'usure allonge la patience de la Directrice', tiredAt > freshAt,
+    `${freshAt} -> ${tiredAt} ticks`)
+}
+
+// --- salle de repos : le répit se mérite ------------------------------------
+{
+  const s = createGame(5151)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_rest', 'Épuisé')
+
+  // Sans usure : pas de salle de repos.
+  descend(s)
+  check('pas de repos pour une équipe fraîche', !s.rooms.some((r) => r.kind === 'repos'))
+  clearMonsters(s)
+
+  // Usure maximale : le prochain étage propose le répit.
+  hero.hp = Math.max(1, Math.round(hero.maxHp * 0.1))
+  s.wear.ticks = 10000
+  s.wear.lowTicks = 7000
+  s.wear.downs = 4
+  descend(s)
+  const rest = s.rooms.find((r) => r.kind === 'repos')
+  check('l\'usure mérite une salle de repos', rest !== undefined)
+  if (rest) {
+    const stall = s.items.filter((i) => i.price !== undefined)
+    check('l\'étal propose quatre objets à prix affiché', stall.length === 4, `${stall.length}`)
+    check('aucun monstre dans la salle de repos', !Object.values(s.actors).some(
+      (a) => a.kind === 'monster' &&
+        a.x >= rest.x && a.x < rest.x + rest.w && a.y >= rest.y && a.y < rest.y + rest.h,
+    ))
+
+    // L'étal se paie. Le soin d'abord : il ramène au plafond, pas au-delà.
+    const soin = s.items.find((i) => i.kind === 'soin')!
+    s.bones = 200
+    const before = s.bones
+    hero.x = soin.x
+    hero.y = soin.y
+    step(s, noInputs)
+    const ceiling = Math.round(hero.maxHp * healCapOf(s))
+    check('le soin ramène au plafond courant', hero.hp === ceiling, `${hero.hp}/${ceiling}`)
+    check('et il se paie', s.bones < before, `${before} -> ${s.bones}`)
+
+    // Le plafond : l'achat permanent, au prix qui monte.
+    const capBefore = healCapOf(s)
+    const cap = s.items.find((i) => i.kind === 'cap')!
+    hero.x = cap.x
+    hero.y = cap.y
+    step(s, noInputs)
+    check('remonter le plafond marche', healCapOf(s) > capBefore,
+      `${(capBefore * 100).toFixed(0)} % -> ${(healCapOf(s) * 100).toFixed(0)} %`)
+    check('le prochain plafond coûtera plus cher', capPrice(s.capBought) > capPrice(0),
+      `${capPrice(0)} -> ${capPrice(s.capBought)}`)
+
+    // La fiole : une fente, une touche.
+    const fiole = s.items.find((i) => i.kind === 'fiole_vitesse')!
+    hero.x = fiole.x
+    hero.y = fiole.y
+    step(s, noInputs)
+    check('la fiole va dans la fente', hero.potion === 'vitesse', String(hero.potion))
+    const speedBefore = playerSpeed(hero)
+    step(s, { p_rest: { ...NEUTRAL_INPUT, drink: true } })
+    check('boire vide la fente et accélère', hero.potion === undefined &&
+      (hero.hasteUntil ?? 0) > s.tick, `hâte jusqu'au tick ${hero.hasteUntil}`)
+    check('la vitesse de fiole est réelle', playerSpeed(hero, 1, false, true) > speedBefore)
+
+    // Deux repos coup sur coup : refusé, même laminé.
+    s.wear.lowTicks = s.wear.ticks
+    clearMonsters(s)
+    descend(s)
+    check('pas deux repos coup sur coup', !s.rooms.some((r) => r.kind === 'repos'))
+  }
 }
 
 // --- échange d'arme : pas de va-et-vient infini -----------------------------

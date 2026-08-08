@@ -18,6 +18,7 @@ import {
   MAP_H,
   MAP_W,
   MONSTERS,
+  healCapOf,
   NEUTRAL_INPUT,
   REVIVE_RANGE,
   Rng,
@@ -336,13 +337,17 @@ export class Brain {
     }
 
     // Décrochage : sous le seuil, on tourne le dos et on met de la distance.
+    // C'est le moment de boire ce qu'on porte — souffle ou vitesse, les deux
+    // servent à mettre de la distance, et une fiole gardée sur un cadavre n'a
+    // servi à personne.
     if (hpRatio < g.fleeAt && threats.length > 0) {
       this.lastBranch = 'flee'
-      return this.retreat(
+      const input = this.retreat(
         state, me, threats,
         g.sprint === 'escape' || g.sprint === 'both',
         nearest, nearestDist,
       )
+      return me.potion !== undefined ? { ...input, drink: true } : input
     }
 
     // Débordé : on recule en frappant — vers l'entrée, ce qui mène aux couloirs.
@@ -357,9 +362,58 @@ export class Brain {
       return this.fight(state, me, nearest, nearestDist)
     }
 
+    // Plus de menace : l'étal d'abord si on a de quoi payer utile — un bot
+    // qui meurt riche fausserait la mesure du puits autant qu'un joueur.
+    const stall = this.shopTarget(state, me, hpRatio)
+    if (stall) {
+      this.lastBranch = 'shop'
+      const d = distancesTo(state, Math.floor(stall.x), Math.floor(stall.y))
+      const [mx, my] = stepToward(state, me, d)
+      const g2 = this.genome
+      return {
+        mx, my, aim: me.aim, attack: false,
+        sprint: g2.sprint === 'travel' || g2.sprint === 'both',
+      }
+    }
+
     // Plus de menace : l'objectif.
     this.lastBranch = 'travel'
     return this.travel(state, me)
+  }
+
+  /**
+   * Y a-t-il un achat utile et payable sur l'étage ? Le plafond passe avant
+   * tout (c'est le seul achat permanent), le soin quand on est entamé, une
+   * fiole quand la fente est libre et la bourse confortable. Jamais le
+   * coffre : son arme aléatoire écraserait le génome qu'on mesure.
+   */
+  private shopTarget(state: GameState, me: Actor, hpRatio: number): { x: number; y: number } | null {
+    const cap = healCapOf(state)
+    let best: { x: number; y: number } | null = null
+    let bestScore = -Infinity
+    for (const it of state.items) {
+      if (it.price === undefined || state.bones < it.price) continue
+      let score: number
+      if (it.kind === 'cap') {
+        if (cap >= 1) continue
+        score = 3
+      } else if (it.kind === 'soin') {
+        if (hpRatio >= cap * 0.9) continue
+        score = 2
+      } else if (it.kind === 'fiole_souffle' || it.kind === 'fiole_vitesse') {
+        if (me.potion !== undefined || state.bones < it.price * 2) continue
+        score = 1
+      } else {
+        continue
+      }
+      const d = Math.hypot(it.x - me.x, it.y - me.y)
+      score -= d / 100
+      if (score > bestScore) {
+        bestScore = score
+        best = it
+      }
+    }
+    return best
   }
 
   // ------------------------------------------------------------ perceptions

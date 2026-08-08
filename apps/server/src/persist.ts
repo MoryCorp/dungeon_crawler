@@ -119,6 +119,9 @@ export async function loadRoom(code: string): Promise<GameState | null> {
         a.sprintedAt = state.tick - SPRINT_REFILL_DELAY
       }
       delete a.staggerReadyAt
+      // Les effets de fiole sont transitoires ; la fiole portée, elle, reste.
+      delete a.hasteUntil
+      delete a.freshUntil
       // Une escouade décrit une approche en cours. Après un redéploiement, il
       // n'y a plus d'approche : chacun repart pour soi.
       delete a.squad
@@ -140,6 +143,10 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     // Salles typées : une sauvegarde d'avant n'en a pas. L'étage courant se
     // joue alors « tout couloir » pour les recettes, le suivant sera typé.
     state.rooms ??= []
+    // Chantier 4, tout additif : bourse de plafond, usure, salle de repos.
+    state.capBonus ??= 0
+    state.capBought ??= 0
+    state.wear ??= { lowTicks: 0, ticks: 0, downs: 0 }
     // La Directrice repart d'une ardoise propre : son intensité mesure ce que le
     // joueur vient de vivre, et il ne vient de rien vivre du tout. Recharger un
     // pic vieux de trois jours livrerait une vague sur un donjon endormi.

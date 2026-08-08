@@ -18,6 +18,7 @@ import {
   floorScale,
   isWalkable,
   profileStats,
+  slowStrain,
   type GameEvent,
   type GameState,
 } from '@dc/engine'
@@ -116,6 +117,12 @@ export interface FloorRecord {
   bonesEarned?: number
   bonesSpent?: number
   bonesAtDeath?: number[]
+  /** Où part la monnaie : coffre, plafond, soin, fioles. */
+  spendBy?: Tally
+  /** Fioles bues sur l'étage. */
+  drinks?: Tally
+  /** Le signal lent au moment de quitter l'étage, 0 (frais) — 1 (laminé). */
+  strainOut?: number
 
   /**
    * Usage du sprint, en ticks-joueur. La question n'est pas « combien on
@@ -582,6 +589,11 @@ export class RunTelemetry {
 
       case 'spend':
         this.current.bonesSpent = (this.current.bonesSpent ?? 0) + ev.amount
+        bump((this.current.spendBy ??= {}), ev.what)
+        break
+
+      case 'drink':
+        bump((this.current.drinks ??= {}), ev.potion)
         break
 
       case 'trapclose':
@@ -593,6 +605,9 @@ export class RunTelemetry {
         break
 
       case 'descend': {
+        // L'usure est cumulative : mesurée en changeant d'étage, elle vaut
+        // aussi pour l'étage qu'on vient de quitter, à un tick près.
+        this.current.strainOut = Math.round(slowStrain(state) * 100) / 100
         const level = this.current.levelOut
         this.current = emptyFloor(ev.floor, level)
         this.floors.push(this.current)

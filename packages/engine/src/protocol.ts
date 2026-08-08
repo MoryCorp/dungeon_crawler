@@ -83,6 +83,10 @@ export interface ActorView {
   revive?: number
   /** Jauge de sprint, 0 à 1. Le client la redescend entre deux paquets. */
   stamina?: number
+  /** Fiole portée dans la fente d'inventaire. */
+  potion?: string
+  /** Fiole de vitesse active : le client prédit le déplacement accéléré. */
+  hasted?: boolean
 
   /** Monstres uniquement. */
   rank?: 'elite' | 'boss'
@@ -103,6 +107,8 @@ export interface ItemView {
   x: number
   y: number
   weapon?: string
+  /** Prix en ossements, pour l'étiquette au-dessus de l'objet. */
+  price?: number
 }
 
 export type ClientMsg =
@@ -185,6 +191,8 @@ export function buildActorViews(state: GameState, visible: Uint8Array): ActorVie
       view.downed = a.downed === true
       view.stamina = round2(a.stamina ?? 1)
       if (a.downed) view.revive = round2(a.reviveProgress ?? 0)
+      if (a.potion !== undefined) view.potion = a.potion
+      if ((a.hasteUntil ?? 0) > state.tick) view.hasted = true
     } else {
       if (a.boss) view.rank = 'boss'
       else if (a.elite) view.rank = 'elite'
@@ -222,6 +230,7 @@ export function buildItemViews(state: GameState, visible: Uint8Array): ItemView[
       x: round2(item.x),
       y: round2(item.y),
       weapon: item.weapon,
+      ...(item.price !== undefined ? { price: item.price } : {}),
     })
   }
   return out

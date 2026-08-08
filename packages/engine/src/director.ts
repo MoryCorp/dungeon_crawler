@@ -37,6 +37,9 @@ import {
   INTENSITY_DOWNED,
   INTENSITY_PER_DAMAGE,
   PRESENCE_WEIGHT,
+  STRAIN_PATIENCE_MULT,
+  STRAIN_REST_MULT,
+  STRAIN_SIZE_AT,
   type DirectorState,
 } from './types.js'
 
@@ -54,6 +57,14 @@ export interface Pressure {
   downed: boolean
   /** Reste-t-il de quoi livrer ? Sinon la Directrice ne peut que patienter. */
   available: number
+  /**
+   * Le signal lent : l'usure de toute la descente, 0 à 1. Il ne déclenche
+   * rien — il biaise. Une équipe laminée voit la patience s'allonger, les
+   * vagues maigrir d'une tête et le repos durer plus longtemps ; une équipe
+   * fraîche vit la boucle nominale. La difficulté ne change pas d'échelle,
+   * elle change de tempo. Optionnel : sans signal, la boucle est nominale.
+   */
+  strain?: number
 }
 
 /**
@@ -97,9 +108,12 @@ export function updateDirector(
       }
       // On ne livre que si le calme dure. Livrer sur un creux d'une seconde
       // reviendrait à une pression continue, c'est-à-dire à pas de pic du tout.
-      if (pressure < DIRECTOR_CALM && elapsed >= DIRECTOR_PATIENCE && p.available > 0) {
+      const strain = p.strain ?? 0
+      const patience = DIRECTOR_PATIENCE * (1 + strain * STRAIN_PATIENCE_MULT)
+      if (pressure < DIRECTOR_CALM && elapsed >= patience && p.available > 0) {
         director.since = tick
-        const size = HORDE_MIN + Math.floor((HORDE_MAX - HORDE_MIN + 1) * pick(tick, director.seed))
+        let size = HORDE_MIN + Math.floor((HORDE_MAX - HORDE_MIN + 1) * pick(tick, director.seed))
+        if (strain >= STRAIN_SIZE_AT) size = Math.max(HORDE_MIN, size - 1)
         return Math.min(p.available, size)
       }
       return 0
@@ -120,8 +134,9 @@ export function updateDirector(
 
     case 'rest':
       // Repos garanti. Rien ne peut le raccourcir — c'est le creux qui donne
-      // sa valeur au pic suivant.
-      if (elapsed >= DIRECTOR_REST) enter('buildup')
+      // sa valeur au pic suivant. L'usure l'allonge : une équipe laminée a
+      // gagné son souffle.
+      if (elapsed >= DIRECTOR_REST * (1 + (p.strain ?? 0) * STRAIN_REST_MULT)) enter('buildup')
       return 0
   }
 }

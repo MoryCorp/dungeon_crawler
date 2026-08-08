@@ -9,7 +9,7 @@
 import { buildFlowField, decideMonsterAction } from './ai.js'
 import { createDirector, updateDirector } from './director.js'
 import { profileOf } from './profile.js'
-import { pickRecipe, recordReward } from './bandit.js'
+import { pickRecipe, recordReward, warmStart } from './bandit.js'
 import { planWave, recipesFor, type Placement } from './recipes.js'
 import { computeFov } from './fov.js'
 import { generateFloor, type Rect, type Room } from './mapgen.js'
@@ -56,6 +56,17 @@ import {
   FOV_RADIUS,
   CARRIED_OF_CAP,
   HEART_DROP_CHANCE,
+  healCapOf,
+  WEAR_LOW_HP,
+  REST_STRAIN,
+  REST_MIN_GAP,
+  CAP_BONUS_STEP,
+  capPrice,
+  soinPrice,
+  FIOLE_PRICE,
+  HASTE_MULT,
+  HASTE_TICKS,
+  FRESH_TICKS,
   TRAP_BONE_REWARD,
   TRAP_WARNING_TICKS,
   trapWaveSize,
@@ -172,9 +183,10 @@ export function playerSpeed(
   actor: { downed?: boolean },
   movePenalty = 1,
   sprinting = false,
+  hasted = false,
 ): number {
   const base = actor.downed ? DOWNED_SPEED : PLAYER_SPEED
-  return base * movePenalty * (sprinting ? SPRINT_MULT : 1)
+  return base * movePenalty * (sprinting ? SPRINT_MULT : 1) * (hasted ? HASTE_MULT : 1)
 }
 
 /**
@@ -187,7 +199,7 @@ export function playerSpeed(
  * précisément pour interdire.
  */
 export function stepSprint(
-  actor: Pick<Actor, 'downed' | 'stamina' | 'sprinting' | 'sprintedAt'>,
+  actor: Pick<Actor, 'downed' | 'stamina' | 'sprinting' | 'sprintedAt' | 'freshUntil'>,
   tick: number,
   wants: boolean,
   moving: boolean,
@@ -200,7 +212,9 @@ export function stepSprint(
   const sprinting = asked && (actor.sprinting === true ? stamina > 0 : stamina >= SPRINT_MIN_START)
 
   if (sprinting) {
-    actor.stamina = Math.max(0, stamina - SPRINT_DRAIN * DT)
+    // Fiole de souffle : la jauge ne se vide pas tant que l'effet dure.
+    const fresh = (actor.freshUntil ?? 0) > tick
+    actor.stamina = fresh ? stamina : Math.max(0, stamina - SPRINT_DRAIN * DT)
     actor.sprintedAt = tick
   } else if (tick - (actor.sprintedAt ?? -SPRINT_REFILL_DELAY) >= SPRINT_REFILL_DELAY) {
     actor.stamina = Math.min(1, stamina + SPRINT_REGEN * DT)
@@ -295,9 +309,10 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
   // espèces au moment de livrer, pas le peuplement.
   state.reserveCount = DIRECTOR_RESERVE
   // On exclut la salle de spawn : arriver au milieu d'un comité d'accueil
-  // n'est pas une difficulté, c'est une frustration. Et la salle piégée : son
-  // contenu, c'est le piège — la peupler d'office éventerait le pari.
-  const spawnable = rooms.slice(1).filter((r) => r.kind !== 'tresor')
+  // n'est pas une difficulté, c'est une frustration. Ni la salle piégée (son
+  // contenu, c'est le piège), ni la salle de repos (la Directrice s'y tait,
+  // le peuplement aussi).
+  const spawnable = rooms.slice(1).filter((r) => r.kind !== 'tresor' && r.kind !== 'repos')
   if (spawnable.length === 0) return
 
   // Les archers et les chargeurs sont ceux qui rendent un couloir terrifiant :
@@ -387,6 +402,19 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
     dropItem(state, { kind: 'bone', x: tx, y: ty - 0.7, amount: TRAP_BONE_REWARD })
     state.trap = { room: treasure, phase: 'armed', gates: [] }
   }
+
+  // L'étal de la salle de repos : quatre objets posés au sol, prix affichés,
+  // achat en marchant dessus. La Directrice muette et l'absence de monstres
+  // font le reste — la salle EST le répit, l'étal n'est que la dépense.
+  const rest = rooms.find((r) => r.kind === 'repos')
+  if (rest) {
+    const rx = rest.x + Math.floor(rest.w / 2) + 0.5
+    const ry = rest.y + Math.floor(rest.h / 2) + 0.5
+    dropItem(state, { kind: 'cap', x: rx, y: ry, price: capPrice(state.capBought) })
+    dropItem(state, { kind: 'soin', x: rx - 1.4, y: ry, price: soinPrice(state.floor) })
+    dropItem(state, { kind: 'fiole_souffle', x: rx + 1.4, y: ry, price: FIOLE_PRICE })
+    dropItem(state, { kind: 'fiole_vitesse', x: rx + 1.4, y: ry + 1, price: FIOLE_PRICE })
+  }
 }
 
 function isWalkableAt(state: GameState, x: number, y: number): boolean {
@@ -447,6 +475,9 @@ export function createGame(seed: number, floor = 1): GameState {
     floorKills: 0,
     bones: 0,
     rooms: layout.rooms,
+    capBonus: 0,
+    capBought: 0,
+    wear: { lowTicks: 0, ticks: 0, downs: 0 },
     events: [],
   }
 
@@ -457,6 +488,13 @@ export function createGame(seed: number, floor = 1): GameState {
 
 export function descend(state: GameState): void {
   const rng = new Rng(state.rng)
+
+  // La salle de repos se mérite : décidée sur l'état au moment de prendre
+  // l'escalier, jamais au rythme d'un métronome. Le signal lent la justifie,
+  // l'écart minimal empêche deux repos coup sur coup même en pleine déroute.
+  const restDue =
+    slowStrain(state) >= REST_STRAIN &&
+    state.floor + 1 - (state.lastRestFloor ?? -REST_MIN_GAP) > REST_MIN_GAP
 
   // Patience : part de l'étage qu'on vient de quitter réellement tuée. Créditée
   // à toute l'équipe présente — descendre est une décision de groupe, celui qui
@@ -490,6 +528,32 @@ export function descend(state: GameState): void {
   state.items = []
   state.rooms = layout.rooms
   delete state.trap
+  delete state.restAnnounced
+
+  // La salle de repos : la plus proche du spawn parmi les convenables — un
+  // repos qu'on découvre à la fin de l'étage n'aurait servi à rien.
+  if (restDue) {
+    const candidates = layout.rooms.filter(
+      (r) =>
+        r.kind !== 'tresor' &&
+        r !== layout.rooms[0] &&
+        !insideRoom(r, layout.stairs.x, layout.stairs.y) &&
+        r.w >= 5 && r.h >= 5,
+    )
+    let restRoom: Room | null = null
+    let bestD = Infinity
+    for (const r of candidates) {
+      const d = Math.hypot(r.x + r.w / 2 - layout.spawn.x, r.y + r.h / 2 - layout.spawn.y)
+      if (d < bestD) {
+        bestD = d
+        restRoom = r
+      }
+    }
+    if (restRoom) {
+      restRoom.kind = 'repos'
+      state.lastRestFloor = state.floor
+    }
+  }
 
   // Ce qu'on n'a pas tué nous suit. On garde en priorité les plus proches de
   // l'escalier : ce sont ceux qui nous collaient réellement, et ça laisse au
@@ -652,10 +716,40 @@ function settleBandit(state: GameState): void {
  * L'intensité se lit sur les événements du tick précédent : ce sont eux qui
  * portent les dégâts subis et les mises à terre, et ils sont déjà là.
  */
+/**
+ * Le signal lent : l'usure de la descente entière, en 0 (frais) — 1 (laminé).
+ * Trois composantes, toutes cumulées depuis l'étage 1 : les PV que le plafond
+ * ne permet plus de regagner, le temps passé sous le seuil critique, les mises
+ * à terre. Il ne déclenche jamais rien — il biaise la boucle rapide et décide
+ * si la prochaine salle de repos est méritée.
+ */
+export function slowStrain(state: GameState): number {
+  let best = 0
+  let players = 0
+  for (const a of Object.values(state.actors)) {
+    if (a.kind !== 'player' || !a.alive || a.maxHp <= 0) continue
+    players++
+    best = Math.max(best, a.hp / a.maxHp)
+  }
+  if (players === 0) return 0
+  const cap = healCapOf(state)
+  const hpGap = cap > 0 ? Math.max(0, 1 - best / cap) : 0
+  const low = state.wear.lowTicks / Math.max(1, state.wear.ticks)
+  const downs = Math.min(1, state.wear.downs / (3 * players))
+  return Math.min(1, 0.45 * hpGap + 0.35 * low + 0.2 * downs)
+}
+
 function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
   const players = Object.values(state.actors).filter(
     (a) => a.kind === 'player' && a.alive && !a.downed,
   )
+
+  // L'usure s'accumule ici, au même rythme pour tout le monde : des
+  // ticks-joueur, dont ceux passés sous le seuil critique.
+  for (const p of players) {
+    state.wear.ticks++
+    if (p.hp / p.maxHp < WEAR_LOW_HP) state.wear.lowTicks++
+  }
 
   let damageFraction = 0
   let downed = false
@@ -687,6 +781,7 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
     engaged,
     downed,
     available,
+    strain: slowStrain(state),
   })
 
   // Fenêtre d'évaluation de la dernière vague. À l'échéance, son gain
@@ -701,6 +796,16 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
 
   if (wanted > 0) deliverHorde(state, wanted, visible, rng)
   stepTrap(state, rng)
+
+  // Le répit s'annonce en le découvrant : la Directrice se tait ici, et le
+  // joueur doit le savoir — un calme qu'on croit menacé n'est pas un repos.
+  if (!state.restAnnounced) {
+    const rest = state.rooms.find((r) => r.kind === 'repos')
+    if (rest && players.some((p) => insideRoom(rest, p.x, p.y))) {
+      state.restAnnounced = true
+      state.events.push({ t: 'rest', x: rest.x + rest.w / 2, y: rest.y + rest.h / 2 })
+    }
+  }
 }
 
 /**
@@ -826,12 +931,23 @@ function placementOpts(
  * revient en groupe, au moment où on ne s'y attend pas.
  */
 function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng: Rng): void {
+  // Le biais de cible est assumé et gardé : la vague vise le joueur le mieux
+  // portant. C'est lui qui donne le tempo de l'équipe, et viser le plus
+  // faible transformerait chaque vague en curée — la Directrice fabrique de
+  // la tension, pas des exécutions. Ce biais est documenté ici parce qu'il
+  // est invisible dans les chiffres : le bandit apprend PAR cible, donc ses
+  // carnets décrivent toujours ce qui marche contre un joueur en forme.
   let target: Actor | null = null
   for (const a of Object.values(state.actors)) {
     if (a.kind !== 'player' || !a.alive || a.downed || a.maxHp <= 0) continue
     if (!target || a.hp / a.maxHp > target.hp / target.maxHp) target = a
   }
   if (!target) return
+
+  // La salle de repos : la Directrice s'y tait. Pas de vague tant que sa
+  // cible s'y trouve — et le joueur le sait, c'est ce qui fait le repos.
+  const restRoom = state.rooms.find((r) => r.kind === 'repos')
+  if (restRoom && insideRoom(restRoom, target.x, target.y)) return
 
   // Une vague part avant la fin de la fenêtre de la précédente : on solde la
   // précédente avec ce qui a été observé jusqu'ici plutôt que de lui
@@ -846,9 +962,10 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   // Le bandit ne choisit que parmi les recettes jouables là où est la cible :
   // le type de la salle filtre, le couloir plus encore.
   const targetRoom = state.rooms.find((r) => insideRoom(r, target.x, target.y))
-  const recipe = pickRecipe(
-    (state.bandit[context] ??= {}), rng, recipesFor(targetRoom?.kind ?? 'couloir'),
-  )
+  // Carnet neuf ? Démarrage à chaud depuis les carnets des autres armes du
+  // même joueur, décoté à n = 1 (voir warmStart).
+  const arms = state.bandit[context] ?? (state.bandit[context] = warmStart(state.bandit, target.id))
+  const recipe = pickRecipe(arms, rng, recipesFor(targetRoom?.kind ?? 'couloir'))
   const stock = state.pursuers.length + state.reserveCount
   const total = Math.min(stock, Math.max(1, Math.round(count * recipe.sizeMult)))
   if (total <= 0) return
@@ -1175,7 +1292,7 @@ function dropLoot(state: GameState, victim: Actor, rng: Rng): void {
  * et l'ordre entre elles s'était inversé sans que personne le voie.
  */
 function standUpHp(state: GameState, actor: Actor, ofCap: number): number {
-  return Math.max(1, Math.round(actor.maxHp * healCap(state.floor) * ofCap))
+  return Math.max(1, Math.round(actor.maxHp * healCapOf(state) * ofCap))
 }
 
 function killOrDown(state: GameState, victim: Actor, rng: Rng): void {
@@ -1195,6 +1312,7 @@ function killOrDown(state: GameState, victim: Actor, rng: Rng): void {
     victim.kx = 0
     victim.ky = 0
     delete victim.windupUntil
+    state.wear.downs++
     state.events.push({ t: 'downed', id: victim.id, x: victim.x, y: victim.y })
     return
   }
@@ -1524,10 +1642,22 @@ function stepItems(state: GameState, rng: Rng): void {
     const range = item.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
     if (Math.hypot(nearest.x - item.x, nearest.y - item.y) > range) continue
 
-    // Le coffre ne s'ouvre que si l'équipe a de quoi payer. Pas de message
-    // d'erreur côté engine : le prix est affiché au-dessus du coffre, un
-    // coffre qui ne s'ouvre pas est une information, pas une panne.
-    if (item.kind === 'chest' && state.bones < chestPrice(state.floor)) continue
+    // Ce qui a un prix ne se prend que si l'équipe peut payer. Pas de message
+    // d'erreur côté engine : le prix est affiché au-dessus de l'objet, un
+    // objet qui reste au sol est une information, pas une panne.
+    const price = item.kind === 'chest' ? chestPrice(state.floor) : item.price ?? 0
+    if (price > 0 && state.bones < price) continue
+
+    // À l'étal, on n'achète pas l'inutile en passant : un soin à pleine vie,
+    // un plafond déjà au maximum, une fiole sans fente libre restent posés.
+    if (item.kind === 'soin' && nearest.hp >= Math.round(nearest.maxHp * healCapOf(state))) continue
+    if (item.kind === 'cap' && healCapOf(state) >= 1) continue
+    if ((item.kind === 'fiole_souffle' || item.kind === 'fiole_vitesse') && nearest.potion !== undefined) continue
+
+    if (price > 0) {
+      state.bones -= price
+      state.events.push({ t: 'spend', id: nearest.id, amount: price, what: item.kind, x: item.x, y: item.y })
+    }
 
     switch (item.kind) {
       case 'xp':
@@ -1538,11 +1668,30 @@ function stepItems(state: GameState, rng: Rng): void {
         state.bones += item.amount ?? 1
         break
 
+      case 'cap':
+        // LE puits : remonter le plafond de soin, pour toute l'équipe et pour
+        // le reste de la partie. Son prix monte à chaque achat.
+        state.capBonus += CAP_BONUS_STEP
+        state.capBought++
+        break
+
+      case 'soin':
+        nearest.hp = Math.max(nearest.hp, Math.round(nearest.maxHp * healCapOf(state)))
+        break
+
+      case 'fiole_souffle':
+        nearest.potion = 'souffle'
+        break
+
+      case 'fiole_vitesse':
+        nearest.potion = 'vitesse'
+        break
+
       case 'heart': {
         // Le plafond descend avec l'étage : un cœur soigne toujours, mais il ne
         // ramène plus aussi haut, et ce qu'on a perdu en profondeur ne se
         // rattrape pas sur place.
-        const ceiling = Math.round(nearest.maxHp * healCap(state.floor))
+        const ceiling = Math.round(nearest.maxHp * healCapOf(state))
         if (nearest.hp >= ceiling) continue // on laisse le soin par terre
         nearest.hp = Math.min(
           ceiling,
@@ -1569,9 +1718,6 @@ function stepItems(state: GameState, rng: Rng): void {
       }
 
       case 'chest': {
-        const price = chestPrice(state.floor)
-        state.bones -= price
-        state.events.push({ t: 'spend', id: nearest.id, amount: price, what: 'chest', x: item.x, y: item.y })
         // Le contenu est verrouillé pour celui qui ouvre : il voit ce qui est
         // tombé avant de décider de changer d'arme, au lieu de subir l'échange.
         dropItem(state, {
@@ -1712,6 +1858,19 @@ export function step(
       playerAttack(state, actor, rng)
     }
 
+    // Boire la fiole portée. Une seule fente, une décision : maintenant ou
+    // jamais — l'effet est immédiat, la fente se libère.
+    if (input.drink === true && !actor.downed && actor.potion !== undefined) {
+      if (actor.potion === 'souffle') {
+        actor.stamina = 1
+        actor.freshUntil = state.tick + FRESH_TICKS
+      } else {
+        actor.hasteUntil = state.tick + HASTE_TICKS
+      }
+      state.events.push({ t: 'drink', id: actor.id, potion: actor.potion, x: actor.x, y: actor.y })
+      delete actor.potion
+    }
+
     const weapon = weaponOf(actor.weapon)
     const beforeX = actor.x
     const beforeY = actor.y
@@ -1725,7 +1884,7 @@ export function step(
     movePhysical(
       state.tiles, state.width, state.height, actor,
       input.mx, input.my,
-      playerSpeed(actor, swinging ? weapon.movePenalty : 1, sprinting),
+      playerSpeed(actor, swinging ? weapon.movePenalty : 1, sprinting, (actor.hasteUntil ?? 0) > state.tick),
     )
     if (!actor.downed) {
       profileMovement(state, actor, threats, actor.x - beforeX, actor.y - beforeY)

@@ -26,7 +26,7 @@ export interface Rect {
  *   une par étage, jamais celle du spawn ni de l'escalier) ;
  * - standard : le reste.
  */
-export type RoomKind = 'standard' | 'arene' | 'galerie' | 'piliers' | 'tresor'
+export type RoomKind = 'standard' | 'arene' | 'galerie' | 'piliers' | 'tresor' | 'repos'
 
 export interface Room extends Rect {
   kind: RoomKind
