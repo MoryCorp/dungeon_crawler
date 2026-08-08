@@ -1,6 +1,15 @@
 import { Application } from 'pixi.js'
-import { fromBase64, unpackBits, type ActorView, type ServerMsg } from '@dc/engine'
-import { InputManager } from './input.js'
+import {
+  DT,
+  PLAYER_SPEED,
+  fromBase64,
+  movePhysical,
+  unpackBits,
+  type ActorView,
+  type PlayerInput,
+  type ServerMsg,
+} from '@dc/engine'
+import { InputManager, sameInput } from './input.js'
 import { Net } from './net.js'
 import { Renderer } from './render.js'
 
@@ -19,6 +28,11 @@ const floorLabel = $('floor')
 const hpLabel = $('hp')
 const roomLabel = $('room-label')
 
+/** Au-delà de cet écart avec le serveur, on recale sèchement plutôt que d'interpoler. */
+const SNAP_DISTANCE = 1.2
+/** Correction douce appliquée à chaque paquet quand l'écart reste faible. */
+const CORRECTION = 0.2
+
 async function main(): Promise<void> {
   const app = new Application()
   await app.init({
@@ -33,24 +47,35 @@ async function main(): Promise<void> {
   document.body.appendChild(app.canvas)
 
   const renderer = new Renderer(app)
-  let mapSize = 0
-  let selfId = ''
+  const input = new InputManager(app.canvas as HTMLCanvasElement)
 
-  // Compteurs exposés pour le debug depuis la console : `__dc` dit d'un coup
-  // d'œil si le réseau arrive et si la boucle de rendu tourne.
-  const debug = { frames: 0, states: 0, floors: 0, lastTick: 0 }
+  let selfId = ''
+  let mapSize = 0
+  let tiles: Uint8Array | null = null
+  let mapW = 0
+  let mapH = 0
+  let alive = true
+
+  /** État physique prédit du joueur local. */
+  const local = { x: 0, y: 0, kx: 0, ky: 0 }
+  let localReady = false
+  let lastInput: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false }
+  let accumulator = 0
+  let sendTimer = 0
+
+  const debug = { frames: 0, states: 0, floors: 0, swings: 0, effects: 0, lastTick: 0 }
   ;(window as unknown as { __dc: typeof debug }).__dc = debug
 
   const net = new Net({
     onStatus: (status) => {
       if (status === 'closed' && selfId) {
         roomLabel.textContent = `${roomInput.value.toUpperCase()} (reconnexion…)`
+      } else if (status === 'open' && selfId) {
+        roomLabel.textContent = roomInput.value.toUpperCase()
       }
     },
-    onMessage: (msg: ServerMsg) => handleMessage(msg),
+    onMessage: handleMessage,
   })
-
-  const input = new InputManager((intent) => net.send({ t: 'intent', intent }))
 
   function handleMessage(msg: ServerMsg): void {
     switch (msg.t) {
@@ -63,31 +88,77 @@ async function main(): Promise<void> {
         hint.classList.remove('hidden')
         roomLabel.textContent = msg.room
         location.hash = msg.room
-        input.resync()
         break
       }
+
       case 'floor': {
+        mapW = msg.width
+        mapH = msg.height
         debug.floors++
         mapSize = msg.width * msg.height
-        renderer.setFloor(msg.width, msg.height, fromBase64(msg.tiles))
+        tiles = fromBase64(msg.tiles)
+        renderer.setFloor(msg.width, msg.height, tiles)
         floorLabel.textContent = String(msg.floor)
+        // Nouvel étage : la position prédite n'a plus de sens.
+        localReady = false
         break
       }
+
       case 'state': {
         if (mapSize === 0) break
         debug.states++
         debug.lastTick = msg.tick
-        const visible = unpackBits(fromBase64(msg.vis), mapSize)
+
+        const visible = msg.vis ? unpackBits(fromBase64(msg.vis), mapSize) : null
         renderer.applyState(msg.actors, visible, msg.events)
         floorLabel.textContent = String(msg.floor)
         updateHud(msg.actors)
+
+        for (const ev of msg.events) {
+          if (ev.t === 'swing' && ev.id === selfId) debug.swings++
+        }
+
+        const self = msg.actors.find((a) => a.id === selfId)
+        if (self) reconcile(self)
+
+        // Le recul n'est pas prédit côté client : quand on se fait toucher, on
+        // recale sur l'autorité plutôt que de diverger pendant une seconde.
+        for (const ev of msg.events) {
+          if (ev.t === 'hit' && ev.to === selfId) {
+            local.x = ev.x
+            local.y = ev.y
+          }
+        }
         break
       }
+
       case 'error': {
         errorBox.textContent = msg.msg
         lobby.classList.remove('hidden')
         break
       }
+    }
+  }
+
+  function reconcile(self: ActorView): void {
+    alive = self.alive
+    if (!localReady || !self.alive) {
+      local.x = self.x
+      local.y = self.y
+      local.kx = 0
+      local.ky = 0
+      localReady = true
+      renderer.predicted = { x: local.x, y: local.y }
+      return
+    }
+
+    const dist = Math.hypot(self.x - local.x, self.y - local.y)
+    if (dist > SNAP_DISTANCE) {
+      local.x = self.x
+      local.y = self.y
+    } else {
+      local.x += (self.x - local.x) * CORRECTION
+      local.y += (self.y - local.y) * CORRECTION
     }
   }
 
@@ -108,11 +179,39 @@ async function main(): Promise<void> {
 
   app.ticker.add((ticker) => {
     debug.frames++
-    input.poll()
-    renderer.render(Math.min(0.1, ticker.deltaMS / 1000))
+    const dt = Math.min(0.1, ticker.deltaMS / 1000)
+
+    // Le personnage est toujours au centre de l'écran : la souris vise par
+    // rapport à ce point.
+    const current = input.sample(app.screen.width / 2, app.screen.height / 2)
+
+    // Envoi à cadence fixe, et immédiatement si l'entrée change de façon
+    // significative (un clic ne doit pas attendre le prochain créneau).
+    sendTimer -= dt
+    if (!sameInput(current, lastInput) || sendTimer <= 0) {
+      lastInput = current
+      sendTimer = DT
+      if (selfId) net.send({ t: 'input', input: current })
+    }
+
+    // Prédiction locale à pas fixe, avec exactement le même code que le
+    // serveur : la divergence ne peut venir que de la latence, jamais des règles.
+    if (localReady && tiles && alive) {
+      accumulator += dt
+      let steps = 0
+      while (accumulator >= DT && steps < 5) {
+        movePhysical(tiles, mapW, mapH, local, current.mx, current.my, PLAYER_SPEED)
+        accumulator -= DT
+        steps++
+      }
+      if (steps === 5) accumulator = 0
+      renderer.predicted = { x: local.x, y: local.y }
+    }
+
+    renderer.render(dt)
+    debug.effects = renderer.effectCount
   })
 
-  // Préremplissage : pseudo mémorisé, code de partie depuis le lien partagé.
   nameInput.value = localStorage.getItem('dc:name') ?? ''
   roomInput.value = location.hash.slice(1).toUpperCase() || localStorage.getItem('dc:room') || ''
 

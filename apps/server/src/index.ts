@@ -153,8 +153,8 @@ wss.on('connection', (ws) => {
       return
     }
 
-    if (msg.t === 'intent') {
-      socketRoom.get(ws)?.setIntent(ws, msg.intent)
+    if (msg.t === 'input') {
+      socketRoom.get(ws)?.setInput(ws, msg.input)
     }
   })
 

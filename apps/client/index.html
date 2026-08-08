@@ -23,7 +23,7 @@
         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         overflow: hidden;
       }
-      canvas { display: block; }
+      canvas { display: block; cursor: crosshair; }
 
       #lobby {
         position: fixed;
@@ -118,7 +118,7 @@
       <div class="row">PV <b id="hp">—</b></div>
     </div>
     <div id="party" class="hidden"></div>
-    <div id="hint" class="hidden">ZQSD / WASD / flèches · Espace : attaquer · Manette supportée</div>
+    <div id="hint" class="hidden">ZQSD / WASD / flèches pour se déplacer · <b>clic gauche</b> : coup d'épée · manette : stick droit pour viser</div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -45,7 +45,8 @@ class FakeClient {
         if (msg.t === 'state') {
           this.actors = msg.actors
           this.stateCount++
-          if (this.mapSize) {
+          // Le brouillard n'accompagne qu'un paquet sur cinq.
+          if (this.mapSize && msg.vis) {
             const vis = unpackBits(fromBase64(msg.vis), this.mapSize)
             this.visibleCount = vis.reduce((a, b) => a + b, 0)
           }
@@ -60,12 +61,16 @@ class FakeClient {
     return this.actors.find((a) => a.id === this.selfId)
   }
 
-  move(dir: string): void {
-    this.ws.send(JSON.stringify({ t: 'intent', intent: { type: 'move', dir } }))
+  move(mx: number, my: number): void {
+    this.ws.send(JSON.stringify({ t: 'input', input: { mx, my, aim: 0, attack: false } }))
+  }
+
+  attack(aim: number): void {
+    this.ws.send(JSON.stringify({ t: 'input', input: { mx: 0, my: 0, aim, attack: true } }))
   }
 
   stop(): void {
-    this.ws.send(JSON.stringify({ t: 'intent', intent: null }))
+    this.ws.send(JSON.stringify({ t: 'input', input: { mx: 0, my: 0, aim: 0, attack: false } }))
   }
 }
 
@@ -98,31 +103,41 @@ async function run(): Promise<void> {
 
   // On teste les 4 directions : au moins une doit être libre depuis le spawn.
   let moved = false
-  for (const dir of ['E', 'W', 'S', 'N']) {
-    alice.move(dir)
+  for (const [mx, my] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    alice.move(mx, my)
     await wait(700)
     const now = alice.self()!
-    if (now.x !== start.x || now.y !== start.y) {
+    if (Math.hypot(now.x - start.x, now.y - start.y) > 0.5) {
       moved = true
       break
     }
   }
   alice.stop()
   const after = alice.self()!
-  check('Alice se déplace', moved, `(${start.x},${start.y}) -> (${after.x},${after.y})`)
+  check(
+    'Alice se déplace librement',
+    moved,
+    `(${start.x.toFixed(2)},${start.y.toFixed(2)}) -> (${after.x.toFixed(2)},${after.y.toFixed(2)})`,
+  )
+
+  // Les positions doivent être continues, pas alignées sur la grille.
+  const offGrid = Math.abs(after.x - Math.round(after.x)) > 0.01 ||
+                  Math.abs(after.y - Math.round(after.y)) > 0.01
+  check('les positions sont continues, pas calées sur la grille', offGrid, `x=${after.x}`)
 
   // Mesure sur une fenêtre fixe : compter depuis le début dépendrait du temps
   // qu'a mis Alice à trouver une direction libre.
   const countBefore = alice.stateCount
   await wait(1000)
   const rate = alice.stateCount - countBefore
-  check('le serveur envoie ~15 états/s', rate >= 12 && rate <= 18, `${rate} états en 1 s`)
+  check('le serveur envoie ~30 états/s', rate >= 24 && rate <= 36, `${rate} états en 1 s`)
 
   // Bob voit-il Alice bouger ? (état partagé)
   const aliceSeenByBob = bob.actors.find((a) => a.id === alice.selfId)
   check(
     'Bob voit la position d\'Alice',
-    aliceSeenByBob?.x === after.x && aliceSeenByBob?.y === after.y,
+    aliceSeenByBob !== undefined &&
+      Math.hypot(aliceSeenByBob.x - after.x, aliceSeenByBob.y - after.y) < 1.5,
     `${aliceSeenByBob?.x},${aliceSeenByBob?.y}`,
   )
 
@@ -138,8 +153,8 @@ async function run(): Promise<void> {
   check('reconnexion : même identifiant', aliceAgain.selfId === alice.selfId, aliceAgain.selfId)
   check(
     'reconnexion : le personnage est là où il était',
-    Math.abs(resumed.x - posBefore.x) <= 1 && Math.abs(resumed.y - posBefore.y) <= 1,
-    `(${resumed.x},${resumed.y}) vs (${posBefore.x},${posBefore.y})`,
+    Math.hypot(resumed.x - posBefore.x, resumed.y - posBefore.y) <= 1.5,
+    `(${resumed.x.toFixed(2)},${resumed.y.toFixed(2)}) vs (${posBefore.x.toFixed(2)},${posBefore.y.toFixed(2)})`,
   )
   check('reconnexion : même étage', aliceAgain.floor === floorBefore, `étage ${aliceAgain.floor}`)
 

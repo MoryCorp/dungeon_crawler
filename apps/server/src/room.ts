@@ -11,7 +11,7 @@ import {
   step,
   toBase64,
   type GameState,
-  type Intent,
+  type PlayerInput,
   type ServerMsg,
 } from '@dc/engine'
 import { saveRoom } from './persist.js'
@@ -20,7 +20,7 @@ interface Client {
   ws: WebSocket
   playerId: string
   name: string
-  intent: Intent | null
+  input: PlayerInput | null
 }
 
 /** Graine déterministe à partir du code de room : le même code rejoue le même donjon. */
@@ -45,6 +45,7 @@ function playerIdFor(name: string): string {
 }
 
 const SAVE_EVERY_TICKS = TICK_RATE * 10
+const VIS_EVERY_TICKS = 5
 export const MAX_PLAYERS = 4
 
 export class Room {
@@ -57,6 +58,7 @@ export class Room {
   }
   private floorDirty = true
   private lastSaveTick = 0
+  private visCountdown = 0
 
   constructor(
     public readonly code: string,
@@ -90,7 +92,7 @@ export class Room {
     }
 
     addPlayer(this.state, playerId, name)
-    this.clients.set(ws, { ws, playerId, name, intent: null })
+    this.clients.set(ws, { ws, playerId, name, input: null })
 
     this.send(ws, { t: 'welcome', selfId: playerId, room: this.code, tickRate: TICK_RATE })
     this.send(ws, this.floorMsg())
@@ -113,9 +115,9 @@ export class Room {
     this.clients.delete(ws)
   }
 
-  setIntent(ws: WebSocket, intent: Intent | null): void {
+  setInput(ws: WebSocket, input: PlayerInput | null): void {
     const client = this.clients.get(ws)
-    if (client) client.intent = intent
+    if (client) client.input = input
   }
 
   private floorMsg(): ServerMsg {
@@ -129,24 +131,32 @@ export class Room {
   }
 
   tick(): void {
-    const intents: Record<string, Intent | null> = {}
-    for (const c of this.clients.values()) intents[c.playerId] = c.intent
+    const inputs: Record<string, PlayerInput | null> = {}
+    for (const c of this.clients.values()) inputs[c.playerId] = c.input
 
     const floorBefore = this.state.floor
-    const { visible } = step(this.state, intents, this.scratch)
+    const { visible } = step(this.state, inputs, this.scratch)
     if (this.state.floor !== floorBefore) this.floorDirty = true
 
     if (this.floorDirty) {
       this.broadcast(this.floorMsg())
       this.floorDirty = false
+      this.visCountdown = 0
     }
+
+    // Le brouillard suit la position, qui bouge d'au plus 0.14 tuile par tick :
+    // l'envoyer 30 fois par seconde coûterait 20 Ko/s par client pour un
+    // résultat visuellement identique. Un rafraîchissement tous les 5 ticks
+    // (6 Hz) suffit largement.
+    const withVis = this.visCountdown-- <= 0
+    if (withVis) this.visCountdown = VIS_EVERY_TICKS
 
     this.broadcast({
       t: 'state',
       tick: this.state.tick,
       floor: this.state.floor,
       actors: buildActorViews(this.state, visible),
-      vis: toBase64(packBits(visible)),
+      ...(withVis ? { vis: toBase64(packBits(visible)) } : {}),
       events: this.state.events,
     })
 

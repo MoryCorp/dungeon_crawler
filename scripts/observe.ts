@@ -10,9 +10,13 @@ ws.on('open', () => ws.send(JSON.stringify({ t: 'join', room, name: 'Observateur
 ws.on('message', (raw) => {
   const msg = JSON.parse(raw.toString()) as ServerMsg
   if (msg.t !== 'state') return
-  if (msg.tick % 15 !== 0) return
+  if (msg.tick % 30 !== 0) return
   const line = msg.actors
-    .map((a) => `${a.kind === 'player' ? '@' : '#'}${a.name}(${a.x},${a.y})${a.alive ? '' : '†'}`)
+    .map(
+      (a) =>
+        `${a.kind === 'player' ? '@' : '#'}${a.name}(${a.x.toFixed(1)},${a.y.toFixed(1)})` +
+        `${a.winding ? '!' : ''}${a.alive ? '' : '†'}`,
+    )
     .join(' ')
   console.log(`t=${msg.tick} étage=${msg.floor} ${line}`)
 })
