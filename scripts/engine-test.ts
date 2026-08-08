@@ -7,11 +7,13 @@ import {
   ACTOR_RADIUS,
   BLEED_OUT_TICKS,
   FOV_RADIUS,
-  HEART_HEAL,
+  HEART_HEAL_MIN,
+  HEART_HEAL_RATIO,
   MAP_H,
   MAP_W,
   MONSTERS,
   MONSTER_HALF_ARC,
+  PLAYER_BASE_HP,
   PLAYER_SPEED,
   REVIVE_TICKS,
   Rng,
@@ -207,6 +209,125 @@ console.log('\nTests engine\n')
   const onFloor = isWalkable(s.tiles[Math.floor(hero.y) * MAP_W + Math.floor(hero.x)]!)
   check('une meute ne pousse pas le héros dans un mur', onFloor,
     `(${hero.x.toFixed(2)},${hero.y.toFixed(2)})`)
+}
+
+// --- le recul ne verrouille plus un monstre ---------------------------------
+// C'était LE défaut du jeu : l'épée repoussait juste assez vite pour qu'un
+// monstre au corps à corps ne finisse jamais sa préparation. On pouvait
+// traverser le donjon en avançant tout droit et en bourrinant le clic.
+{
+  const s = createGame(4141)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_spam', 'Bourrin')
+  hero.invulnUntil = 0
+  const hpBefore = hero.hp
+  const target = putMonster(s, 'm_lock', 'skeleton', hero.x + 1.2, hero.y)
+  target.hp = 9999 // il ne doit pas mourir : on teste le contrôle, pas les dégâts
+
+  const spam: PlayerInput = { mx: 0, my: 0, aim: 0, attack: true }
+  for (let i = 0; i < TICK_RATE * 8; i++) step(s, { p_spam: spam })
+
+  check(
+    'bourriner l\'attaque ne suffit plus à tenir un monstre à distance',
+    hero.hp < hpBefore,
+    `${hpBefore} -> ${hero.hp} PV`,
+  )
+
+  // Et le recul reste franc au premier coup : c'est ce qui rend une hache
+  // satisfaisante. On vérifie juste que la dégressivité n'a pas tout écrasé.
+  const s2 = createGame(4141)
+  clearMonsters(s2)
+  const hero2 = addPlayer(s2, 'p_hit', 'Cogneur')
+  hero2.weapon = 'axe'
+  const victim = putMonster(s2, 'm_push', 'skeleton', hero2.x + 1.0, hero2.y)
+  victim.hp = 9999
+  const x0 = victim.x
+  step(s2, { p_hit: { mx: 0, my: 0, aim: 0, attack: true } })
+  const firstPush = Math.hypot(victim.kx, victim.ky)
+  check('le premier coup projette franchement', firstPush > 3, `recul ${firstPush.toFixed(1)}`)
+
+  // Le deuxième coup enchaîné doit pousser nettement moins.
+  hero2.readyAt = s2.tick
+  const before = Math.hypot(victim.kx, victim.ky)
+  step(s2, { p_hit: { mx: 0, my: 0, aim: 0, attack: true } })
+  const secondPush = Math.hypot(victim.kx, victim.ky) - before
+  check(
+    'les coups enchaînés poussent de moins en moins',
+    secondPush < firstPush / 1.5,
+    `${firstPush.toFixed(1)} puis ${Math.max(0, secondPush).toFixed(1)}`,
+  )
+  void x0
+}
+
+// --- frapper engage ---------------------------------------------------------
+// Deux fois la même course depuis la même case, une fois en frappant. C'est ce
+// coût qui empêche « avancer en cliquant » d'être gratuit, et qui donne une
+// identité à chaque arme : la hache cloue sur place, la dague à peine.
+{
+  const travel = (attack: boolean, weapon: string): number => {
+    const s = createGame(4242)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_go', 'Coureur')
+    hero.weapon = weapon
+    // Cap dégagé : on veut mesurer un ralentissement, pas une collision.
+    const dir = isWalkable(s.tiles[Math.floor(hero.y) * MAP_W + Math.floor(hero.x) + 1]!) ? 1 : -1
+    const start = hero.x
+    const input: PlayerInput = { mx: dir, my: 0, aim: dir > 0 ? 0 : Math.PI, attack }
+    for (let i = 0; i < TICK_RATE; i++) step(s, { p_go: input })
+    return Math.abs(hero.x - start)
+  }
+
+  const free = travel(false, 'sword')
+  const sword = travel(true, 'sword')
+  const axe = travel(true, 'axe')
+  const dagger = travel(true, 'dagger')
+
+  check('frapper en avançant coûte de la vitesse', sword < free * 0.9,
+    `${free.toFixed(2)} libre vs ${sword.toFixed(2)} en frappant`)
+  check('la hache engage plus que l\'épée', axe < sword, `hache ${axe.toFixed(2)} < épée ${sword.toFixed(2)}`)
+  check('la dague n\'engage presque pas', dagger > sword, `dague ${dagger.toFixed(2)}`)
+}
+
+// --- la difficulté monte avec l'étage ---------------------------------------
+{
+  const shallow = createGame(5252, 1)
+  const deep = createGame(5252, 10)
+  const pick = (s: GameState, species: string) =>
+    Object.values(s.actors).find((a) => a.species === species && !a.elite && !a.boss)
+
+  const a = pick(shallow, 'skeleton')
+  const b = pick(deep, 'skeleton')
+  check('un squelette profond a plus de PV', !a || !b || b.maxHp > a.maxHp * 1.5,
+    `${a?.maxHp} -> ${b?.maxHp}`)
+  check('un squelette profond frappe plus fort', !a || !b || b.atk > a.atk, `${a?.atk} -> ${b?.atk}`)
+  check(
+    'un étage profond est plus peuplé',
+    Object.keys(deep.actors).length > Object.keys(shallow.actors).length,
+    `${Object.keys(shallow.actors).length} -> ${Object.keys(deep.actors).length}`,
+  )
+}
+
+// --- un joueur à terre finit par mourir même sous les coups ------------------
+// Trouvé par la télémétrie : 231 mises à terre sur un seul étage. Les appelants
+// testent `hp <= 0` après `damage()`, or un joueur à terre est à 0 PV — chaque
+// coup le remettait à terre et relançait son compte à rebours de saignement.
+{
+  const s = createGame(6161)
+  clearMonsters(s)
+  const victim = addPlayer(s, 'p_bleed', 'Saigneur')
+  victim.hp = 1
+  victim.invulnUntil = 0
+  putMonster(s, 'm_camp', 'skeleton', victim.x + 0.7, victim.y)
+
+  let downs = 0
+  let died = false
+  for (let i = 0; i < BLEED_OUT_TICKS + TICK_RATE * 5 && !died; i++) {
+    step(s, noInputs)
+    downs += s.events.filter((e) => e.t === 'downed').length
+    died = !s.actors['p_bleed']!.alive
+  }
+  check('on n\'est mis à terre qu\'une fois', downs === 1, `${downs} mise(s) à terre`)
+  check('un monstre qui campe le corps n\'empêche pas de saigner', died)
 }
 
 // --- déterminisme ----------------------------------------------------------
@@ -486,7 +607,7 @@ console.log('\nTests engine\n')
   for (let i = 0; i < TICK_RATE * 2; i++) step(s, noInputs)
   check('les orbes d\'XP sont aimantées et ramassées', !s.items.some((i) => i.id === 'i_xp'))
   check('assez d\'XP fait monter de niveau', (hero.level ?? 1) >= 2, `niveau ${hero.level}`)
-  check('le niveau augmente les PV max', hero.maxHp > 40, `${hero.maxHp} PV max`)
+  check('le niveau augmente les PV max', hero.maxHp > PLAYER_BASE_HP, `${hero.maxHp} PV max`)
 
   // Un cœur ne se ramasse que si on en a besoin : sinon il reste au sol.
   hero.hp = hero.maxHp
@@ -496,7 +617,8 @@ console.log('\nTests engine\n')
 
   hero.hp = 5
   for (let i = 0; i < 3; i++) step(s, noInputs)
-  check('un cœur soigne quand on est blessé', hero.hp >= 5 + HEART_HEAL - 1, `${hero.hp} PV`)
+  const heal = Math.max(HEART_HEAL_MIN, Math.round(hero.maxHp * HEART_HEAL_RATIO))
+  check('un cœur soigne quand on est blessé', hero.hp >= 5 + heal - 1, `${hero.hp} PV`)
 }
 
 // --- échange d'arme : pas de va-et-vient infini -----------------------------

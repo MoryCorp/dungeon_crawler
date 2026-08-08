@@ -79,13 +79,98 @@ de sa ruée. Se décaler pendant la préparation fait rater le coup.
 Le porteur de clé de chaque étage est une élite (3.2× PV, 1.5× dégâts), jamais
 une espèce d'essaim. Tous les 5 étages c'est un boss (9× PV) à la place.
 
+## La difficulté, et pourquoi elle n'y était pas
+
+Le prototype se traversait en avançant tout droit en cliquant. Ce n'était pas un
+chiffre mal réglé, c'était une boucle cassée : **le recul verrouillait les
+monstres**. L'épée poussait de 0.83 tuile, le monstre mettait 0.38 s à revenir
+plus 0.40 s de préparation, et le cooldown de l'épée était de 0.42 s. On le
+refrappait toujours avant qu'il ait fini d'armer. Structurellement, aucun
+monstre au corps à corps ne pouvait toucher qui que ce soit.
+
+Quatre changements, dans l'ordre de leur importance :
+
+1. **Le recul a des rendements décroissants.** Le premier coup projette
+   franchement — c'est ce qui rend une hache satisfaisante — puis chaque coup
+   enchaîné pousse deux fois moins. Le compteur retombe si on arrête une
+   seconde. Chaque espèce a en plus un `weight` : une chauve-souris s'envole,
+   un orc guerrier bouge à peine, un boss ne recule pas.
+2. **Frapper engage.** On ralentit pendant le coup, d'un facteur propre à
+   l'arme. La hache tombe à 12 % de sa vitesse, la dague reste à 85 %. Frapper
+   et fuir dans le même souffle n'est plus possible, et c'est ce qui donne enfin
+   une identité à chaque arme.
+3. **Les monstres montent avec l'étage.** PV, dégâts et cadence croissent avec
+   la profondeur. Jamais le temps de préparation : le télégraphe doit rester
+   aussi lisible à l'étage 20 qu'au premier, sinon la difficulté cesse d'être
+   juste.
+4. **Ils arrivent en meutes, et dans les couloirs.** Un monstre isolé n'est
+   jamais une menace, quels que soient ses points de vie. À trois, il faut
+   choisir lequel gérer d'abord. Un tiers d'entre eux est posé dans les
+   couloirs, en privilégiant archers et chargeurs : ne pas pouvoir contourner
+   ni reculer est le meilleur moment du jeu.
+
+La courbe d'XP est aussi nettement plus raide : trois niveaux au premier étage
+rendaient les monstres décoratifs jusqu'au bout.
+
+## Mesurer au lieu de deviner
+
+Régler une difficulté au ressenti, c'est régler pour la seule personne qui a
+joué. Chaque partie enregistre donc ce qui s'y est passé, **étage par étage** :
+PV les plus bas atteints, temps passé sous 35 % de vie, dégâts infligés par
+espèce, dégâts subis **par espèce**, qui vous a mis à terre, mises à terre,
+morts, relèves, XP, niveau à l'entrée et à la sortie, coups portés et dégâts par
+arme.
+
+C'est calculé uniquement à partir des événements que l'engine émet déjà, plus un
+échantillon des PV à chaque tick. `step()` reste pure : elle ne sait pas que la
+télémétrie existe.
+
+```bash
+curl localhost:3000/stats/ABCD            # le relevé brut d'une partie
+npx tsx scripts/report.ts ABCD            # le même, lisible
+npx tsx scripts/report.ts data/runs/X.json
+```
+
+Le rapport répond aux questions qui font bouger un réglage : quel étage n'a
+aucun enjeu, quelle espèce fait mal, laquelle ne sert à rien, quelle espèce vous
+met à terre, quelle arme vous utilisez vraiment. Il désigne explicitement les
+**ventres mous** — les étages traversés sans jamais descendre sous 70 % de PV.
+
+### Le bourrin
+
+```bash
+npx tsx scripts/botrun.ts 10        # 10 étages, graine par défaut
+npx tsx scripts/botrun.ts 10 1234
+```
+
+Un bot joue la stratégie la plus bête possible : foncer sur le monstre le plus
+proche, bourriner l'attaque, ne jamais reculer. C'est le garde-fou d'équilibrage
+du projet — **si le bourrinage suffit, le jeu ne demande aucune décision**, quels
+que soient les chiffres. Le rapport final dit à quel étage la bêtise cesse de
+payer.
+
+Aucun réseau, aucun navigateur : uniquement l'engine, donc c'est reproductible
+et ça tourne en quelques secondes. Le relevé est écrit au même format qu'une
+vraie partie, `scripts/report.ts` l'avale tel quel.
+
+C'est un **plancher, pas une prédiction** : le bot est seul et ne recule jamais.
+L'étage où il meurt est celui en dessous duquel personne ne devrait pouvoir
+descendre sans réfléchir — un vrai joueur, à quatre, ira bien plus loin.
+
+C'est ce qui a permis de constater, par exemple, que les essaims infligeaient
+littéralement **zéro dégât** sur une descente entière — ils mouraient tous en un
+coup. Et de retrouver un vrai bug : 231 mises à terre sur un seul étage, parce
+qu'un joueur déjà à terre était re-mis à terre par chaque coup reçu, ce qui
+remettait à zéro son compte à rebours de saignement.
+
 ## Butin et progression
 
 Cinq armes, qui changent la façon de jouer plutôt qu'un chiffre : la **dague**
-frappe vite et court, la **hache** ouvre un arc de 170° mais s'engage, la
-**lance** tient à 2.4 tuiles dans un cône étroit, l'**arc** tire un projectile.
-On les trouve dans les coffres et sur les boss ; on en change en marchant
-dessus, et l'ancienne reste au sol pour un coéquipier.
+frappe vite et court sans presque t'immobiliser, la **hache** ouvre un arc de
+170° mais te cloue sur place, la **lance** tient à 2.4 tuiles dans un cône
+étroit, l'**arc** tire un projectile. On les trouve dans les coffres et sur les
+boss ; on en change en marchant dessus, et l'ancienne reste au sol pour un
+coéquipier.
 
 L'**XP est commune à l'équipe** — ramasser une orbe fait monter tout le monde.
 Sans ça celui qui porte les coups distance les autres et la moitié du groupe se
@@ -137,8 +222,11 @@ packages/engine/   Règles du jeu. Aucune dépendance, aucun I/O.
   protocol.ts      Messages réseau partagés client/serveur
 
 apps/server/       Node + ws. Fait autorité, sert aussi le client statique.
+  room.ts          Boucle de tick, diffusion, persistance
+  telemetry.ts     Relevé d'équilibrage, dérivé des seuls événements
+  persist.ts       Sauvegarde atomique des parties et des relevés
 apps/client/       Vite + PixiJS. Rendu, entrées, prédiction, interpolation.
-scripts/           dev, tests, observateur et carte ASCII de debug
+scripts/           dev, tests, bot d'équilibrage, rapports et debug
 ```
 
 `step(state, inputs)` est **pure et déterministe**. C'est ce qui permet de
@@ -158,9 +246,22 @@ coûterait 20 Ko/s par client pour un résultat identique à l'œil.
 
 Tout est dans `packages/engine/src/types.ts`, et nulle part ailleurs :
 `PLAYER_SPEED`, la table `WEAPONS` (portée, ouverture d'arc, cadence, dégâts,
-recul), la table `MONSTERS` (comportement, vitesse, portée, temps de préparation
-par espèce), la courbe `xpForLevel`, et les constantes de mise à terre
-(`BLEED_OUT_TICKS`, `REVIVE_TICKS`, `REVIVE_RANGE`).
+recul, `swing` et `movePenalty`), la table `MONSTERS` (comportement, vitesse,
+portée, temps de préparation, `weight` face au recul), la courbe `xpForLevel`,
+et les constantes de mise à terre (`BLEED_OUT_TICKS`, `REVIVE_TICKS`,
+`REVIVE_RANGE`).
+
+Les quatre boutons qui pèsent le plus sur la difficulté :
+
+| Constante | Ce qu'elle change |
+|---|---|
+| `KB_STACK_FALLOFF` | à quel point on peut verrouiller un monstre au recul. **Le réglage le plus sensible du jeu** |
+| `FLOOR_HP_GROWTH` / `FLOOR_ATK_GROWTH` | la pente de difficulté par étage |
+| `PACK_MIN` / `PACK_MAX` / `CORRIDOR_SPAWN_SHARE` | combien on en affronte à la fois, et où |
+| `movePenalty` d'une arme | ce qu'un coup coûte en mobilité — l'identité de l'arme |
+
+Après toute modification : `npx tsx scripts/botrun.ts 10` pour vérifier que le
+bourrinage ne suffit toujours pas, sur deux ou trois graines.
 
 Les événements réseau portent eux-mêmes la portée et l'ouverture d'un coup
 (`{t:'swing', reach, halfArc}`) : le client dessine l'arc sans avoir à savoir
@@ -172,6 +273,8 @@ rendu.
 ```bash
 npx tsx scripts/engine-test.ts   # règles pures, aucune dépendance externe
 npx tsx scripts/smoke.ts         # bout en bout, serveur lancé requis
+npx tsx scripts/botrun.ts 10     # équilibrage : le bourrinage suffit-il ?
+npx tsx scripts/report.ts ABCD   # rapport détaillé d'une partie
 npx tsx scripts/observe.ts ABCD  # affiche l'état d'une room en direct
 npx tsx scripts/mapdump.ts data/rooms/ABCD.json   # carte ASCII d'une sauvegarde
 npm run typecheck
@@ -182,15 +285,20 @@ ajouté après l'avoir vu en vrai : un ennemi en diagonale est touché, viser
 approximativement suffit au contact, on glisse le long des murs sans les
 traverser, la diagonale ne donne pas de bonus de vitesse, un coup télégraphié se
 rate si la cible se décale, **une meute ne pousse pas le héros à travers un
-mur**, et rester sur l'arme qu'on vient de poser ne la reprend pas en boucle.
+mur**, rester sur l'arme qu'on vient de poser ne la reprend pas en boucle, un
+enchaînement de coups cesse de projeter, frapper à la hache coûte réellement de
+la vitesse, et **un joueur à terre finit par saigner** même sous les coups.
 
 `mapdump` sert exactement à ça : quand une position n'a pas de sens, la carte
 ASCII dit en une seconde ce qu'un dump JSON cache.
 
 En jeu, `window.__dc` expose les compteurs de frames, paquets, swings, effets
-actifs, monstres/objets/projectiles reçus et la position prédite — pratique pour
-distinguer « le réseau ne répond plus » de « le rendu est figé » de « je suis
-coincé contre un mur ».
+actifs, monstres/objets/projectiles reçus, la position prédite, la position qui
+fait autorité et l'écart entre les deux — pratique pour distinguer « le réseau
+ne répond plus » de « le rendu est figé » de « je suis coincé contre un mur ».
+Un `drift` qui grimpe pendant qu'on frappe voudrait dire que le client
+n'applique pas la même pénalité de déplacement que le serveur ; en pratique il
+culmine à 0.3 tuile et retombe à zéro.
 
 ## Déploiement Coolify
 
@@ -214,7 +322,8 @@ healthcheck. Le client choisit `wss://` ou `ws://` selon l'origine.
 ## Sauvegarde
 
 Un fichier JSON par partie dans `$DATA_DIR/rooms/<CODE>.json`, écrit toutes les
-10 secondes et à l'arrêt du serveur (écriture atomique). Une room sans joueur
+10 secondes et à l'arrêt du serveur (écriture atomique), et son relevé
+d'équilibrage à côté dans `$DATA_DIR/runs/<CODE>.json`. Une room sans joueur
 connecté ne tourne pas : le donjon est figé jusqu'au retour de quelqu'un.
 
 Se reconnecter avec le même pseudo reprend le même personnage à sa position,

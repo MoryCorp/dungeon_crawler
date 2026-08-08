@@ -52,6 +52,10 @@ export interface WeaponDef {
   /** Demi-angle de l'arc touché, en radians. */
   halfArc: number
   cooldown: number
+  /** Durée pendant laquelle on est engagé : on ralentit, on ne peut plus fuir. */
+  swing: number
+  /** Vitesse conservée pendant cet engagement. C'est le prix de la frappe. */
+  movePenalty: number
   damage: number
   knockback: number
   /** Présent pour les armes à distance : le coup tire un projectile. */
@@ -64,13 +68,18 @@ const deg = (d: number) => (d * Math.PI) / 180
 /**
  * Chaque arme impose un style de jeu différent, pas juste un chiffre :
  * la hache oblige à s'engager, la lance à tenir la distance, l'arc à kiter.
+ *
+ * `swing` est ce qui rend le choix réel : frapper immobilise partiellement. Une
+ * hache ouvre un arc énorme mais te cloue sur place presque une demi-seconde ;
+ * une dague ne t'engage presque pas mais gratte. Sans ce coût, toutes les armes
+ * reviennent à « avancer en cliquant » et n'ont plus d'identité.
  */
 export const WEAPONS: Record<string, WeaponDef> = {
-  sword:  { label: 'Épée',    reach: 1.45, halfArc: deg(55), cooldown: ticks(0.42), damage: 6,  knockback: 7.5, color: 0xd8dde8 },
-  dagger: { label: 'Dague',   reach: 1.00, halfArc: deg(40), cooldown: ticks(0.18), damage: 3,  knockback: 2.5, color: 0xbfe8d8 },
-  axe:    { label: 'Hache',   reach: 1.60, halfArc: deg(85), cooldown: ticks(0.78), damage: 13, knockback: 13,  color: 0xe8b48a },
-  spear:  { label: 'Lance',   reach: 2.40, halfArc: deg(22), cooldown: ticks(0.55), damage: 8,  knockback: 6,   color: 0xc9d8f0 },
-  bow:    { label: 'Arc',     reach: 0.9,  halfArc: deg(30), cooldown: ticks(0.50), damage: 7,  knockback: 4,
+  sword:  { label: 'Épée',    reach: 1.45, halfArc: deg(55), cooldown: ticks(0.42), swing: ticks(0.18), movePenalty: 0.45, damage: 6,  knockback: 5,   color: 0xd8dde8 },
+  dagger: { label: 'Dague',   reach: 1.00, halfArc: deg(40), cooldown: ticks(0.18), swing: ticks(0.08), movePenalty: 0.85, damage: 3,  knockback: 1.5, color: 0xbfe8d8 },
+  axe:    { label: 'Hache',   reach: 1.60, halfArc: deg(85), cooldown: ticks(0.78), swing: ticks(0.40), movePenalty: 0.12, damage: 13, knockback: 9,   color: 0xe8b48a },
+  spear:  { label: 'Lance',   reach: 2.40, halfArc: deg(22), cooldown: ticks(0.55), swing: ticks(0.26), movePenalty: 0.35, damage: 8,  knockback: 3.5, color: 0xc9d8f0 },
+  bow:    { label: 'Arc',     reach: 0.9,  halfArc: deg(30), cooldown: ticks(0.50), swing: ticks(0.16), movePenalty: 0.55, damage: 7,  knockback: 2,
             ranged: { speed: 15, ttl: ticks(1.2) }, color: 0xe8dca0 },
 }
 
@@ -80,18 +89,28 @@ export const LOOT_WEAPONS = ['dagger', 'axe', 'spear', 'bow']
 
 // --- Progression ------------------------------------------------------------
 
-export const PLAYER_BASE_HP = 40
+export const PLAYER_BASE_HP = 32
 export const PLAYER_BASE_ATK = 2
 /** Gain par niveau. */
-export const HP_PER_LEVEL = 7
+export const HP_PER_LEVEL = 5
 export const ATK_PER_LEVEL = 1
 
-/** XP cumulée nécessaire pour atteindre un niveau donné. */
+/**
+ * XP cumulée nécessaire pour atteindre un niveau donné.
+ *
+ * L'exposant est ce qui décide du rythme de la partie. Trop plat et on gagne
+ * trois niveaux au premier étage : les monstres deviennent décoratifs et il n'y
+ * a plus de tension jusqu'au bout. La courbe doit rester légèrement en retard
+ * sur la montée en puissance des étages — c'est ce retard qui fait qu'on doit
+ * jouer correctement plutôt que d'encaisser.
+ */
 export function xpForLevel(level: number): number {
-  return Math.round(18 * (level - 1) ** 1.45)
+  return Math.round(36 * (level - 1) ** 1.9)
 }
 
-export const HEART_HEAL = 10
+/** Un cœur rend une fraction des PV max : sinon il devient dérisoire en profondeur. */
+export const HEART_HEAL_RATIO = 0.22
+export const HEART_HEAL_MIN = 8
 
 // --- Mise à terre et relève -------------------------------------------------
 
@@ -109,13 +128,71 @@ export const RESPAWN_GRACE = ticks(2)
 
 // --- Combat -----------------------------------------------------------------
 
-/** Durée visuelle du swing. */
+/** Durée visuelle du swing d'un monstre. Les armes des joueurs ont la leur. */
 export const ATTACK_SWING = ticks(0.18)
 export const MONSTER_HALF_ARC = deg(45)
 
 export const FOV_RADIUS = 9
 export const AGGRO_MEMORY = ticks(3)
 export const AGGRO_MAX_DIST = 14
+
+// --- Recul ------------------------------------------------------------------
+
+/**
+ * Rendements décroissants du recul. C'est le réglage le plus important du jeu.
+ *
+ * Sans lui, un joueur qui enchaîne les coups repousse sa cible juste assez vite
+ * pour qu'elle n'ait jamais le temps de terminer sa préparation : n'importe
+ * quel monstre au corps à corps devient incapable de toucher, et la meilleure
+ * stratégie du jeu est « avancer tout droit en cliquant ». Chaque coup
+ * consécutif sur la même cible pousse donc de moins en moins, et le compteur
+ * retombe si on arrête de frapper une seconde.
+ */
+export const KB_STACK_FALLOFF = 1.0
+export const KB_STACK_RESET = ticks(1.1)
+/** Les gros encaissent le recul : un boss ne se repousse pas. */
+export const ELITE_WEIGHT_MULT = 2.0
+export const BOSS_WEIGHT_MULT = 4.0
+
+// --- Montée en difficulté ---------------------------------------------------
+
+/**
+ * Les monstres montent avec l'étage, les joueurs avec les niveaux. On fait
+ * croître PV, dégâts et cadence — jamais le temps de préparation : le
+ * télégraphe doit rester lisible à l'étage 20 comme à l'étage 1, sinon la
+ * difficulté cesse d'être juste.
+ */
+export const FLOOR_HP_GROWTH = 0.22
+export const FLOOR_ATK_GROWTH = 0.15
+export const FLOOR_XP_GROWTH = 0.3
+export const FLOOR_COOLDOWN_TIGHTEN = 0.03
+export const FLOOR_COOLDOWN_MIN = 0.6
+
+export function floorScale(floor: number, growth: number): number {
+  return 1 + growth * Math.max(0, floor - 1)
+}
+
+export const MONSTER_BASE_COUNT = 11
+export const MONSTER_PER_FLOOR = 3
+export const MONSTER_MAX_COUNT = 46
+/**
+ * Part des monstres posés dans les couloirs plutôt que dans les salles.
+ * Tomber sur un archer ou un chargeur dans un couloir d'une tuile de large est
+ * le meilleur moment du jeu : on ne peut pas le contourner, on ne peut pas
+ * reculer sans se faire rattraper, il faut décider tout de suite.
+ */
+export const CORRIDOR_SPAWN_SHARE = 0.35
+
+/**
+ * Taille des meutes. Un monstre isolé n'est jamais une menace, quels que soient
+ * ses points de vie : on le frappe, il recule, on recommence. C'est à trois
+ * qu'ils obligent à choisir lequel gérer d'abord, à reculer, à utiliser la
+ * géométrie de la pièce. La difficulté vient du nombre simultané, pas du total.
+ */
+export const PACK_MIN = 2
+export const PACK_MAX = 4
+/** Rayon dans lequel les membres d'une meute sont dispersés. */
+export const PACK_SPREAD = 2.5
 
 // --- Monstres ---------------------------------------------------------------
 
@@ -147,6 +224,8 @@ export interface SpeciesDef {
   windup: number
   cooldown: number
   knockback: number
+  /** Résistance au recul : une chauve-souris s'envole, un orc guerrier bouge à peine. */
+  weight: number
   xp: number
   color: number
   /** archer : vitesse du projectile en tuiles/seconde. */
@@ -161,25 +240,30 @@ export interface SpeciesDef {
 }
 
 export const MONSTERS: Record<string, SpeciesDef> = {
-  skeleton:         { label: 'Squelette',          behavior: 'melee',   maxHp: 12, atk: 3, speed: 2.2, reach: 1.0,  windup: ticks(0.40), cooldown: ticks(0.9),  knockback: 3.5, xp: 4,  color: 0xd8d8c0 },
-  skeleton_warrior: { label: 'Squelette guerrier', behavior: 'melee',   maxHp: 26, atk: 5, speed: 1.9, reach: 1.1,  windup: ticks(0.55), cooldown: ticks(1.1),  knockback: 5.5, xp: 9,  color: 0xbfc4a8 },
-  orc:              { label: 'Orc',                behavior: 'melee',   maxHp: 18, atk: 4, speed: 2.4, reach: 1.05, windup: ticks(0.45), cooldown: ticks(1.0),  knockback: 4.5, xp: 6,  color: 0x7ba05b },
+  skeleton:         { label: 'Squelette',          behavior: 'melee',   maxHp: 12, atk: 3, speed: 2.2, reach: 1.0,  windup: ticks(0.40), cooldown: ticks(0.9),  knockback: 3.5, weight: 0.9, xp: 4,  color: 0xd8d8c0 },
+  skeleton_warrior: { label: 'Squelette guerrier', behavior: 'melee',   maxHp: 26, atk: 5, speed: 1.9, reach: 1.1,  windup: ticks(0.55), cooldown: ticks(1.1),  knockback: 5.5, weight: 1.6, xp: 9,  color: 0xbfc4a8 },
+  orc:              { label: 'Orc',                behavior: 'melee',   maxHp: 18, atk: 4, speed: 2.4, reach: 1.05, windup: ticks(0.45), cooldown: ticks(1.0),  knockback: 4.5, weight: 1.2, xp: 6,  color: 0x7ba05b },
 
-  skeleton_mage:    { label: 'Squelette mage',     behavior: 'archer',  maxHp: 10, atk: 5, speed: 1.9, reach: 7.5,  windup: ticks(0.75), cooldown: ticks(1.6),  knockback: 3.0, xp: 11, color: 0xc0a8d8,
+  skeleton_mage:    { label: 'Squelette mage',     behavior: 'archer',  maxHp: 10, atk: 5, speed: 1.9, reach: 7.5,  windup: ticks(0.75), cooldown: ticks(1.6),  knockback: 3.0, weight: 0.8, xp: 11, color: 0xc0a8d8,
                       projectileSpeed: 8.5,  keepAway: 4.5 },
-  orc_mage:         { label: 'Orc mage',           behavior: 'archer',  maxHp: 14, atk: 7, speed: 1.7, reach: 8.5,  windup: ticks(0.90), cooldown: ticks(1.9),  knockback: 4.0, xp: 14, color: 0x9b8a5f,
+  orc_mage:         { label: 'Orc mage',           behavior: 'archer',  maxHp: 14, atk: 7, speed: 1.7, reach: 8.5,  windup: ticks(0.90), cooldown: ticks(1.9),  knockback: 4.0, weight: 0.9, xp: 14, color: 0x9b8a5f,
                       projectileSpeed: 7.0,  keepAway: 5.5 },
 
-  skeleton_rogue:   { label: 'Squelette rôdeur',   behavior: 'charger', maxHp: 14, atk: 6, speed: 2.6, reach: 5.0,  windup: ticks(0.50), cooldown: ticks(1.5),  knockback: 6.0, xp: 10, color: 0xa8c4bf,
+  skeleton_rogue:   { label: 'Squelette rôdeur',   behavior: 'charger', maxHp: 14, atk: 6, speed: 2.6, reach: 5.0,  windup: ticks(0.50), cooldown: ticks(1.5),  knockback: 6.0, weight: 1.0, xp: 10, color: 0xa8c4bf,
                       dashSpeed: 13, dashTicks: ticks(0.42) },
-  orc_warrior:      { label: 'Orc guerrier',       behavior: 'charger', maxHp: 34, atk: 9, speed: 2.0, reach: 6.0,  windup: ticks(0.70), cooldown: ticks(1.9),  knockback: 11,  xp: 18, color: 0x5f8a44,
+  orc_warrior:      { label: 'Orc guerrier',       behavior: 'charger', maxHp: 34, atk: 9, speed: 2.0, reach: 6.0,  windup: ticks(0.70), cooldown: ticks(1.9),  knockback: 11,  weight: 2.2, xp: 18, color: 0x5f8a44,
                       dashSpeed: 11, dashTicks: ticks(0.55) },
 
-  orc_bomber:       { label: 'Orc kamikaze',       behavior: 'bomber',  maxHp: 16, atk: 14, speed: 2.7, reach: 1.4, windup: ticks(1.0),  cooldown: ticks(1.0),  knockback: 12,  xp: 13, color: 0xd2694a,
+  orc_bomber:       { label: 'Orc kamikaze',       behavior: 'bomber',  maxHp: 16, atk: 14, speed: 2.7, reach: 1.4, windup: ticks(1.0),  cooldown: ticks(1.0),  knockback: 12,  weight: 1.0, xp: 13, color: 0xd2694a,
                       blastRadius: 2.6 },
 
-  bat:              { label: 'Chauve-souris',      behavior: 'swarm',   maxHp: 6,  atk: 2, speed: 3.6, reach: 0.85, windup: ticks(0.22), cooldown: ticks(0.6),  knockback: 1.5, xp: 3,  color: 0x8a7bb0 },
-  orc_rogue:        { label: 'Orc rôdeur',         behavior: 'swarm',   maxHp: 11, atk: 3, speed: 3.3, reach: 0.9,  windup: ticks(0.26), cooldown: ticks(0.65), knockback: 2.5, xp: 5,  color: 0x8fb36a },
+  // Les essaims doivent survivre à un coup, sinon ils n'existent pas : mesuré
+  // sur une descente complète, 26 d'entre eux étaient morts sans avoir infligé
+  // un seul point de dégât. Leur identité, c'est le harcèlement, pas le sac de
+  // points de vie — mais du harcèlement qui meurt avant d'avoir frappé n'est
+  // que du décor.
+  bat:              { label: 'Chauve-souris',      behavior: 'swarm',   maxHp: 10, atk: 2, speed: 3.6, reach: 0.85, windup: ticks(0.22), cooldown: ticks(0.6),  knockback: 1.5, weight: 0.5, xp: 3,  color: 0x8a7bb0 },
+  orc_rogue:        { label: 'Orc rôdeur',         behavior: 'swarm',   maxHp: 15, atk: 3, speed: 3.3, reach: 0.9,  windup: ticks(0.26), cooldown: ticks(0.65), knockback: 2.5, weight: 0.6, xp: 5,  color: 0x8fb36a },
 }
 
 /** Le porteur de clé : plus gros, plus coriace, il verrouille l'escalier. */
@@ -236,6 +320,10 @@ export interface Actor {
   dashUntil?: number
   dashVx?: number
   dashVy?: number
+
+  /** Coups de recul encaissés d'affilée, et quand. Voir KB_STACK_FALLOFF. */
+  kbStacks?: number
+  kbStackAt?: number
 }
 
 export interface Projectile {
@@ -293,10 +381,25 @@ export const NEUTRAL_INPUT: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false 
 // --- Événements -------------------------------------------------------------
 
 export type GameEvent =
+  /**
+   * `fromSpecies` / `species` sont portés par l'événement plutôt que résolus
+   * après coup : l'auteur du coup peut avoir disparu avant la fin du tick (un
+   * kamikaze meurt de sa propre explosion), et sans ça la télémétrie perdrait
+   * exactement les dégâts les plus intéressants à mesurer.
+   */
   | { t: 'swing'; id: string; x: number; y: number; aim: number; reach: number; halfArc: number }
-  | { t: 'hit'; from: string; to: string; dmg: number; x: number; y: number }
+  | {
+      t: 'hit'
+      from: string
+      fromSpecies: string
+      to: string
+      toSpecies: string
+      dmg: number
+      x: number
+      y: number
+    }
   | { t: 'blast'; x: number; y: number; radius: number }
-  | { t: 'death'; id: string; kind: Actor['kind']; x: number; y: number }
+  | { t: 'death'; id: string; kind: Actor['kind']; species: string; x: number; y: number }
   | { t: 'downed'; id: string; x: number; y: number }
   | { t: 'revived'; id: string; x: number; y: number }
   | { t: 'respawn'; id: string; x: number; y: number }

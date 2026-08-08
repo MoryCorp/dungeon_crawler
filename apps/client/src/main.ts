@@ -1,13 +1,13 @@
 import { Application } from 'pixi.js'
 import {
   BLEED_OUT_TICKS,
-  DOWNED_SPEED,
   DT,
-  PLAYER_SPEED,
+  STARTING_WEAPON,
   TICK_RATE,
   WEAPONS,
   fromBase64,
   movePhysical,
+  playerSpeed,
   unpackBits,
   xpForLevel,
   type ActorView,
@@ -67,6 +67,16 @@ async function main(): Promise<void> {
   let mapH = 0
   let alive = true
   let downed = false
+  let weaponId = STARTING_WEAPON
+  /**
+   * Copie locale de l'état de frappe. Le serveur ralentit le joueur pendant son
+   * coup ; si le client ne rejouait pas la même règle, chaque clic produirait un
+   * écart de position corrigé au paquet suivant — un caoutchouc à chaque coup.
+   * On rejoue donc la cadence de l'arme sur l'horloge locale, qui est en avance
+   * sur le serveur plutôt qu'en retard.
+   */
+  let localReadyAtMs = 0
+  let localSwingUntilMs = 0
   /** Tick serveur du dernier paquet : sert à afficher le compte à rebours de saignement. */
   let serverTick = 0
   let downedSince = 0
@@ -81,6 +91,10 @@ async function main(): Promise<void> {
   const debug = {
     frames: 0, states: 0, floors: 0, swings: 0, effects: 0, lastTick: 0,
     monsters: 0, items: 0, projectiles: 0, x: 0, y: 0,
+    // Position faisant autorité, et écart avec la prédiction. Un écart qui
+    // grimpe pendant qu'on frappe signalerait que le client n'applique pas la
+    // même pénalité de déplacement que le serveur.
+    sx: 0, sy: 0, drift: 0,
   }
   ;(window as unknown as { __dc: typeof debug }).__dc = debug
 
@@ -164,6 +178,9 @@ async function main(): Promise<void> {
 
   function reconcile(self: ActorView): void {
     alive = self.alive
+    debug.sx = self.x
+    debug.sy = self.y
+    debug.drift = Math.hypot(self.x - local.x, self.y - local.y)
     if (!localReady || !self.alive) {
       local.x = self.x
       local.y = self.y
@@ -186,6 +203,7 @@ async function main(): Promise<void> {
 
   function updateHud(actors: ActorView[], locked: boolean): void {
     const self = actors.find((a) => a.id === selfId)
+    if (self?.weapon) weaponId = self.weapon
     hpLabel.textContent = self ? `${self.hp}/${self.maxHp}` : '—'
     weaponLabel.textContent = WEAPONS[self?.weapon ?? '']?.label ?? '—'
     levelLabel.textContent = String(self?.level ?? 1)
@@ -250,9 +268,18 @@ async function main(): Promise<void> {
     // Prédiction locale à pas fixe, avec exactement le même code que le
     // serveur : la divergence ne peut venir que de la latence, jamais des règles.
     if (localReady && tiles && alive) {
+      // On rejoue la cadence de l'arme localement pour connaître notre propre
+      // état de frappe sans attendre le serveur.
+      const weapon = WEAPONS[weaponId] ?? WEAPONS[STARTING_WEAPON]!
+      const nowMs = performance.now()
+      if (current.attack && !downed && nowMs >= localReadyAtMs) {
+        localReadyAtMs = nowMs + (weapon.cooldown / TICK_RATE) * 1000
+        localSwingUntilMs = nowMs + (weapon.swing / TICK_RATE) * 1000
+      }
+      const speed = playerSpeed({ downed }, nowMs < localSwingUntilMs ? weapon.movePenalty : 1)
+
       accumulator += dt
       let steps = 0
-      const speed = downed ? DOWNED_SPEED : PLAYER_SPEED
       while (accumulator >= DT && steps < 5) {
         movePhysical(tiles, mapW, mapH, local, current.mx, current.my, speed)
         accumulator -= DT

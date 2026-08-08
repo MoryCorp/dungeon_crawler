@@ -16,7 +16,8 @@ import {
   type PlayerInput,
   type ServerMsg,
 } from '@dc/engine'
-import { saveRoom } from './persist.js'
+import { saveRoom, saveRun } from './persist.js'
+import { RunTelemetry, type RunRecord } from './telemetry.js'
 
 interface Client {
   ws: WebSocket
@@ -53,6 +54,7 @@ export const MAX_PLAYERS = 4
 export class Room {
   state: GameState
   clients = new Map<WebSocket, Client>()
+  readonly telemetry: RunTelemetry
 
   private scratch = {
     visible: new Uint8Array(MAP_W * MAP_H),
@@ -65,8 +67,10 @@ export class Room {
   constructor(
     public readonly code: string,
     state?: GameState | null,
+    run?: RunRecord | null,
   ) {
     this.state = state ?? createGame(seedFromCode(code))
+    this.telemetry = new RunTelemetry(code, this.state, run)
   }
 
   get isEmpty(): boolean {
@@ -140,6 +144,8 @@ export class Room {
     const { visible } = step(this.state, inputs, this.scratch)
     if (this.state.floor !== floorBefore) this.floorDirty = true
 
+    this.telemetry.observe(this.state, this.state.events)
+
     if (this.floorDirty) {
       this.broadcast(this.floorMsg())
       this.floorDirty = false
@@ -174,6 +180,7 @@ export class Room {
   async persist(): Promise<void> {
     try {
       await saveRoom(this.code, this.state)
+      await saveRun(this.code, this.telemetry.toRecord(this.state.seed, new Date().toISOString()))
     } catch (err) {
       console.error(`[room ${this.code}] sauvegarde échouée:`, err)
     }

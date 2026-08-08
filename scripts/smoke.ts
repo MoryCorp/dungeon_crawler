@@ -7,6 +7,7 @@
  */
 import WebSocket from 'ws'
 import {
+  PLAYER_BASE_HP,
   fromBase64,
   unpackBits,
   type ActorView,
@@ -116,6 +117,7 @@ async function run(): Promise<void> {
   check('le héros démarre niveau 1', me.level === 1 && me.xp === 0, `n${me.level}, ${me.xp} xp`)
   check('le palier de niveau suivant est annoncé', (me.xpNext ?? 0) > 0, `${me.xpNext} xp`)
   check('l\'escalier est verrouillé au début de l\'étage', alice.locked)
+  check('le héros démarre avec les PV de base', me.maxHp === PLAYER_BASE_HP, `${me.maxHp} PV`)
   check('l\'état transporte objets et projectiles',
     Array.isArray(alice.items) && Array.isArray(alice.projectiles),
     `${alice.items.length} objets visibles`)
@@ -180,6 +182,22 @@ async function run(): Promise<void> {
     `(${resumed.x.toFixed(2)},${resumed.y.toFixed(2)}) vs (${posBefore.x.toFixed(2)},${posBefore.y.toFixed(2)})`,
   )
   check('reconnexion : même étage', aliceAgain.floor === floorBefore, `étage ${aliceAgain.floor}`)
+
+  // --- télémétrie --------------------------------------------------------
+  // Sur une instance déployée, cet endpoint est le seul moyen de récupérer les
+  // mesures d'équilibrage : s'il casse, on règle de nouveau à l'aveugle.
+  const httpBase = URL.replace(/^ws/, 'http').replace(/\/ws$/, '')
+  const stats = await fetch(`${httpBase}/stats/${ROOM}`)
+  check('les mesures de partie sont exposées en HTTP', stats.ok, `HTTP ${stats.status}`)
+  if (stats.ok) {
+    const run = (await stats.json()) as { room: string; floors: { ticks: number }[] }
+    check('les mesures portent le bon code de partie', run.room === ROOM, run.room)
+    check('au moins un étage est mesuré', run.floors.length > 0, `${run.floors.length} étage(s)`)
+    check('le temps passé est compté', (run.floors[0]?.ticks ?? 0) > 0, `${run.floors[0]?.ticks} ticks`)
+  }
+
+  const missing = await fetch(`${httpBase}/stats/ZZZZ`)
+  check('une partie sans mesure répond 404', missing.status === 404, `HTTP ${missing.status}`)
 
   aliceAgain.ws.close()
   bob.ws.close()

@@ -9,7 +9,7 @@ import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { TICK_MS, type ClientMsg } from '@dc/engine'
-import { loadRoom } from './persist.js'
+import { loadRoom, loadRun } from './persist.js'
 import { Room } from './room.js'
 
 const PORT = Number(process.env.PORT ?? 3000)
@@ -54,8 +54,8 @@ function getRoom(code: string): Promise<Room> {
   let pending = loading.get(code)
   if (!pending) {
     pending = (async () => {
-      const saved = await loadRoom(code)
-      const room = new Room(code, saved)
+      const [saved, run] = await Promise.all([loadRoom(code), loadRun(code)])
+      const room = new Room(code, saved, run)
       rooms.set(code, room)
       console.log(
         `[room ${code}] ${saved ? 'reprise de la sauvegarde' : 'nouvelle partie'} (étage ${room.state.floor})`,
@@ -75,6 +75,31 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/healthz') {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ ok: true, rooms: rooms.size }))
+    return
+  }
+
+  // Mesures d'une partie. Sur une instance déployée c'est le seul moyen de
+  // récupérer les chiffres d'équilibrage sans accès au disque du container.
+  if (url.pathname.startsWith('/stats/')) {
+    const code = normalizeCode(url.pathname.slice('/stats/'.length))
+    if (!code) {
+      res.writeHead(400, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'code de partie invalide' }))
+      return
+    }
+    // Une room chargée en mémoire a des mesures plus fraîches que le disque,
+    // qui n'est réécrit que toutes les 10 secondes.
+    const live = rooms.get(code)
+    const record = live
+      ? live.telemetry.toRecord(live.state.seed, new Date().toISOString())
+      : await loadRun(code)
+    if (!record) {
+      res.writeHead(404, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: `aucune mesure pour la partie ${code}` }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    res.end(JSON.stringify(record))
     return
   }
 
