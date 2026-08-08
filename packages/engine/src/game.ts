@@ -291,7 +291,7 @@ function populate(state: GameState, rooms: Rect[], rng: Rng): void {
     const x = room.x + rng.int(room.w) + 0.5
     const y = room.y + rng.int(room.h) + 0.5
     if (!isWalkableAt(state, x, y)) continue
-    state.items.push({ id: `i${state.nextId++}`, kind: 'chest', x, y })
+    dropItem(state, { kind: 'chest', x, y })
   }
 }
 
@@ -525,28 +525,38 @@ function grantXp(state: GameState, amount: number): void {
   }
 }
 
+/**
+ * Unique point de création d'un objet au sol. Passer par ici garantit que
+ * l'événement `drop` est toujours émis : c'est lui qui permet de mesurer ce qui
+ * tombe, y compris ce qui est ramassé dans le tick même.
+ */
+function dropItem(state: GameState, item: Omit<GroundItem, 'id'>): void {
+  state.items.push({ id: `i${state.nextId++}`, ...item })
+  state.events.push({ t: 'drop', kind: item.kind, x: item.x, y: item.y })
+}
+
 function dropLoot(state: GameState, victim: Actor, rng: Rng): void {
   const def = MONSTERS[victim.species]
   const rank = victim.boss ? BOSS_XP_MULT : victim.elite ? ELITE_XP_MULT : 1
   // L'XP suit la difficulté de l'étage, sinon descendre ne rapporte plus rien
   // dès que la courbe de niveaux se raidit.
   const xp = Math.round((def?.xp ?? 3) * rank * floorScale(state.floor, FLOOR_XP_GROWTH))
-  state.items.push({ id: `i${state.nextId++}`, kind: 'xp', x: victim.x, y: victim.y, amount: xp })
+  dropItem(state, { kind: 'xp', x: victim.x, y: victim.y, amount: xp })
 
   if (victim.elite || victim.boss) {
-    state.items.push({ id: `i${state.nextId++}`, kind: 'key', x: victim.x, y: victim.y })
+    dropItem(state, { kind: 'key', x: victim.x, y: victim.y })
     state.events.push({ t: 'keydrop', x: victim.x, y: victim.y })
     // Un porteur de clé lâche aussi de quoi encaisser la suite.
-    state.items.push({ id: `i${state.nextId++}`, kind: 'heart', x: victim.x + 0.5, y: victim.y })
-    state.items.push({ id: `i${state.nextId++}`, kind: 'heart', x: victim.x - 0.5, y: victim.y })
+    dropItem(state, { kind: 'heart', x: victim.x + 0.5, y: victim.y })
+    dropItem(state, { kind: 'heart', x: victim.x - 0.5, y: victim.y })
     if (victim.boss) {
-      state.items.push({
-        id: `i${state.nextId++}`, kind: 'weapon',
+      dropItem(state, {
+        kind: 'weapon',
         x: victim.x, y: victim.y + 0.6, weapon: rng.pick(LOOT_WEAPONS),
       })
     }
   } else if (rng.chance(0.16)) {
-    state.items.push({ id: `i${state.nextId++}`, kind: 'heart', x: victim.x, y: victim.y })
+    dropItem(state, { kind: 'heart', x: victim.x, y: victim.y })
   }
 }
 
@@ -896,8 +906,8 @@ function stepItems(state: GameState, rng: Rng): void {
         nearest.weapon = item.weapon ?? STARTING_WEAPON
         // L'ancienne arme reste au sol : un coéquipier peut la récupérer, et
         // on peut soi-même revenir la chercher après s'être éloigné.
-        state.items.push({
-          id: `i${state.nextId++}`, kind: 'weapon',
+        dropItem(state, {
+        kind: 'weapon',
           x: item.x, y: item.y, weapon: previous, lockedFor: nearest.id,
         })
         break
@@ -906,11 +916,11 @@ function stepItems(state: GameState, rng: Rng): void {
       case 'chest': {
         // Le contenu est verrouillé pour celui qui ouvre : il voit ce qui est
         // tombé avant de décider de changer d'arme, au lieu de subir l'échange.
-        state.items.push({
-          id: `i${state.nextId++}`, kind: 'weapon',
+        dropItem(state, {
+        kind: 'weapon',
           x: item.x, y: item.y, weapon: rng.pick(LOOT_WEAPONS), lockedFor: nearest.id,
         })
-        state.items.push({ id: `i${state.nextId++}`, kind: 'heart', x: item.x + 0.7, y: item.y })
+        dropItem(state, { kind: 'heart', x: item.x + 0.7, y: item.y })
         break
       }
     }

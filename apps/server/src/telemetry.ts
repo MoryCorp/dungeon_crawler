@@ -59,7 +59,45 @@ export interface FloorRecord {
   /** Fraction du temps passée avec au moins un joueur sous 35 % de PV. */
   dangerRatio: number
   pickups: Tally
+
+  /**
+   * Combien d'ennemis on affronte **en même temps**, en ticks passés à chaque
+   * effectif. L'indice est le nombre de monstres hostiles à portée d'engagement
+   * du joueur le plus exposé ; la dernière case regroupe tout ce qui dépasse.
+   *
+   * C'est la mesure qui manquait, et c'était la plus importante : tout le
+   * modèle de puissance repose sur « la difficulté vient du nombre simultané,
+   * pas des statistiques », et on ne mesurait justement pas la simultanéité. Un
+   * étage où l'on passe son temps en tête-à-tête est un étage facile, quel que
+   * soit le nombre total de monstres qu'il contient.
+   */
+  engaged: number[]
+
+  /**
+   * Économie des cœurs. Un joueur qui laisse les cœurs au sol tant qu'il est
+   * en pleine vie se constitue une réserve : sa barre de vie n'est plus une
+   * ressource qui s'épuise mais un stock qu'il rappelle à volonté, et le sens
+   * de « perdre des PV » disparaît.
+   */
+  heartsDropped: number
+  heartsTaken: number
+  /** Somme des PV (en fraction) au moment de ramasser : dit s'ils sont pris à temps ou gaspillés. */
+  heartHpSum: number
+
+  /**
+   * Ticks passés à moins de 5 tuiles de l'escalier d'arrivée. Camper le point
+   * de sortie des poursuivants les transforme en file d'attente de cibles
+   * isolées — l'exact contraire de la pression qu'ils devaient produire.
+   */
+  nearEntryTicks: number
 }
+
+/** Portée au-delà de laquelle un monstre ne pèse plus sur la décision immédiate. */
+const ENGAGE_RANGE = 6
+/** Au-delà, on regroupe : distinguer 11 de 12 assaillants n'apprend rien. */
+const ENGAGE_BUCKETS = 11
+/** Distance sous laquelle on considère que le joueur campe l'entrée. */
+const ENTRY_RADIUS = 5
 
 export interface RunRecord {
   room: string
@@ -97,6 +135,11 @@ function emptyFloor(floor: number, level: number): FloorRecord {
     lowestHpRatio: 1,
     dangerRatio: 0,
     pickups: {},
+    engaged: new Array<number>(ENGAGE_BUCKETS + 1).fill(0),
+    heartsDropped: 0,
+    heartsTaken: 0,
+    heartHpSum: 0,
+    nearEntryTicks: 0,
   }
 }
 
@@ -113,6 +156,8 @@ export class RunTelemetry {
   private xpSeen = -1
   /** Recenser les monstres de l'étage, une seule fois, au tick de l'arrivée. */
   private needsCensus = true
+  /** PV en fraction au tick précédent, pour dater un ramassage de cœur. */
+  private hpBefore = new Map<string, number>()
 
   constructor(
     readonly room: string,
@@ -149,8 +194,12 @@ export class RunTelemetry {
       ).length
     }
 
+    const monsters = Object.values(state.actors).filter((a) => a.kind === 'monster' && a.alive)
+
     let lowest = 1
     let inDanger = false
+    let engagedPeak = 0
+    let atEntry = false
     for (const a of Object.values(state.actors)) {
       if (a.kind !== 'player' || !a.alive || a.downed) continue
       const ratio = a.maxHp > 0 ? a.hp / a.maxHp : 1
@@ -159,7 +208,27 @@ export class RunTelemetry {
       // PV effectifs, armure comprise le jour où il y en aura : c'est cette
       // grandeur-là que le modèle équilibre, jamais les PV bruts.
       this.current.poolHp = Math.max(this.current.poolHp, effectiveHp(a.maxHp, a.armor ?? 0))
+
+      // Le joueur le plus exposé donne le ton de la rencontre : c'est lui qui
+      // décide si l'instant est un tête-à-tête ou une mêlée.
+      let near = 0
+      for (const m of monsters) {
+        if (Math.hypot(m.x - a.x, m.y - a.y) <= ENGAGE_RANGE) near++
+      }
+      engagedPeak = Math.max(engagedPeak, near)
+
+      if (Math.hypot(a.x - (state.spawn.x + 0.5), a.y - (state.spawn.y + 0.5)) <= ENTRY_RADIUS) {
+        atEntry = true
+      }
+
+      // Conservé pour dater un ramassage de cœur : au moment où l'événement
+      // arrive, le soin est déjà appliqué. C'est la valeur d'avant qui dit si
+      // le cœur a été pris à temps ou gaspillé.
+      this.hpBefore.set(a.id, ratio)
     }
+    this.current.engaged[Math.min(engagedPeak, ENGAGE_BUCKETS)]! += 1
+    if (atEntry) this.current.nearEntryTicks += 1
+
     if (lowest < this.current.lowestHpRatio) this.current.lowestHpRatio = lowest
     if (inDanger) this.dangerTicks += 1
     this.current.dangerRatio = this.current.ticks ? this.dangerTicks / this.current.ticks : 0
@@ -217,8 +286,16 @@ export class RunTelemetry {
         this.current.revives += 1
         break
 
+      case 'drop':
+        if (ev.kind === 'heart') this.current.heartsDropped += 1
+        break
+
       case 'pickup':
         bump(this.current.pickups, ev.kind)
+        if (ev.kind === 'heart') {
+          this.current.heartsTaken += 1
+          this.current.heartHpSum += this.hpBefore.get(ev.id) ?? 1
+        }
         break
 
       case 'descend': {
@@ -288,6 +365,56 @@ export function floorInvariants(f: FloorRecord): { ttk: number | null; k: number
   return {
     ttk: kills >= 3 && connectedSeconds > 0 ? connectedSeconds / kills : null,
     k: kills >= 3 && taken > 0 && pool > 0 ? (pool * kills) / taken : null,
+  }
+}
+
+/**
+ * Ce que dit la distribution d'engagement : la difficulté d'un étage ne tient
+ * pas au nombre de monstres qu'il contient mais au nombre qu'on affronte à la
+ * fois. Un étage de quarante monstres pris un par un est un étage facile.
+ */
+export function engagement(f: FloorRecord): {
+  /** Effectif médian, en ne comptant que les instants où on est engagé. */
+  median: number
+  /** Effectif dépassé 10 % du temps engagé : les vrais mauvais moments. */
+  p90: number
+  peak: number
+  /** Part du temps engagé passée en tête-à-tête. Élevée = aucune décision à prendre. */
+  soloShare: number
+  /** Part du temps de l'étage passée sans aucun ennemi à portée. */
+  idleShare: number
+} | null {
+  const hist = f.engaged
+  if (!hist?.length) return null
+  const total = hist.reduce((a, b) => a + b, 0)
+  if (total === 0) return null
+
+  const idle = hist[0] ?? 0
+  const busy = total - idle
+  if (busy === 0) return { median: 0, p90: 0, peak: 0, soloShare: 0, idleShare: 1 }
+
+  const quantile = (q: number): number => {
+    let seen = 0
+    for (let n = 1; n < hist.length; n++) {
+      seen += hist[n] ?? 0
+      if (seen >= busy * q) return n
+    }
+    return hist.length - 1
+  }
+  let peak = 0
+  for (let n = hist.length - 1; n >= 1; n--) {
+    if ((hist[n] ?? 0) > 0) {
+      peak = n
+      break
+    }
+  }
+
+  return {
+    median: quantile(0.5),
+    p90: quantile(0.9),
+    peak,
+    soloShare: (hist[1] ?? 0) / busy,
+    idleShare: idle / total,
   }
 }
 

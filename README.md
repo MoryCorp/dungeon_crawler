@@ -218,6 +218,30 @@ garde le clic enfoncé en traversant frappe deux à trois fois plus qu'il ne
 touche, et compter les coups mesurerait sa discipline de gâchette plutôt que la
 solidité des monstres.
 
+### Combien en même temps
+
+La mesure la plus importante, et celle qui manquait le plus longtemps. Tout le
+modèle repose sur « la difficulté vient du nombre simultané, pas des
+statistiques » — et on ne mesurait justement pas la simultanéité.
+
+Chaque tick, on compte les monstres à portée d'engagement (6 tuiles) du joueur
+le plus exposé, et on en garde la distribution. Le rapport en sort l'effectif
+médian, le p90, le pic, et **la part du temps de combat passée en tête-à-tête**.
+
+Un étage de quarante monstres pris un par un est un étage facile. Sans cette
+mesure on croit régler la difficulté en ajoutant des monstres, alors qu'ils
+arrivent à la queue leu leu et se font cueillir isolément.
+
+Deux compteurs vont avec, parce qu'ils décrivent des stratégies qui vident le
+jeu de son enjeu sans tricher :
+
+- **L'économie des cœurs** — combien tombent, combien sont ramassés, et à quels
+  PV. Laisser les cœurs au sol tant qu'on est en pleine vie transforme la barre
+  de vie en stock rappelable au lieu d'une ressource qui s'épuise.
+- **Le campement de l'entrée** — part du temps passée à moins de 5 tuiles de
+  l'escalier d'arrivée. Attendre les poursuivants à leur point de sortie les
+  transforme en file d'attente de cibles isolées.
+
 C'est calculé uniquement à partir des événements que l'engine émet déjà, plus un
 échantillon des PV à chaque tick. `step()` reste pure : elle ne sait pas que la
 télémétrie existe.

@@ -15,6 +15,7 @@
 import { readFile } from 'node:fs/promises'
 import { MONSTERS, TARGET_K, TARGET_TTK, TICK_RATE, WEAPONS } from '@dc/engine'
 import {
+  engagement,
   floorInvariants,
   floorSummary,
   type FloorRecord,
@@ -143,6 +144,85 @@ function report(run: RunRecord): void {
           ? '  → Le donjon durcit en profondeur. Voulu si c\'est progressif, pas si ça décroche.'
           : '  → K plat : la difficulté tient sur toute la descente.',
     )
+  }
+
+  // --- combien en même temps ? ----------------------------------------------
+  console.log('\n── Rencontres réelles ─────────────────────────────────────────')
+  console.log('  Le nombre d\'ennemis à portée, pas le nombre sur l\'étage. C\'est')
+  console.log('  la seule grandeur dont dépend vraiment la difficulté : quarante')
+  console.log('  monstres pris un par un, c\'est quarante fois rien.\n')
+  console.log('   étage   médian    p90   pic   tête-à-tête   sans ennemi')
+
+  const medians: number[] = []
+  const soloShares: number[] = []
+  for (const f of run.floors) {
+    const e = engagement(f)
+    if (!e) {
+      console.log(`   ${String(f.floor).padStart(5)}        —      —     —             —             —`)
+      continue
+    }
+    medians.push(e.median)
+    soloShares.push(e.soloShare)
+    console.log(
+      `   ${String(f.floor).padStart(5)}   ${String(e.median).padStart(6)} ` +
+        `${String(e.p90).padStart(6)} ${String(e.peak).padStart(5)}   ` +
+        `${(e.soloShare * 100).toFixed(0).padStart(10)}%   ` +
+        `${(e.idleShare * 100).toFixed(0).padStart(10)}%`,
+    )
+  }
+  if (soloShares.length) {
+    const solo = soloShares.reduce((a, b) => a + b, 0) / soloShares.length
+    const med = medians.reduce((a, b) => a + b, 0) / medians.length
+    console.log(`\n  Effectif médian sur la descente : ${med.toFixed(1)}`)
+    console.log(`  Temps de combat passé en tête-à-tête : ${(solo * 100).toFixed(0)} %`)
+    console.log(
+      solo > 0.6
+        ? '  → On combat presque toujours seul contre un. Il n\'y a aucune décision\n' +
+            '    à prendre, quel que soit le nombre de monstres posés sur l\'étage.'
+        : solo > 0.4
+          ? '  → Beaucoup de tête-à-tête : les meutes se défont avant d\'arriver.'
+          : '  → Les rencontres sont majoritairement groupées. C\'est ce qu\'on veut.',
+    )
+  }
+
+  // --- l'économie des cœurs --------------------------------------------------
+  const hearts = run.floors.reduce(
+    (a, f) => {
+      a.dropped += f.heartsDropped ?? 0
+      a.taken += f.heartsTaken ?? 0
+      a.hpSum += f.heartHpSum ?? 0
+      a.entry += f.nearEntryTicks ?? 0
+      a.ticks += f.ticks
+      return a
+    },
+    { dropped: 0, taken: 0, hpSum: 0, entry: 0, ticks: 0 },
+  )
+  if (hearts.dropped > 0) {
+    console.log('\n── Économie des cœurs ─────────────────────────────────────────')
+    console.log(
+      `  ${hearts.taken} ramassé(s) sur ${hearts.dropped} tombé(s) — ` +
+        `${(((hearts.dropped - hearts.taken) / hearts.dropped) * 100).toFixed(0)} % laissés au sol`,
+    )
+    if (hearts.taken > 0) {
+      const avg = hearts.hpSum / hearts.taken
+      console.log(`  PV moyens au moment de ramasser : ${(avg * 100).toFixed(0)} %`)
+      if (avg < 0.5) {
+        console.log(
+          '  → Les cœurs sont gardés en réserve et rappelés au bon moment. La barre\n' +
+            '    de vie n\'est plus une ressource qui s\'épuise mais un stock.',
+        )
+      }
+    }
+    const camp = hearts.ticks ? hearts.entry / hearts.ticks : 0
+    console.log(
+      `  Temps passé à moins de 5 tuiles de l'escalier d'arrivée : ${(camp * 100).toFixed(0)} %`,
+    )
+    if (camp > 0.3) {
+      console.log(
+        '  → L\'entrée est campée. Les poursuivants y débouchent un par un : au lieu\n' +
+          '    d\'une pression, ils forment une file d\'attente de cibles isolées.',
+      )
+    }
   }
 
   const flat = run.floors.reduce(

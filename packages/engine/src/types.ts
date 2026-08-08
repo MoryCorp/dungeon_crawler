@@ -538,6 +538,13 @@ export type GameEvent =
   | { t: 'pursuit'; count: number }
   /** Un poursuivant vient de déboucher de l'escalier. */
   | { t: 'arrive'; id: string; species: string; x: number; y: number }
+  /**
+   * Un objet vient d'apparaître au sol. Sans cet événement on ne peut pas
+   * distinguer « aucun cœur n'est tombé » de « ils sont tous encore par terre »,
+   * ni compter ceux ramassés dans le tick même où ils tombent — deux situations
+   * opposées, et la deuxième est une stratégie de réserve à part entière.
+   */
+  | { t: 'drop'; kind: ItemKind; x: number; y: number }
   | { t: 'death'; id: string; kind: Actor['kind']; species: string; x: number; y: number }
   | { t: 'downed'; id: string; x: number; y: number }
   | { t: 'revived'; id: string; x: number; y: number }
