@@ -450,6 +450,15 @@ export const BANDIT_UCB_C = 0.6
  * au contact, assez court pour ne pas lui attribuer le combat suivant.
  */
 export const BANDIT_WINDOW = ticks(8)
+/**
+ * Le gain d'une vague mélange le pic d'intensité et les dégâts réellement
+ * encaissés pendant la fenêtre. L'intensité seule s'est fait piéger dès la
+ * première partie : six chauves-souris autour d'un joueur la font monter par
+ * le simple compte de corps, sans qu'aucune ne touche jamais personne — la
+ * Directrice apprenait le stress apparent, pas la menace. Les dégâts subis ne
+ * mentent pas.
+ */
+export const BANDIT_HURT_WEIGHT = 0.6
 
 // --- Monstres ---------------------------------------------------------------
 
@@ -723,7 +732,7 @@ export interface GameState {
   /** Mémoire du bandit : par joueur ciblé, ce que chaque recette a rapporté. */
   bandit: Record<string, BanditArms>
   /** Vague en cours d'évaluation : son gain s'inscrit à la fin de la fenêtre. */
-  banditPending?: { id: string; recipe: string; until: number; peak: number }
+  banditPending?: { id: string; recipe: string; until: number; peak: number; hurt: number }
   /** Monstres tués sur l'étage courant — le dénominateur de la patience. */
   floorKills: number
   events: GameEvent[]

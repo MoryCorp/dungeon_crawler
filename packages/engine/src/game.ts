@@ -28,6 +28,7 @@ import {
   ACTOR_RADIUS,
   AGGRO_MAX_DIST,
   AGGRO_MEMORY,
+  BANDIT_HURT_WEIGHT,
   BANDIT_WINDOW,
   ATTACK_SWING,
   BLEED_OUT_TICKS,
@@ -398,11 +399,7 @@ export function descend(state: GameState): void {
 
   // La vague en cours d'évaluation disparaît avec l'étage : on solde son
   // levier avec ce qu'elle a produit jusqu'ici.
-  const pendingWave = state.banditPending
-  if (pendingWave) {
-    recordReward((state.bandit[pendingWave.id] ??= {}), pendingWave.recipe, pendingWave.peak)
-    delete state.banditPending
-  }
+  settleBandit(state)
 
   state.floor += 1
   const layout = generateFloor(rng, state.floor)
@@ -554,6 +551,21 @@ function updateProfilesFromEvents(state: GameState): void {
 }
 
 /**
+ * Solde la fenêtre d'évaluation d'une vague : gain = pic d'intensité ET dégâts
+ * réellement encaissés, pondérés. L'intensité seule se laisse gonfler par le
+ * simple nombre de corps autour du joueur (mesuré : harcèlement notée 70 %
+ * pour 0.3 dégât par monstre) ; les dégâts subis ne mentent pas.
+ */
+function settleBandit(state: GameState): void {
+  const pending = state.banditPending
+  if (!pending) return
+  const hurt = Math.min(1, pending.hurt * 3)
+  const reward = pending.peak * (1 - BANDIT_HURT_WEIGHT) + hurt * BANDIT_HURT_WEIGHT
+  recordReward((state.bandit[pending.id] ??= {}), pending.recipe, reward)
+  delete state.banditPending
+}
+
+/**
  * Rassemble ce que la Directrice observe, puis applique sa décision.
  *
  * L'intensité se lit sur les événements du tick précédent : ce sont eux qui
@@ -596,16 +608,14 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
     available,
   })
 
-  // Fenêtre d'évaluation de la dernière vague : son gain est le pic
-  // d'intensité atteint depuis la livraison. À l'échéance, il s'inscrit au
-  // levier de la recette — c'est comme ça que la Directrice apprend.
+  // Fenêtre d'évaluation de la dernière vague. À l'échéance, son gain
+  // s'inscrit au levier de la recette — c'est comme ça que la Directrice
+  // apprend.
   const pending = state.banditPending
   if (pending) {
     pending.peak = Math.max(pending.peak, state.director.intensity)
-    if (state.tick >= pending.until) {
-      recordReward((state.bandit[pending.id] ??= {}), pending.recipe, pending.peak)
-      delete state.banditPending
-    }
+    pending.hurt += damageFraction
+    if (state.tick >= pending.until) settleBandit(state)
   }
 
   if (wanted > 0) deliverHorde(state, wanted, visible, rng)
@@ -737,13 +747,9 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   if (!target) return
 
   // Une vague part avant la fin de la fenêtre de la précédente : on solde la
-  // précédente avec le pic observé jusqu'ici plutôt que de lui attribuer
-  // l'intensité de celle qui arrive.
-  const pending = state.banditPending
-  if (pending) {
-    recordReward((state.bandit[pending.id] ??= {}), pending.recipe, pending.peak)
-    delete state.banditPending
-  }
+  // précédente avec ce qui a été observé jusqu'ici plutôt que de lui
+  // attribuer l'intensité de celle qui arrive.
+  settleBandit(state)
 
   const recipe = pickRecipe((state.bandit[target.id] ??= {}), rng)
   const stock = state.pursuers.length + state.reserveCount
@@ -831,6 +837,7 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
       recipe: recipe.name,
       until: state.tick + BANDIT_WINDOW,
       peak: 0,
+      hurt: 0,
     }
   }
 }
