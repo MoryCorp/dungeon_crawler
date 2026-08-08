@@ -8,3 +8,9 @@ data/
 
 # Assets achetés — ne pas committer les packs payants
 apps/client/public/assets/packs/
+
+# Assets Pixel Crawler (payants) : jamais dans un dépôt public — la licence
+# autorise l'usage en jeu, pas la redistribution des fichiers bruts.
+assets_src/
+*.zip
+apps/client/public/assets/pack/

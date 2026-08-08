@@ -8,6 +8,7 @@
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { ActorView, GameEvent, ItemView, ProjectileView } from '@dc/engine'
 import { MONSTERS, MONSTER_HALF_ARC } from '@dc/engine'
+import { packAnim, type AnimSet } from './pack.js'
 import {
   SCALE,
   TILE,
@@ -22,6 +23,7 @@ import {
 
 interface Entity {
   sprite: Sprite
+  shadow: Sprite
   hpBg: Sprite
   hpFill: Sprite
   telegraph: Graphics
@@ -29,6 +31,9 @@ interface Entity {
   ry: number
   view: ActorView
   telegraphKey: string
+  /** Animations du pack de sprites — null en repli procédural. */
+  anim: AnimSet | null
+  animT: number
 }
 
 interface Effect {
@@ -227,9 +232,22 @@ export class Renderer {
   }
 
   private createEntity(view: ActorView): Entity {
-    const sprite = new Sprite(makeActorTexture(view.species, view.kind === 'player'))
-    sprite.anchor.set(0.5, 0.5)
+    const anim = packAnim(view.species, view.kind === 'player')
+    const sprite = new Sprite(anim ? anim.idle[0] : makeActorTexture(view.species, view.kind === 'player'))
+    // Les cadres du pack posent les pieds vers le bas du cadre : l'ancre est un
+    // peu sous le centre pour que le personnage repose sur sa tuile.
+    sprite.anchor.set(0.5, anim ? 0.62 : 0.5)
     this.entityLayer.addChild(sprite)
+
+    // Les cadres du pack n'ont pas d'ombre incorporée, contrairement à l'atlas
+    // procédural : on la pose nous-mêmes, sinon tout le monde flotte.
+    const shadow = new Sprite(whiteTexture())
+    shadow.anchor.set(0.5, 0.5)
+    shadow.width = 10
+    shadow.height = 3.5
+    shadow.alpha = anim ? 0.28 : 0
+    shadow.tint = 0x000000
+    this.entityLayer.addChild(shadow)
 
     const telegraph = new Graphics()
     telegraph.visible = false
@@ -247,11 +265,16 @@ export class Renderer {
     hpFill.anchor.set(0, 0.5)
     this.entityLayer.addChild(hpBg, hpFill)
 
-    return { sprite, hpBg, hpFill, telegraph, rx: view.x, ry: view.y, view, telegraphKey: '' }
+    return {
+      sprite, shadow, hpBg, hpFill, telegraph,
+      rx: view.x, ry: view.y, view, telegraphKey: '',
+      anim, animT: Math.random() * 10,
+    }
   }
 
   private destroyEntity(e: Entity): void {
     e.sprite.destroy()
+    e.shadow.destroy()
     e.hpBg.destroy()
     e.hpFill.destroy()
     e.telegraph.destroy()
@@ -386,9 +409,26 @@ export class Renderer {
 
       const px = entity.rx * TILE
       const py = entity.ry * TILE
+      const wasX = entity.sprite.x
+      const wasY = entity.sprite.y
       entity.sprite.x = px
       entity.sprite.y = py
       entity.sprite.zIndex = entity.ry
+
+      // Animation : idle au repos, course dès que la position rendue bouge.
+      if (entity.anim) {
+        const moving = view.alive && Math.hypot(px - wasX, py - wasY) > 0.35
+        const frames = moving ? entity.anim.run : entity.anim.idle
+        const fps = moving ? 11 : 6
+        entity.animT += dt
+        const frame = frames[Math.floor(entity.animT * fps) % frames.length]!
+        if (entity.sprite.texture !== frame) entity.sprite.texture = frame
+      }
+
+      entity.shadow.x = px
+      entity.shadow.y = py + 5
+      entity.shadow.zIndex = entity.ry - 0.02
+      entity.shadow.visible = entity.anim !== null && view.alive
 
       const scale = view.rank ? (RANK_SCALE[view.rank] ?? 1) : 1
       // On retourne le sprite selon la visée plutôt que selon le déplacement :

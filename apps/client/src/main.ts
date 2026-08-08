@@ -16,6 +16,7 @@ import {
 } from '@dc/engine'
 import { GameAudio } from './audio.js'
 import { InputManager, sameInput } from './input.js'
+import { loadPack } from './pack.js'
 import { Net } from './net.js'
 import { Renderer } from './render.js'
 
@@ -58,6 +59,10 @@ async function main(): Promise<void> {
     autoDensity: false,
   })
   document.body.appendChild(app.canvas)
+
+  // Le pack de sprites se charge avant le premier rendu ; s'il manque (dépôt
+  // cloné sans les assets), l'atlas procédural prend le relais sans un mot.
+  await loadPack()
 
   const renderer = new Renderer(app)
   const input = new InputManager(app.canvas as HTMLCanvasElement)
