@@ -81,6 +81,8 @@ export interface ActorView {
   downed?: boolean
   /** Progression de la relève, 0 à 1. */
   revive?: number
+  /** Jauge de sprint, 0 à 1. Le client la redescend entre deux paquets. */
+  stamina?: number
 
   /** Monstres uniquement. */
   rank?: 'elite' | 'boss'
@@ -179,6 +181,7 @@ export function buildActorViews(state: GameState, visible: Uint8Array): ActorVie
       view.xp = a.xp ?? 0
       view.xpNext = xpForLevel(level + 1)
       view.downed = a.downed === true
+      view.stamina = round2(a.stamina ?? 1)
       if (a.downed) view.revive = round2(a.reviveProgress ?? 0)
     } else {
       if (a.boss) view.rank = 'boss'

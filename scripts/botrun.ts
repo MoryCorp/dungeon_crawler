@@ -117,7 +117,7 @@ console.log(`\n${label} — graine ${seed}, ${floorsToRun} étage(s) visé(s)\n`
 while (state.floor < startFloor + floorsToRun && deaths < MAX_DEATHS && !stalled) {
   const me = state.actors[BOT_ID]!
 
-  let input: PlayerInput = { mx: 0, my: 0, aim: me.aim, attack: false }
+  let input: PlayerInput = { mx: 0, my: 0, aim: me.aim, attack: false, sprint: false }
 
   if (me.alive && !me.downed) {
     const stairs = { x: state.stairs.x + 0.5, y: state.stairs.y + 0.5 }
@@ -153,6 +153,7 @@ while (state.floor < startFloor + floorsToRun && deaths < MAX_DEATHS && !stalled
     const [mx, my] = stepToward(state, me, dist)
 
     input = {
+      sprint: false,
       mx,
       my,
       aim: Math.atan2(goal.y - me.y, goal.x - me.x),

@@ -78,15 +78,15 @@ class FakeClient {
   }
 
   move(mx: number, my: number): void {
-    this.ws.send(JSON.stringify({ t: 'input', input: { mx, my, aim: 0, attack: false } }))
+    this.ws.send(JSON.stringify({ t: 'input', input: { mx, my, aim: 0, attack: false, sprint: false } }))
   }
 
   attack(aim: number): void {
-    this.ws.send(JSON.stringify({ t: 'input', input: { mx: 0, my: 0, aim, attack: true } }))
+    this.ws.send(JSON.stringify({ t: 'input', input: { mx: 0, my: 0, aim, attack: true, sprint: false } }))
   }
 
   stop(): void {
-    this.ws.send(JSON.stringify({ t: 'input', input: { mx: 0, my: 0, aim: 0, attack: false } }))
+    this.ws.send(JSON.stringify({ t: 'input', input: { mx: 0, my: 0, aim: 0, attack: false, sprint: false } }))
   }
 }
 

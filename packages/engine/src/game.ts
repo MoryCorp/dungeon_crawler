@@ -75,6 +75,13 @@ import {
   PLACED_PER_FLOOR,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
+  SPRINT_DRAIN,
+  SPRINT_MIN_START,
+  SPRINT_MULT,
+  SPRINT_REFILL_DELAY,
+  SPRINT_REGEN,
+  STAGGER_IMMUNITY,
+  STAGGER_RECOVER,
   PROFILE_EMA_ALPHA,
   PROJECTILE_RADIUS,
   PURSUE_MAX,
@@ -147,9 +154,47 @@ export function movePhysical(
  * client prédit son propre coup avec sa propre horloge : il doit pouvoir
  * appliquer exactement la même règle sans tick serveur sous la main.
  */
-export function playerSpeed(actor: { downed?: boolean }, movePenalty = 1): number {
+export function playerSpeed(
+  actor: { downed?: boolean },
+  movePenalty = 1,
+  sprinting = false,
+): number {
   const base = actor.downed ? DOWNED_SPEED : PLAYER_SPEED
-  return base * movePenalty
+  return base * movePenalty * (sprinting ? SPRINT_MULT : 1)
+}
+
+/**
+ * Fait tourner la jauge de sprint et dit si la course s'applique ce tick.
+ *
+ * Pure et sans RNG : le client rejoue exactement la même fonction pour prédire
+ * son propre déplacement, avec sa jauge recalée sur celle du serveur à chaque
+ * paquet. On ne sprinte pas la lame sortie — sinon le sprint deviendrait une
+ * façon de frapper en fuyant, ce que le coût de déplacement des armes existe
+ * précisément pour interdire.
+ */
+export function stepSprint(
+  actor: Pick<Actor, 'downed' | 'stamina' | 'sprinting' | 'sprintedAt'>,
+  tick: number,
+  wants: boolean,
+  moving: boolean,
+  swinging: boolean,
+): boolean {
+  const stamina = actor.stamina ?? 1
+  const asked = wants && moving && !swinging && !actor.downed
+  // On relance au-dessus du seuil, on poursuit tant qu'il reste du souffle :
+  // sans cette distinction, la jauge vide provoquerait un sprint haché.
+  const sprinting = asked && (actor.sprinting === true ? stamina > 0 : stamina >= SPRINT_MIN_START)
+
+  if (sprinting) {
+    actor.stamina = Math.max(0, stamina - SPRINT_DRAIN * DT)
+    actor.sprintedAt = tick
+  } else if (tick - (actor.sprintedAt ?? -SPRINT_REFILL_DELAY) >= SPRINT_REFILL_DELAY) {
+    actor.stamina = Math.min(1, stamina + SPRINT_REGEN * DT)
+  } else {
+    actor.stamina = stamina
+  }
+  actor.sprinting = sprinting
+  return sprinting
 }
 
 /** Arme portée, avec repli sur celle de départ si l'identifiant est inconnu. */
@@ -1042,6 +1087,23 @@ function damage(
     x: to.x,
     y: to.y,
   })
+
+  // Le coup encaissé fait manquer l'attaque en préparation. Réservé aux coups
+  // portés par un joueur : deux monstres qui se blessent entre eux (l'explosion
+  // du kamikaze) ne doivent pas désamorcer tout un groupe.
+  if (
+    to.kind === 'monster' &&
+    !to.boss &&
+    from?.kind === 'player' &&
+    to.windupUntil !== undefined &&
+    state.tick < to.windupUntil &&
+    state.tick >= (to.staggerReadyAt ?? 0)
+  ) {
+    delete to.windupUntil
+    to.readyAt = state.tick + STAGGER_RECOVER
+    to.staggerReadyAt = state.tick + STAGGER_IMMUNITY
+    state.events.push({ t: 'stagger', id: to.id, species: to.species, x: to.x, y: to.y })
+  }
 }
 
 function spawnProjectile(
@@ -1454,10 +1516,17 @@ export function step(
     const weapon = weaponOf(actor.weapon)
     const beforeX = actor.x
     const beforeY = actor.y
+    const swinging = state.tick < actor.swingUntil
+    const sprinting = stepSprint(
+      actor, state.tick,
+      input.sprint === true,
+      input.mx !== 0 || input.my !== 0,
+      swinging,
+    )
     movePhysical(
       state.tiles, state.width, state.height, actor,
       input.mx, input.my,
-      playerSpeed(actor, state.tick < actor.swingUntil ? weapon.movePenalty : 1),
+      playerSpeed(actor, swinging ? weapon.movePenalty : 1, sprinting),
     )
     if (!actor.downed) {
       profileMovement(state, actor, threats, actor.x - beforeX, actor.y - beforeY)

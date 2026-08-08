@@ -18,6 +18,9 @@ import {
   MONSTER_HALF_ARC,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
+  SPRINT_MIN_START,
+  SPRINT_MULT,
+  SPRINT_REFILL_DELAY,
   DIRECTOR_PATIENCE,
   DIRECTOR_REST,
   HORDE_MIN,
@@ -60,6 +63,7 @@ import {
   type GameState,
   type PlayerInput,
 } from '@dc/engine'
+import { terrainAt } from '../apps/server/src/telemetry.js'
 
 const SWORD = WEAPONS.sword!
 
@@ -69,7 +73,7 @@ function check(label: string, ok: boolean, detail = ''): void {
   if (!ok) failures++
 }
 
-const idle: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false }
+const idle: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }
 const noInputs: Record<string, PlayerInput | null> = {}
 
 /** Vide l'étage de ses monstres pour isoler ce qu'on veut tester. */
@@ -249,7 +253,7 @@ console.log('\nTests engine\n')
   const target = putMonster(s, 'm_lock', 'skeleton', hero.x + 1.2, hero.y)
   target.hp = 9999 // il ne doit pas mourir : on teste le contrôle, pas les dégâts
 
-  const spam: PlayerInput = { mx: 0, my: 0, aim: 0, attack: true }
+  const spam: PlayerInput = { mx: 0, my: 0, aim: 0, attack: true, sprint: false }
   for (let i = 0; i < TICK_RATE * 8; i++) step(s, { p_spam: spam })
 
   check(
@@ -267,14 +271,14 @@ console.log('\nTests engine\n')
   const victim = putMonster(s2, 'm_push', 'skeleton', hero2.x + 1.0, hero2.y)
   victim.hp = 9999
   const x0 = victim.x
-  step(s2, { p_hit: { mx: 0, my: 0, aim: 0, attack: true } })
+  step(s2, { p_hit: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
   const firstPush = Math.hypot(victim.kx, victim.ky)
   check('le premier coup projette franchement', firstPush > 3, `recul ${firstPush.toFixed(1)}`)
 
   // Le deuxième coup enchaîné doit pousser nettement moins.
   hero2.readyAt = s2.tick
   const before = Math.hypot(victim.kx, victim.ky)
-  step(s2, { p_hit: { mx: 0, my: 0, aim: 0, attack: true } })
+  step(s2, { p_hit: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
   const secondPush = Math.hypot(victim.kx, victim.ky) - before
   check(
     'les coups enchaînés poussent de moins en moins',
@@ -297,7 +301,7 @@ console.log('\nTests engine\n')
     // Cap dégagé : on veut mesurer un ralentissement, pas une collision.
     const dir = isWalkable(s.tiles[Math.floor(hero.y) * MAP_W + Math.floor(hero.x) + 1]!) ? 1 : -1
     const start = hero.x
-    const input: PlayerInput = { mx: dir, my: 0, aim: dir > 0 ? 0 : Math.PI, attack }
+    const input: PlayerInput = { mx: dir, my: 0, aim: dir > 0 ? 0 : Math.PI, attack, sprint: false }
     for (let i = 0; i < TICK_RATE; i++) step(s, { p_go: input })
     return Math.abs(hero.x - start)
   }
@@ -415,7 +419,7 @@ console.log('\nTests engine\n')
   monster.hp = monster.maxHp
   const hpBefore = monster.hp
 
-  const attackDiag: PlayerInput = { mx: 0, my: 0, aim: Math.atan2(0.7, 0.7), attack: true }
+  const attackDiag: PlayerInput = { mx: 0, my: 0, aim: Math.atan2(0.7, 0.7), attack: true, sprint: false }
   step(s, { p_test: attackDiag })
   const target = s.actors[monster.id]
   check(
@@ -445,7 +449,7 @@ console.log('\nTests engine\n')
   hero.invulnUntil = 0
 
   // On laisse la préparation démarrer, puis on s'écarte perpendiculairement.
-  const flee: PlayerInput = { mx: 0, my: -1, aim: 0, attack: false }
+  const flee: PlayerInput = { mx: 0, my: -1, aim: 0, attack: false, sprint: false }
   const hpBefore = hero.hp
   for (let i = 0; i < def.windup + 6; i++) step(s, { p_dodge: flee })
   check(
@@ -545,12 +549,12 @@ console.log('\nTests engine\n')
   target.hp = 999
 
   hero.weapon = 'dagger'
-  step(s, { p_reach: { mx: 0, my: 0, aim: 0, attack: true } })
+  step(s, { p_reach: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
   check('la dague ne touche pas à 2 tuiles', target.hp === 999)
 
   hero.weapon = 'spear'
   hero.readyAt = s.tick
-  step(s, { p_reach: { mx: 0, my: 0, aim: 0, attack: true } })
+  step(s, { p_reach: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
   check('la lance touche à 2 tuiles', target.hp < 999, `hp=${target.hp}`)
 }
 
@@ -563,7 +567,7 @@ console.log('\nTests engine\n')
   const target = putMonster(s, 'm_shot', 'skeleton', hero.x + 4, hero.y)
   target.hp = 999
 
-  step(s, { p_bow: { mx: 0, my: 0, aim: 0, attack: true } })
+  step(s, { p_bow: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
   check('tirer crée un projectile', s.projectiles.length === 1)
 
   for (let i = 0; i < TICK_RATE && target.hp === 999; i++) step(s, noInputs)
@@ -620,7 +624,7 @@ console.log('\nTests engine\n')
   victim.hp = 1
 
   const itemsBefore = s.items.length
-  step(s, { p_loot: { mx: 0, my: 0, aim: 0, attack: true } })
+  step(s, { p_loot: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
   check('tuer un monstre laisse du butin', s.items.length > itemsBefore, `${s.items.length} objets`)
   check('l\'XP ne tombe qu\'avec le butin ramassé', (hero.xp ?? 0) === 0)
 
@@ -717,7 +721,7 @@ console.log('\nTests engine\n')
     hero.weapon = 'axe'
     hero.readyAt = s.tick
     for (let i = 0; i < TICK_RATE && s.stairsLocked; i++) {
-      step(s, { p_key: { mx: 0, my: 0, aim: 0, attack: true } })
+      step(s, { p_key: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
     }
   }
   check('tuer le gardien déverrouille l\'escalier', !s.stairsLocked)
@@ -999,7 +1003,7 @@ console.log('\nTests engine\n')
   target.hp = 9999
   target.maxHp = 9999
   target.readyAt = 999999
-  step(s, { p_prof: { mx: 0, my: 0, aim: 0, attack: true } })
+  step(s, { p_prof: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
   const range = profileStats(s.profiles.p_prof!).range
   check('la portée mesure la distance du coup', range !== null && Math.abs(range - 2) < 0.5, `${range?.toFixed(2)} t`)
 }
@@ -1029,7 +1033,7 @@ console.log('\nTests engine\n')
     m2.x = h2.x + 5
     m2.y = h2.y
     const angle = (i / (TICK_RATE * 2)) * Math.PI * 4
-    step(moving, { p_move: { mx: Math.cos(angle), my: Math.sin(angle), aim: 0, attack: false } })
+    step(moving, { p_move: { mx: Math.cos(angle), my: Math.sin(angle), aim: 0, attack: false, sprint: false } })
   }
   const move_mob = profileStats(moving.profiles.p_move!).mobility
 
@@ -1104,7 +1108,7 @@ console.log('\nTests engine\n')
   const runOne = (): string => {
     const s = createGame(3105)
     addPlayer(s, 'p_det', 'Jumeau')
-    const input: PlayerInput = { mx: 1, my: 0.3, aim: 1, attack: true }
+    const input: PlayerInput = { mx: 1, my: 0.3, aim: 1, attack: true, sprint: false }
     for (let i = 0; i < TICK_RATE * 5; i++) step(s, { p_det: input })
     return JSON.stringify({ profiles: s.profiles, tick: s.tick, rng: s.rng, actors: Object.keys(s.actors).length })
   }
@@ -1271,6 +1275,215 @@ console.log('\nTests engine\n')
     'les gains restent dans [0, 1]',
     Object.values(arms).every((a) => a.sum >= 0 && a.sum <= a.n),
   )
+}
+
+// --- Sprint -------------------------------------------------------------------
+//
+// Le sprint doit rendre la traversée moins pénible sans devenir une esquive :
+// on vérifie donc autant ce qu'il donne que ce qu'il refuse.
+{
+  console.log('\nSprint')
+
+  /** Distance parcourue en `seconds` en poussant vers la droite. */
+  function runFor(
+    seconds: number,
+    sprint: boolean,
+    attack = false,
+  ): { dist: number; hero: Actor; low: number } {
+    const s = createGame(777)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_run', 'Coureur')
+    // Une bande dégagée vers la droite, sinon on mesure un mur.
+    for (let x = 0; x < MAP_W; x++) {
+      s.tiles[Math.floor(hero.y) * MAP_W + x] = Tile.Floor
+    }
+    const start = hero.x
+    const input: PlayerInput = { mx: 1, my: 0, aim: 0, attack, sprint }
+    let low = 1
+    for (let i = 0; i < Math.round(TICK_RATE * seconds); i++) {
+      step(s, { p_run: input })
+      low = Math.min(low, hero.stamina ?? 1)
+    }
+    return { dist: hero.x - start, hero, low }
+  }
+
+  const walk = runFor(1.5, false)
+  const dash = runFor(1.5, true)
+  check(
+    'sprinter couvre plus de terrain que marcher',
+    dash.dist > walk.dist * 1.4,
+    `${walk.dist.toFixed(2)} -> ${dash.dist.toFixed(2)} tuiles`,
+  )
+  check(
+    'et la jauge se vide en courant',
+    (dash.hero.stamina ?? 1) < 0.6,
+    `souffle ${(dash.hero.stamina ?? 1).toFixed(2)}`,
+  )
+  check('marcher ne coûte rien', (walk.hero.stamina ?? 0) === 1)
+
+  // Le souffle est fini. En gardant la touche enfoncée on obtient une course
+  // hachée par la récupération, pas six secondes de sprint : la distance doit
+  // rester franchement entre la marche et le sprint continu.
+  const long = runFor(6, true)
+  check(
+    'le souffle s\'épuise et la course retombe',
+    long.low === 0 &&
+      long.dist > PLAYER_SPEED * 6 &&
+      long.dist < PLAYER_SPEED * SPRINT_MULT * 6 * 0.85,
+    `${long.dist.toFixed(1)} tuiles en 6 s (marche ${(PLAYER_SPEED * 6).toFixed(1)}, ` +
+      `sprint continu ${(PLAYER_SPEED * SPRINT_MULT * 6).toFixed(1)})`,
+  )
+
+  // Sprinter la lame sortie contournerait le coût de déplacement des armes.
+  const swinging = runFor(1.5, true, true)
+  check(
+    'on ne sprinte pas en frappant',
+    swinging.dist < dash.dist,
+    `${swinging.dist.toFixed(2)} en frappant contre ${dash.dist.toFixed(2)}`,
+  )
+
+  // Régénération : elle ne démarre qu'après un temps mort.
+  {
+    const s = createGame(778)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_reg', 'Souffle')
+    hero.stamina = 0.5
+    hero.sprintedAt = s.tick
+    hero.sprinting = false
+    const before = hero.stamina
+    for (let i = 0; i < SPRINT_REFILL_DELAY - 1; i++) step(s, { p_reg: idle })
+    check('la jauge ne remonte pas tout de suite', hero.stamina === before)
+    for (let i = 0; i < TICK_RATE * 2; i++) step(s, { p_reg: idle })
+    check(
+      'puis elle remonte',
+      (hero.stamina ?? 0) > before + 0.3,
+      `${before} -> ${(hero.stamina ?? 0).toFixed(2)}`,
+    )
+  }
+
+  // Sous le seuil, on ne peut pas relancer : sinon le sprint devient un hachis.
+  {
+    const s = createGame(779)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_low', 'Essoufflé')
+    for (let x = 0; x < MAP_W; x++) s.tiles[Math.floor(hero.y) * MAP_W + x] = Tile.Floor
+    hero.stamina = SPRINT_MIN_START - 0.05
+    hero.sprinting = false
+    hero.sprintedAt = s.tick
+    const start = hero.x
+    const go: PlayerInput = { mx: 1, my: 0, aim: 0, attack: false, sprint: true }
+    for (let i = 0; i < 10; i++) step(s, { p_low: go })
+    check(
+      'sous le seuil, la relance est refusée',
+      hero.sprinting === false && hero.x - start < PLAYER_SPEED * SPRINT_MULT * (10 / TICK_RATE) * 0.95,
+      `souffle ${(hero.stamina ?? 0).toFixed(2)}`,
+    )
+  }
+}
+
+// --- Interruption des attaques ------------------------------------------------
+//
+// Frapper un monstre qui prépare son coup le lui fait manquer. Sans garde-fou
+// ce serait un verrou permanent, donc on vérifie surtout l'immunité qui suit.
+{
+  console.log('\nInterruption')
+
+  /** Amène un monstre jusqu'au milieu de sa préparation, puis le frappe. */
+  function windupThenHit(species: string, boss = false): {
+    staggered: boolean
+    monster: Actor
+    state: GameState
+  } {
+    const s = createGame(4242)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_int', 'Interrupteur')
+    hero.invulnUntil = 0
+    const m = putMonster(s, 'm_wind', species, hero.x + 1.0, hero.y)
+    m.hp = 9999
+    if (boss) m.boss = true
+
+    // On laisse la préparation démarrer sans frapper.
+    let started = false
+    for (let i = 0; i < TICK_RATE * 3 && !started; i++) {
+      step(s, { p_int: idle })
+      started = m.windupUntil !== undefined && s.tick < m.windupUntil
+    }
+
+    const hit: PlayerInput = { mx: 0, my: 0, aim: 0, attack: true, sprint: false }
+    step(s, { p_int: hit })
+    const staggered = s.events.some((e) => e.t === 'stagger' && e.id === m.id)
+    return { staggered, monster: m, state: s }
+  }
+
+  const normal = windupThenHit('skeleton')
+  check('frapper une préparation la fait manquer', normal.staggered)
+  check(
+    'et le monstre ne relance pas dans la foulée',
+    normal.monster.windupUntil === undefined && normal.monster.readyAt > normal.state.tick,
+  )
+  check(
+    'il devient insensible un moment',
+    (normal.monster.staggerReadyAt ?? 0) > normal.state.tick,
+  )
+
+  const boss = windupThenHit('skeleton', true)
+  check('un boss ne s\'interrompt pas', !boss.staggered)
+
+  // L'immunité empêche le verrou : sur la durée, le monstre place ses coups.
+  {
+    const s = createGame(4343)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_lock2', 'Verrou')
+    hero.invulnUntil = 0
+    hero.maxHp = 9000
+    hero.hp = 9000
+    const m = putMonster(s, 'm_lock2', 'skeleton', hero.x + 1.0, hero.y)
+    m.hp = 999999
+    const spam: PlayerInput = { mx: 0, my: 0, aim: 0, attack: true, sprint: false }
+    const before = hero.hp
+    for (let i = 0; i < TICK_RATE * 12; i++) step(s, { p_lock2: spam })
+    check(
+      'marteler ne verrouille pas un monstre indéfiniment',
+      hero.hp < before,
+      `${before} -> ${hero.hp} PV en 12 s`,
+    )
+  }
+}
+
+// --- Lecture du terrain -------------------------------------------------------
+//
+// La mesure vit côté serveur, mais c'est un classement facile à écrire à
+// l'envers et personne ne s'en apercevrait dans un rapport : on le vérifie sur
+// des cartes dessinées à la main plutôt que sur un donjon tiré au sort.
+{
+  console.log('\nTerrain')
+
+  /** Une carte pleine de murs, dans laquelle on creuse à la demande. */
+  function blank(): GameState {
+    const s = createGame(1234)
+    clearMonsters(s)
+    s.tiles.fill(Tile.Wall)
+    return s
+  }
+
+  const tunnel = blank()
+  for (let x = 4; x < 30; x++) tunnel.tiles[10 * MAP_W + x] = Tile.Floor
+  check('un boyau d\'une case est un couloir', terrainAt(tunnel, 12.5, 10.5) === 'couloir')
+
+  const small = blank()
+  for (let y = 8; y < 12; y++) {
+    for (let x = 8; x < 12; x++) small.tiles[y * MAP_W + x] = Tile.Floor
+  }
+  check('une salle de 4×4 est une petite salle', terrainAt(small, 9.5, 9.5) === 'petite')
+
+  const hall = blank()
+  for (let y = 6; y < 18; y++) {
+    for (let x = 6; x < 18; x++) hall.tiles[y * MAP_W + x] = Tile.Floor
+  }
+  check('une salle de 12×12 est une grande salle', terrainAt(hall, 11.5, 11.5) === 'grande')
+  // Le coin d'une grande salle reste une grande salle : c'est la largeur
+  // disponible qui compte, pas la distance au mur le plus proche.
+  check('et son coin aussi', terrainAt(hall, 6.5, 6.5) === 'grande')
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)

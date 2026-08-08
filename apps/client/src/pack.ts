@@ -63,14 +63,22 @@ const ATTACKS: AttackKind[] = ['slice', 'pierce', 'crush']
 /**
  * Arme du joueur → geste du héros.
  *
- * Le geste n'est joué que si l'objet dessiné dans la main **est** l'arme
- * ramassée : le Chasseur tient une épée dans son estoc et un couperet dans sa
- * taille, rien d'autre. Dague, lance et arc gardent la posture neutre et leur
- * secteur de frappe — mieux vaut aucune arme en main qu'une autre arme en
- * main, qui ferait douter de ce qu'on a ramassé.
+ * Le Chasseur n'a que trois gestes, et l'outil y est peint : une épée dans
+ * l'estoc, un couperet dans la taille, une pioche dans l'écrasement. On avait
+ * d'abord réservé le geste aux deux armes dont l'outil correspond, pour ne pas
+ * mentir sur ce qu'on tient. Manette en main, c'était le mauvais arbitrage : à
+ * la dague on frappait sans que rien ne bouge, et un personnage figé au milieu
+ * d'un combat se lit comme un bug, pas comme une nuance.
+ *
+ * Donc les armes d'estoc prennent l'estoc — la lame dessinée est trop longue
+ * pour une dague et trop courte pour une lance, à 64 px et en mouvement ça ne
+ * se voit pas. L'arc reste à part : bander une corde ne ressemble à aucun des
+ * trois, et la flèche qui part suffit à dire que le coup est parti.
  */
 export const WEAPON_ATTACK: Record<string, AttackKind> = {
   sword: 'pierce',
+  dagger: 'pierce',
+  spear: 'pierce',
   axe: 'slice',
 }
 

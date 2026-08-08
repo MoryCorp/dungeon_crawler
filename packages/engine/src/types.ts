@@ -43,6 +43,27 @@ export const PLAYER_SPEED = 4.2
 /** Décroissance exponentielle du recul, par seconde. */
 export const KNOCKBACK_DECAY = 9
 
+/**
+ * Le sprint sert à **traverser**, pas à combattre.
+ *
+ * Il répond à un vrai coût du jeu — revenir sur ses pas dans des salles déjà
+ * vidées quand on cherche l'escalier — sans devenir une esquive gratuite : la
+ * jauge ne tient que quelques secondes, elle ne remonte qu'après un temps mort,
+ * et elle ne s'applique jamais pendant que la lame est sortie. Foncer sur un
+ * archer reste donc un pari : on arrive vite, mais on arrive à découvert.
+ *
+ * Le seuil de démarrage est haut exprès. Un seuil bas laisse relancer dès que
+ * la jauge décolle, et le sprint dégénère en hachis d'une demi-seconde ; à
+ * moitié plein, il impose un vrai temps de récupération après un épuisement,
+ * tout en laissant enchaîner deux courses quand on n'a pas tout dépensé.
+ */
+export const SPRINT_MULT = 1.65
+/** Fractions de jauge par seconde : ~2.2 s de course, ~4.5 s pour refaire le plein. */
+export const SPRINT_DRAIN = 0.45
+export const SPRINT_REGEN = 0.22
+export const SPRINT_REFILL_DELAY = ticks(1)
+export const SPRINT_MIN_START = 0.5
+
 // --- Armes ------------------------------------------------------------------
 
 export interface WeaponDef {
@@ -227,6 +248,23 @@ export const RESPAWN_GRACE = ticks(2)
 /** Durée visuelle du swing d'un monstre. Les armes des joueurs ont la leur. */
 export const ATTACK_SWING = ticks(0.18)
 export const MONSTER_HALF_ARC = deg(45)
+
+/**
+ * Frapper un monstre qui prépare son coup le lui fait manquer.
+ *
+ * Sans ça, un joueur au corps à corps coincé dans un couloir face à des archers
+ * n'a aucune réponse : avancer, c'est encaisser le tir de toute façon. Avec ça,
+ * le télégraphe devient une fenêtre à saisir plutôt qu'une sentence — la
+ * difficulté reste dans la simultanéité, pas dans l'impuissance.
+ *
+ * Deux garde-fous. L'immunité empêche de verrouiller une cible indéfiniment en
+ * la martelant : une fois interrompu, le monstre prépare son prochain coup à
+ * l'abri. Et les boss n'y sont pas sensibles — un boss qu'on peut empêcher de
+ * jouer n'est plus un boss.
+ */
+export const STAGGER_IMMUNITY = ticks(2.2)
+/** Après une interruption, le monstre reste sonné un instant avant de relancer. */
+export const STAGGER_RECOVER = ticks(0.45)
 
 export const FOV_RADIUS = 9
 export const AGGRO_MEMORY = ticks(3)
@@ -584,10 +622,18 @@ export interface Actor {
   bleedOutAt?: number
   /** Progression de la relève en cours, de 0 à 1. */
   reviveProgress?: number
+  /** Jauge de sprint, de 0 à 1. */
+  stamina?: number
+  /** Sprint appliqué au tick précédent — sert à distinguer relance et poursuite. */
+  sprinting?: boolean
+  /** Dernier tick où le sprint a servi : la jauge ne remonte qu'après un délai. */
+  sprintedAt?: number
 
   /** Monstres. */
   elite?: boolean
   boss?: boolean
+  /** Avant ce tick, l'attaque en préparation ne peut plus être interrompue. */
+  staggerReadyAt?: number
   /** charger : tick de fin de la ruée en cours. */
   dashUntil?: number
   dashVx?: number
@@ -652,9 +698,10 @@ export interface PlayerInput {
   my: number
   aim: number
   attack: boolean
+  sprint: boolean
 }
 
-export const NEUTRAL_INPUT: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false }
+export const NEUTRAL_INPUT: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }
 
 // --- Événements -------------------------------------------------------------
 
@@ -697,6 +744,8 @@ export type GameEvent =
   | { t: 'pickup'; id: string; kind: ItemKind; x: number; y: number; label?: string }
   | { t: 'levelup'; id: string; level: number; x: number; y: number }
   | { t: 'keydrop'; x: number; y: number }
+  /** Attaque en préparation avortée par un coup encaissé. */
+  | { t: 'stagger'; id: string; species: string; x: number; y: number }
   | { t: 'unlock' }
   | { t: 'descend'; floor: number }
 

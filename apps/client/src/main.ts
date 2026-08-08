@@ -2,12 +2,14 @@ import { Application } from 'pixi.js'
 import {
   BLEED_OUT_TICKS,
   DT,
+  SPRINT_MIN_START,
   STARTING_WEAPON,
   TICK_RATE,
   WEAPONS,
   fromBase64,
   movePhysical,
   playerSpeed,
+  stepSprint,
   unpackBits,
   xpForLevel,
   type ActorView,
@@ -36,6 +38,7 @@ const hpLabel = $('hp')
 const weaponLabel = $('weapon')
 const levelLabel = $('level')
 const xpFill = $('xp-fill')
+const staminaFill = $('stamina-fill')
 const objective = $('objective')
 const chase = $('chase')
 const downedBox = $('downed')
@@ -98,8 +101,15 @@ async function main(): Promise<void> {
 
   /** État physique prédit du joueur local. */
   const local = { x: 0, y: 0, kx: 0, ky: 0 }
+  /**
+   * Sprint prédit localement, avec la même fonction que le serveur. La jauge est
+   * recalée sur celle du serveur à chaque paquet ; entre deux paquets elle
+   * descend ici, sinon la barre avancerait par à-coups de 30 Hz.
+   */
+  const localSprint = { stamina: 1, sprinting: false, sprintedAt: -999, downed: false }
+  let predictTick = 0
   let localReady = false
-  let lastInput: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false }
+  let lastInput: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }
   let accumulator = 0
   let sendTimer = 0
 
@@ -196,6 +206,9 @@ async function main(): Promise<void> {
 
   function reconcile(self: ActorView): void {
     alive = self.alive
+    // Le serveur fait autorité sur le souffle : la prédiction locale ne sert
+    // qu'à remplir les 33 ms entre deux paquets.
+    if (self.stamina !== undefined) localSprint.stamina = self.stamina
     debug.sx = self.x
     debug.sy = self.y
     debug.drift = Math.hypot(self.x - local.x, self.y - local.y)
@@ -300,15 +313,26 @@ async function main(): Promise<void> {
         localReadyAtMs = nowMs + (weapon.cooldown / TICK_RATE) * 1000
         localSwingUntilMs = nowMs + (weapon.swing / TICK_RATE) * 1000
       }
-      const speed = playerSpeed({ downed }, nowMs < localSwingUntilMs ? weapon.movePenalty : 1)
+      const swinging = nowMs < localSwingUntilMs
+      const penalty = swinging ? weapon.movePenalty : 1
+      const moving = current.mx !== 0 || current.my !== 0
+      localSprint.downed = downed
 
       accumulator += dt
       let steps = 0
       while (accumulator >= DT && steps < 5) {
-        movePhysical(tiles, mapW, mapH, local, current.mx, current.my, speed)
+        const sprinting = stepSprint(localSprint, predictTick, current.sprint, moving, swinging)
+        movePhysical(
+          tiles, mapW, mapH, local,
+          current.mx, current.my,
+          playerSpeed({ downed }, penalty, sprinting),
+        )
+        predictTick++
         accumulator -= DT
         steps++
       }
+      staminaFill.style.width = `${Math.round(localSprint.stamina * 100)}%`
+      staminaFill.classList.toggle('spent', localSprint.stamina < SPRINT_MIN_START)
       if (steps === 5) accumulator = 0
       renderer.predicted = { x: local.x, y: local.y }
       debug.x = local.x

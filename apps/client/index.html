@@ -97,6 +97,21 @@
       }
       #xp-fill { height: 100%; width: 0%; background: #7fd8ff; transition: width 120ms linear; }
 
+      /* Souffle : même gabarit que l'XP, sans transition — une jauge qui traîne
+         derrière la course ne dit plus quand on peut relancer. */
+      #stamina-track {
+        width: 160px;
+        height: 4px;
+        margin-top: 3px;
+        background: #0e1017;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      #stamina-fill { height: 100%; width: 100%; background: #d8c07f; }
+      /* En dessous du seuil de relance, la jauge dit qu'elle ne repartira pas. */
+      #stamina-fill.spent { background: #6a5c3a; }
+
       /* Objectif de l'étage : la seule information qui dit quoi faire ensuite. */
       #objective {
         position: fixed;
@@ -170,6 +185,7 @@
       <div class="row">PV <b id="hp">—</b> · <b id="weapon">—</b></div>
       <div class="row">Niveau <b id="level">1</b></div>
       <div id="xp-track"><div id="xp-fill"></div></div>
+      <div id="stamina-track"><div id="stamina-fill"></div></div>
     </div>
     <div id="objective" class="hidden"></div>
     <div id="chase" class="hidden"></div>

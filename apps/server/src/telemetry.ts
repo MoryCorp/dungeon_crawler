@@ -16,6 +16,7 @@ import {
   WEAPONS,
   effectiveHp,
   floorScale,
+  isWalkable,
   profileStats,
   type GameEvent,
   type GameState,
@@ -84,6 +85,19 @@ export interface FloorRecord {
   engaged: number[]
 
   /**
+   * Le décor, mesuré aux trois moments qui comptent : où l'on passe son temps,
+   * où l'on encaisse, où l'on tombe. Comparer les trois est tout l'intérêt —
+   * si l'on passe 20 % du temps en couloir mais qu'on y prend 60 % des coups,
+   * le couloir n'est pas une difficulté, c'est un piège.
+   */
+  terrainTicks?: Tally
+  terrainDamage?: Tally
+  terrainDowns?: Tally
+
+  /** Préparations interrompues par un coup de joueur, par espèce. */
+  staggers?: Tally
+
+  /**
    * Économie des cœurs. Un joueur qui laisse les cœurs au sol tant qu'il est
    * en pleine vie se constitue une réserve : sa barre de vie n'est plus une
    * ressource qui s'épuise mais un stock qu'il rappelle à volonté, et le sens
@@ -136,6 +150,59 @@ export interface FloorRecord {
       patience: number | null
     }
   >
+}
+
+/**
+ * Où l'on se tient quand ça tourne mal. Compter les ennemis autour du joueur ne
+ * disait que la moitié de l'histoire : trois archers dans une grande salle se
+ * contournent, les mêmes trois archers dans un couloir ne se contournent pas.
+ * On classe donc le terrain sous les pieds du joueur.
+ */
+export type Terrain = 'couloir' | 'petite' | 'grande'
+
+/** Au-delà, on arrête de compter : la salle est déjà « grande » de toute façon. */
+const SPAN_MAX = 8
+/** Largeur libre au-delà de laquelle on peut contourner quelqu'un. */
+const CORRIDOR_SPAN = 2
+/** Largeur libre à partir de laquelle la salle offre vraiment de l'espace. */
+const OPEN_SPAN = 6
+
+/** Cases libres d'affilée le long d'un axe, la case du joueur comprise. */
+function span(
+  tiles: Uint8Array, w: number, h: number,
+  tx: number, ty: number, dx: number, dy: number,
+): number {
+  let n = 1
+  for (const sign of [1, -1]) {
+    for (let i = 1; i <= SPAN_MAX; i++) {
+      const x = tx + dx * i * sign
+      const y = ty + dy * i * sign
+      if (x < 0 || y < 0 || x >= w || y >= h) break
+      if (!isWalkable(tiles[y * w + x]!)) break
+      n++
+    }
+  }
+  return n
+}
+
+/**
+ * La largeur qui compte est la plus étroite des deux axes : un couloir est
+ * large dans le sens de la marche et étroit en travers, et c'est l'étroitesse
+ * en travers qui empêche d'esquiver.
+ *
+ * On avait ajouté les diagonales pour ne pas prendre une salle en losange pour
+ * un tunnel ; elles classaient le coin d'une grande salle en couloir, ce qui
+ * est faux et qui fausserait tout le tableau, un coin étant justement là où on
+ * se replie. Le générateur ne creuse que des couloirs en L, donc les deux axes
+ * suffisent.
+ */
+export function terrainAt(state: GameState, x: number, y: number): Terrain {
+  const tx = Math.floor(x)
+  const ty = Math.floor(y)
+  const { tiles, width: w, height: h } = state
+  const narrow = Math.min(span(tiles, w, h, tx, ty, 1, 0), span(tiles, w, h, tx, ty, 0, 1))
+  if (narrow <= CORRIDOR_SPAN) return 'couloir'
+  return narrow >= OPEN_SPAN ? 'grande' : 'petite'
 }
 
 /** Portée au-delà de laquelle un monstre ne pèse plus sur la décision immédiate. */
@@ -250,6 +317,7 @@ export class RunTelemetry {
     let lowest = 1
     let inDanger = false
     let engagedPeak = 0
+    let exposedAt: { x: number; y: number } | null = null
     let atEntry = false
     for (const a of Object.values(state.actors)) {
       if (a.kind !== 'player' || !a.alive || a.downed) continue
@@ -266,7 +334,10 @@ export class RunTelemetry {
       for (const m of monsters) {
         if (Math.hypot(m.x - a.x, m.y - a.y) <= ENGAGE_RANGE) near++
       }
-      engagedPeak = Math.max(engagedPeak, near)
+      if (near >= engagedPeak) {
+        engagedPeak = near
+        exposedAt = a
+      }
 
       if (Math.hypot(a.x - (state.spawn.x + 0.5), a.y - (state.spawn.y + 0.5)) <= ENTRY_RADIUS) {
         atEntry = true
@@ -278,6 +349,11 @@ export class RunTelemetry {
       this.hpBefore.set(a.id, ratio)
     }
     this.current.engaged[Math.min(engagedPeak, ENGAGE_BUCKETS)]! += 1
+    // Le terrain suit le même joueur que l'effectif : c'est le plus exposé qui
+    // décide de la nature de l'instant, et les deux mesures se croisent.
+    if (exposedAt) {
+      bump((this.current.terrainTicks ??= {}), terrainAt(state, exposedAt.x, exposedAt.y))
+    }
     if (atEntry) this.current.nearEntryTicks += 1
 
     if (lowest < this.current.lowestHpRatio) this.current.lowestHpRatio = lowest
@@ -346,6 +422,7 @@ export class RunTelemetry {
           bump(this.current.damageByWeapon, weapon, ev.dmg)
         } else if (ev.toSpecies === PLAYER_SPECIES) {
           bump(this.current.damageTaken, ev.fromSpecies || 'inconnu', ev.dmg)
+          bump((this.current.terrainDamage ??= {}), terrainAt(state, ev.x, ev.y), ev.dmg)
           this.lastHitBy.set(ev.to, ev.fromSpecies || 'inconnu')
         }
         // Reste le cas monstre → monstre (l'explosion du kamikaze), qui
@@ -361,6 +438,11 @@ export class RunTelemetry {
       case 'downed':
         this.current.downs += 1
         bump(this.current.downedBy, this.lastHitBy.get(ev.id) ?? 'inconnu')
+        bump((this.current.terrainDowns ??= {}), terrainAt(state, ev.x, ev.y))
+        break
+
+      case 'stagger':
+        bump((this.current.staggers ??= {}), ev.species)
         break
 
       case 'revived':

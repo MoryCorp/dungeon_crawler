@@ -26,6 +26,16 @@ const KEY_VECTORS: Record<string, readonly [number, number]> = {
 /** Attaque au clavier, en secours du clic gauche. */
 const ATTACK_KEYS = new Set(['Space'])
 
+/** Sprint : les deux Maj, sous les deux mains selon qu'on joue ZQSD ou flèches. */
+const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight'])
+
+/**
+ * Touches que le navigateur détournerait. Tab passe au champ suivant, ce qui
+ * sort du jeu sans prévenir — on se le réserve dès maintenant, l'inventaire à
+ * venir en aura besoin.
+ */
+const SWALLOWED = new Set(['Tab'])
+
 const STICK_DEADZONE = 0.28
 const AIM_DEADZONE = 0.35
 
@@ -39,8 +49,9 @@ export class InputManager {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
+      if (SWALLOWED.has(e.code)) e.preventDefault()
       if (e.repeat) return
-      if (KEY_VECTORS[e.code] || ATTACK_KEYS.has(e.code)) {
+      if (KEY_VECTORS[e.code] || ATTACK_KEYS.has(e.code) || SPRINT_KEYS.has(e.code)) {
         e.preventDefault()
         this.held.add(e.code)
       }
@@ -76,7 +87,13 @@ export class InputManager {
     })
   }
 
-  private readGamepad(): { mx: number; my: number; aim: number | null; attack: boolean } | null {
+  private readGamepad(): {
+    mx: number
+    my: number
+    aim: number | null
+    attack: boolean
+    sprint: boolean
+  } | null {
     const pads = navigator.getGamepads?.() ?? []
     const pad = pads.find((p) => p !== null)
     if (!pad) return null
@@ -103,7 +120,9 @@ export class InputManager {
     const attack = Boolean(
       pad.buttons[0]?.pressed || pad.buttons[2]?.pressed || pad.buttons[7]?.pressed,
     )
-    return { mx, my, aim, attack }
+    // Gâchette gauche : sous l'index, libre pendant qu'on vise et qu'on frappe.
+    const sprint = Boolean(pad.buttons[6]?.pressed || pad.buttons[4]?.pressed)
+    return { mx, my, aim, attack, sprint }
   }
 
   /**
@@ -114,6 +133,7 @@ export class InputManager {
     let mx = 0
     let my = 0
     let attack = this.mouseDown
+    let sprint = false
 
     for (const code of this.held) {
       const vec = KEY_VECTORS[code]
@@ -122,6 +142,7 @@ export class InputManager {
         my += vec[1]
       }
       if (ATTACK_KEYS.has(code)) attack = true
+      if (SPRINT_KEYS.has(code)) sprint = true
     }
 
     // La souris vise dès qu'elle a bougé au moins une fois.
@@ -137,9 +158,10 @@ export class InputManager {
       }
       if (pad.aim !== null) this.aim = pad.aim
       attack ||= pad.attack
+      sprint ||= pad.sprint
     }
 
-    return { mx, my, aim: this.aim, attack }
+    return { mx, my, aim: this.aim, attack, sprint }
   }
 }
 
@@ -149,6 +171,7 @@ export function sameInput(a: PlayerInput, b: PlayerInput): boolean {
     a.mx === b.mx &&
     a.my === b.my &&
     a.attack === b.attack &&
+    a.sprint === b.sprint &&
     Math.abs(a.aim - b.aim) < 0.02
   )
 }

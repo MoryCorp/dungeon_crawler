@@ -55,6 +55,13 @@ interface Entity {
   attackT: number
   attackDur: number
   attackKind: AttackKind | null
+  /** Orientation retenue du sprite : elle ne revient jamais d'elle-même au
+   * curseur, elle attend qu'un mouvement ou un coup lui donne une raison. */
+  facing: number
+  /** Secondes pendant lesquelles la visée garde la main sur l'orientation. */
+  aimHold: number
+  /** Miroir retenu, pour ne pas basculer sur un mouvement quasi vertical. */
+  flip: 1 | -1
 }
 
 /** Cadavre : l'animation de mort du pack, jouée une fois puis retirée. */
@@ -108,11 +115,23 @@ function attackSeconds(weapon: string | undefined): number {
 
 const CORPSE_FPS = 12
 
+/** Rémanence de la visée sur l'orientation, en secondes. */
+const AIM_HOLD = 1
+/** En deçà, la composante horizontale est trop faible pour changer de profil. */
+const FLIP_DEADZONE = 0.2
+/**
+ * Au-delà de ce rapport |dy|/|dx| on prend la feuille de face ou de dos : c'est
+ * un cône de 30° autour de la verticale, pas la moitié du cercle. Le pack n'a
+ * que trois feuilles, et une diagonale rendue de dos se lit très mal — on tourne
+ * autour d'un monstre bien plus souvent qu'on ne l'aborde plein nord.
+ */
+const VERTICAL_CONE = 1.73
+
 /** Direction de feuille selon la visée. Écran : y croît vers le bas. */
 function dirFromAim(aim: number): Dir {
   const dx = Math.cos(aim)
   const dy = Math.sin(aim)
-  if (Math.abs(dy) > Math.abs(dx)) return dy > 0 ? 'down' : 'up'
+  if (Math.abs(dy) > Math.abs(dx) * VERTICAL_CONE) return dy > 0 ? 'down' : 'up'
   return 'side'
 }
 
@@ -333,6 +352,7 @@ export class Renderer {
       anim, animT: Math.random() * 10,
       speed: 0, moving: false, mvx: 1, mvy: 0,
       attackT: Infinity, attackDur: 1, attackKind: null,
+      facing: view.aim, aimHold: 0, flip: 1,
     }
   }
 
@@ -405,6 +425,20 @@ export class Renderer {
         if (ev.kind === 'player') this.spawnFloater('mort', ev.x, ev.y, 0xe2686d)
         else this.spawnCorpse(ev.species, ev.x, ev.y)
         break
+
+      // La récompense d'un coup bien placé doit se voir, sinon le joueur ne
+      // saura jamais que couper une préparation est une option.
+      case 'stagger': {
+        this.spawnFloater('interrompu !', ev.x, ev.y, 0xbfe3ff)
+        const g = new Graphics()
+        g.circle(0, 0, TILE * 0.6)
+        g.stroke({ color: 0xbfe3ff, width: 2, alpha: 0.9 })
+        g.x = ev.x * TILE
+        g.y = ev.y * TILE
+        this.fxLayer.addChild(g)
+        this.effects.push({ node: g, ttl: 0.25, life: 0.25, vy: 0, grow: 1.6 })
+        break
+      }
 
       case 'downed':
         this.spawnFloater('à terre !', ev.x, ev.y, 0xffd166)
@@ -515,7 +549,7 @@ export class Renderer {
       entity.sprite.zIndex = entity.ry
 
       let dir: Dir = 'side'
-      let facing = view.aim
+      let facing = entity.facing
 
       if (entity.anim) {
         // Vitesse rendue lissée + hystérésis : on n'entre en course qu'au-delà
@@ -541,10 +575,18 @@ export class Renderer {
           entity.anim.attack !== undefined &&
           entity.attackT < entity.attackDur
 
-        // On regarde où l'on frappe, et où l'on va quand on ne frappe pas :
-        // viser à droite en courant vers la gauche donnait une marche à
-        // reculons. Le secteur de frappe, lui, suit toujours la visée.
-        if (!attacking && entity.moving) facing = Math.atan2(entity.mvy, entity.mvx)
+        // Trois règles, dans cet ordre. Au combat on regarde sa cible, et on
+        // continue de la regarder un instant après le coup : sans cette
+        // rémanence, kiter vers la droite en frappant vers la gauche faisait
+        // pivoter le personnage à chaque geste. En déplacement seul, on regarde
+        // où l'on va — viser à droite en courant à gauche donnait une marche à
+        // reculons. À l'arrêt, on ne fait rien : l'orientation reste où elle
+        // était au lieu de revenir se coller au curseur.
+        if (view.winding || view.swinging) entity.aimHold = AIM_HOLD
+        entity.aimHold = Math.max(0, entity.aimHold - dt)
+        if (attacking || entity.aimHold > 0) entity.facing = view.aim
+        else if (entity.moving) entity.facing = Math.atan2(entity.mvy, entity.mvx)
+        facing = entity.facing
         dir = dirFromAim(facing)
 
         let frame: Texture
@@ -568,9 +610,12 @@ export class Renderer {
 
       const scale = view.rank ? (RANK_SCALE[view.rank] ?? 1) : 1
       // Les feuilles de face et de dos ne se retournent pas : seule la vue de
-      // côté a un miroir.
-      const flip = dir === 'side' && Math.cos(facing) < 0 ? -1 : 1
-      entity.sprite.scale.x = flip * scale
+      // côté a un miroir. On ne rebascule que sur une composante horizontale
+      // franche, sinon un déplacement presque vertical fait clignoter le
+      // personnage entre ses deux profils.
+      const cos = Math.cos(facing)
+      if (Math.abs(cos) > FLIP_DEADZONE) entity.flip = cos < 0 ? -1 : 1
+      entity.sprite.scale.x = entity.flip * scale
       entity.sprite.scale.y = scale
       // Un joueur à terre est couché : lisible d'un coup d'œil à travers la pièce.
       entity.sprite.rotation = view.downed ? Math.PI / 2 : 0

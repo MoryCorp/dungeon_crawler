@@ -7,7 +7,13 @@
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createDirector, fromBase64, toBase64, type GameState } from '@dc/engine'
+import {
+  SPRINT_REFILL_DELAY,
+  createDirector,
+  fromBase64,
+  toBase64,
+  type GameState,
+} from '@dc/engine'
 import type { RunRecord } from './telemetry.js'
 
 const DATA_DIR = process.env.DATA_DIR ?? './data'
@@ -33,6 +39,11 @@ const RUNS_DIR = join(DATA_DIR, 'runs')
  * 5 : profils de style et recettes de vagues. La réserve devient un compteur —
  *     une réserve v4 pré-tirée en espèces ne peut plus être livrée par recette,
  *     et un profil absent fausserait la future adaptation : donjon neuf.
+ *
+ * Le sprint et l'interruption des préparations n'ont pas demandé de version :
+ * ils n'ajoutent que des champs optionnels, qu'une valeur par défaut suffit à
+ * reconstituer plus bas. On ne casse une sauvegarde que quand la relire donne
+ * un état faux, jamais quand elle est seulement incomplète.
  */
 const SAVE_VERSION = 5
 
@@ -101,6 +112,13 @@ export async function loadRoom(code: string): Promise<GameState | null> {
       a.swingUntil = 0
       delete a.windupUntil
       delete a.dashUntil
+      // On reprend le souffle plein : personne n'a couru depuis des jours.
+      if (a.kind === 'player') {
+        a.stamina = 1
+        a.sprinting = false
+        a.sprintedAt = state.tick - SPRINT_REFILL_DELAY
+      }
+      delete a.staggerReadyAt
     }
     state.projectiles = []
     state.events = []

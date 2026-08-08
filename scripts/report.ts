@@ -186,6 +186,65 @@ function report(run: RunRecord): void {
     )
   }
 
+  // --- où l'on se tient quand ça tourne mal ----------------------------------
+  //
+  // Le pendant géométrique de la section précédente. « Trois ennemis autour de
+  // moi » ne veut pas dire la même chose selon qu'on peut les contourner ou
+  // non ; la comparaison temps/dégâts le dit sans avoir à le demander.
+  const TERRAINS = ['couloir', 'petite', 'grande'] as const
+  const terrainTotals = {
+    ticks: {} as Record<string, number>,
+    dmg: {} as Record<string, number>,
+    downs: {} as Record<string, number>,
+  }
+  for (const f of run.floors) {
+    for (const t of TERRAINS) {
+      terrainTotals.ticks[t] = (terrainTotals.ticks[t] ?? 0) + (f.terrainTicks?.[t] ?? 0)
+      terrainTotals.dmg[t] = (terrainTotals.dmg[t] ?? 0) + (f.terrainDamage?.[t] ?? 0)
+      terrainTotals.downs[t] = (terrainTotals.downs[t] ?? 0) + (f.terrainDowns?.[t] ?? 0)
+    }
+  }
+  const tickTotal = TERRAINS.reduce((a, t) => a + (terrainTotals.ticks[t] ?? 0), 0)
+  const dmgTotal = TERRAINS.reduce((a, t) => a + (terrainTotals.dmg[t] ?? 0), 0)
+  if (tickTotal > 0) {
+    console.log('\n── Terrain ────────────────────────────────────────────────────')
+    console.log('  Un couloir n\'est pas une salle étroite : c\'est un endroit où l\'on')
+    console.log('  ne contourne personne. Si la part de dégâts y dépasse largement la')
+    console.log('  part de temps, ce n\'est plus de la difficulté, c\'est un piège.\n')
+    console.log('   terrain    temps   dégâts subis   à terre')
+    const LABEL: Record<string, string> = {
+      couloir: 'couloir', petite: 'petite salle', grande: 'grande salle',
+    }
+    for (const t of TERRAINS) {
+      const share = (terrainTotals.ticks[t] ?? 0) / tickTotal
+      const dmgShare = dmgTotal > 0 ? (terrainTotals.dmg[t] ?? 0) / dmgTotal : 0
+      console.log(
+        `   ${LABEL[t]!.padEnd(13)}${(share * 100).toFixed(0).padStart(3)}% ` +
+          `${(dmgShare * 100).toFixed(0).padStart(11)}% ` +
+          `${String(terrainTotals.downs[t] ?? 0).padStart(9)}`,
+      )
+    }
+    const corridorTicks = (terrainTotals.ticks.couloir ?? 0) / tickTotal
+    const corridorDmg = dmgTotal > 0 ? (terrainTotals.dmg.couloir ?? 0) / dmgTotal : 0
+    if (corridorDmg > corridorTicks * 1.8 && corridorDmg > 0.25) {
+      console.log(
+        `\n  → Les couloirs prennent ${(corridorDmg * 100).toFixed(0)} % des dégâts pour ` +
+          `${(corridorTicks * 100).toFixed(0)} % du temps.\n` +
+          '    S\'y faire prendre n\'est pas une erreur qu\'on peut rattraper.',
+      )
+    } else if (corridorTicks > 0) {
+      console.log('\n  → Les dégâts suivent le temps passé : la géométrie ne punit pas seule.')
+    }
+  }
+
+  const staggerTotal = run.floors.reduce(
+    (a, f) => a + Object.values(f.staggers ?? {}).reduce((x, y) => x + y, 0),
+    0,
+  )
+  if (staggerTotal > 0) {
+    console.log(`\n  Préparations interrompues d'un coup bien placé : ${staggerTotal}`)
+  }
+
   // --- le travail de la Directrice -------------------------------------------
   const anyWave = run.floors.some((f) => (f.hordes ?? []).length > 0 || (f.held ?? 0) > 0)
   if (anyWave) {
