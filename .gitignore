@@ -6,11 +6,8 @@ data/
 .env.local
 .DS_Store
 
-# Assets achetés — ne pas committer les packs payants
-apps/client/public/assets/packs/
-
-# Assets Pixel Crawler (payants) : jamais dans un dépôt public — la licence
-# autorise l'usage en jeu, pas la redistribution des fichiers bruts.
+# Sources brutes du pack Pixel Crawler (payant) : les zips et l'arborescence
+# d'origine restent hors dépôt — seules les feuilles normalisées utilisées par
+# le jeu (public/assets/pack/) sont versionnées, dépôt privé oblige.
 assets_src/
 *.zip
-apps/client/public/assets/pack/
