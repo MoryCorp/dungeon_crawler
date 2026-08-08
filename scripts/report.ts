@@ -237,13 +237,18 @@ function report(run: RunRecord): void {
     console.log('  Gain moyen de chaque recette : l\'intensité produite dans les')
     console.log('  secondes qui suivent la vague. Les recettes qui ne produisent')
     console.log('  rien sortiront moins — jamais zéro, l\'exploration continue.\n')
-    for (const [playerId, arms] of Object.entries(learned.bandit)) {
+    for (const [context, arms] of Object.entries(learned.bandit)) {
+      // La clé est contextuelle : joueur:arme. Un carnet par arme portée.
+      const sep = context.lastIndexOf(':')
+      const playerId = sep >= 0 ? context.slice(0, sep) : context
+      const weaponId = sep >= 0 ? context.slice(sep + 1) : ''
       const name = learned.profiles?.[playerId]?.name ?? playerId
+      const label = weaponId ? `${name} (${WEAPONS[weaponId]?.label ?? weaponId})` : name
       const line = Object.entries(arms)
         .sort((a, b) => b[1].mean - a[1].mean)
         .map(([r, a]) => `${r} ${(a.mean * 100).toFixed(0)} % (×${a.n})`)
         .join(' · ')
-      console.log(`  ${name.padEnd(12)} ${line}`)
+      console.log(`  ${label.padEnd(20)} ${line}`)
     }
   }
 

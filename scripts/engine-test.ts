@@ -1263,7 +1263,8 @@ console.log('\nTests engine\n')
     for (const ev of s.events) if (ev.t === 'horde') waves++
     if (waves >= 2 && !s.banditPending) break
   }
-  const arms = s.bandit.p_learn ?? {}
+  // La mémoire est contextuelle : joueur:arme (épée de départ ici).
+  const arms = s.bandit['p_learn:sword'] ?? {}
   const pulls = Object.values(arms).reduce((a, b) => a + b.n, 0)
   check('les vagues inscrivent leur gain', pulls >= 1, `${pulls} tirage(s) inscrits pour ${waves} vague(s)`)
   check(

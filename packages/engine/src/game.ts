@@ -751,7 +751,12 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   // attribuer l'intensité de celle qui arrive.
   settleBandit(state)
 
-  const recipe = pickRecipe((state.bandit[target.id] ??= {}), rng)
+  // La mémoire du bandit est contextuelle : par joueur ET par arme portée.
+  // Ce qui marche contre un joueur à la dague ne dit rien contre le même
+  // joueur à l'arc — changer d'arme ouvre un carnet neuf, que l'UCB remplit
+  // en quelques vagues, sans polluer ni perdre le carnet précédent.
+  const context = `${target.id}:${target.weapon ?? 'sword'}`
+  const recipe = pickRecipe((state.bandit[context] ??= {}), rng)
   const stock = state.pursuers.length + state.reserveCount
   const total = Math.min(stock, Math.max(1, Math.round(count * recipe.sizeMult)))
   if (total <= 0) return
@@ -833,7 +838,7 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
     })
     // La fenêtre s'ouvre : ce que cette vague produit s'inscrira à son levier.
     state.banditPending = {
-      id: target.id,
+      id: context,
       recipe: recipe.name,
       until: state.tick + BANDIT_WINDOW,
       peak: 0,

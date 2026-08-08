@@ -111,9 +111,10 @@ export interface FloorRecord {
   /** Recettes des vagues livrées : combien de fois chacune est sortie. */
   recipes?: Tally
   /**
-   * Ce que le bandit a appris, par joueur : tirages et gain moyen de chaque
-   * recette. Instantané de fin d'étage, comme les profils — le dernier étage
-   * porte l'état le plus à jour.
+   * Ce que le bandit a appris, par contexte `joueur:arme` : tirages et gain
+   * moyen de chaque recette. Un carnet par arme portée — ce qui marche contre
+   * un joueur à la dague ne dit rien contre le même joueur à l'arc.
+   * Instantané de fin d'étage ; le dernier étage porte l'état le plus à jour.
    */
   bandit?: Record<string, Record<string, { n: number; mean: number }>>
   /** Monstres gardés en réserve à l'arrivée sur l'étage : ses munitions. */

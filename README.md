@@ -265,7 +265,9 @@ produisaient l'essentiel du danger.
 Chaque vague suit donc une **recette** parmi six — ruée, clouage (chargeurs au
 contact + archers en couverture), tenaille, mur (posé devant la direction de
 déplacement récente de la cible), tireurs, harcèlement — et la Directrice
-choisit la recette par **bandit manchot**, un levier par recette et par joueur :
+choisit la recette par **bandit manchot**, un levier par recette et par couple
+joueur-arme (changer d'arme ouvre un carnet neuf — ce qui marche contre un
+joueur à la dague ne dit rien contre le même joueur à l'arc) :
 le gain d'une vague est le pic d'intensité produit dans les secondes qui la
 suivent, et les recettes qui marchent sur *ce* joueur sortent plus souvent.
 C'est l'échelle d'apprentissage adaptée à quatre amis — quelques dizaines de
