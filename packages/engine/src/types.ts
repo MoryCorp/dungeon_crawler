@@ -430,6 +430,27 @@ export const RECIPE_FLANK_HALF_ARC = (75 * Math.PI) / 180
  */
 export const RECIPE_FRONT_MIN_SPEED = 0.5
 
+/**
+ * Le bandit : ce que la Directrice retient de chaque recette, par joueur.
+ * `n` tirages, `sum` la somme des gains (intensité produite, entre 0 et 1).
+ */
+export interface BanditArm {
+  n: number
+  sum: number
+}
+export type BanditArms = Record<string, BanditArm>
+
+/** Part des vagues tirées au hasard pur, pour rester imprévisible. */
+export const BANDIT_EXPLORE = 0.2
+/** Poids du bonus d'incertitude UCB : plus haut = plus curieuse. */
+export const BANDIT_UCB_C = 0.6
+/**
+ * Fenêtre d'observation après une vague : le pic d'intensité atteint pendant
+ * ces secondes est le gain de la recette. Assez long pour que la vague arrive
+ * au contact, assez court pour ne pas lui attribuer le combat suivant.
+ */
+export const BANDIT_WINDOW = ticks(8)
+
 // --- Monstres ---------------------------------------------------------------
 
 /**
@@ -699,6 +720,10 @@ export interface GameState {
   director: DirectorState
   /** Profil de style de chaque joueur, cumulé sur toute la partie. */
   profiles: Record<string, PlayerProfile>
+  /** Mémoire du bandit : par joueur ciblé, ce que chaque recette a rapporté. */
+  bandit: Record<string, BanditArms>
+  /** Vague en cours d'évaluation : son gain s'inscrit à la fin de la fenêtre. */
+  banditPending?: { id: string; recipe: string; until: number; peak: number }
   /** Monstres tués sur l'étage courant — le dénominateur de la patience. */
   floorKills: number
   events: GameEvent[]

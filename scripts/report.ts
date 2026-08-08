@@ -230,6 +230,23 @@ function report(run: RunRecord): void {
     }
   }
 
+  // --- ce que le bandit a appris ---------------------------------------------
+  const learned = [...run.floors].reverse().find((f) => f.bandit && Object.keys(f.bandit).length)
+  if (learned?.bandit) {
+    console.log('\n── Ce que la Directrice a appris ──────────────────────────────')
+    console.log('  Gain moyen de chaque recette : l\'intensité produite dans les')
+    console.log('  secondes qui suivent la vague. Les recettes qui ne produisent')
+    console.log('  rien sortiront moins — jamais zéro, l\'exploration continue.\n')
+    for (const [playerId, arms] of Object.entries(learned.bandit)) {
+      const name = learned.profiles?.[playerId]?.name ?? playerId
+      const line = Object.entries(arms)
+        .sort((a, b) => b[1].mean - a[1].mean)
+        .map(([r, a]) => `${r} ${(a.mean * 100).toFixed(0)} % (×${a.n})`)
+        .join(' · ')
+      console.log(`  ${name.padEnd(12)} ${line}`)
+    }
+  }
+
   // --- les profils de style --------------------------------------------------
   // Le profil est cumulatif : celui du dernier étage qui en porte est le bon.
   const profiled = [...run.floors].reverse().find((f) => f.profiles && Object.keys(f.profiles).length)

@@ -254,6 +254,35 @@ Premier relevé après coup : effectif médian **1.3 → 2.0**, tête-à-tête
 **57 % → 39 %**, 5.7 vagues par étage. Et le bot qui fonçait vers la sortie en
 ignorant tout, qui atteignait l'étage 12, meurt maintenant au troisième.
 
+### Elle apprend : le bandit
+
+La mesure suivante (partie TEST5) a montré que toutes les vagues ne se valent
+pas contre un joueur donné : sur un profil mobile au corps à corps, les vagues
+de mêlée et d'essaim faisaient **0.1 dégât par monstre** — la moitié des
+munitions partait en vagues invisibles — pendant que chargeurs et archers
+produisaient l'essentiel du danger.
+
+Chaque vague suit donc une **recette** parmi six — ruée, clouage (chargeurs au
+contact + archers en couverture), tenaille, mur (posé devant la direction de
+déplacement récente de la cible), tireurs, harcèlement — et la Directrice
+choisit la recette par **bandit manchot**, un levier par recette et par joueur :
+le gain d'une vague est le pic d'intensité produit dans les secondes qui la
+suivent, et les recettes qui marchent sur *ce* joueur sortent plus souvent.
+C'est l'échelle d'apprentissage adaptée à quatre amis — quelques dizaines de
+vagues suffisent, là où du deep learning en voudrait des centaines de milliers.
+
+Trois garde-fous : aucune recette ne meurt (20 % des vagues restent tirées au
+hasard pur — l'imprévisibilité est une composante de la difficulté, et un
+joueur qui change de style est re-détecté) ; le bandit choisit une forme, jamais
+des statistiques — TTK et K restent hors de sa portée ; et tout est mesuré dans
+le relevé, gain moyen par recette et par joueur, pour vérifier qu'il apprend
+juste au lieu de le croire.
+
+La matière première est le **profil de style** que l'engine cumule par joueur —
+portée des coups, mobilité en combat, encombrement toléré, cohésion d'équipe,
+patience — cinq mesures qui distinguent déjà un joueur qui nettoie (patience
+80 %) d'un joueur qui fonce (29 %), affichées dans le rapport.
+
 ## Mesurer au lieu de deviner
 
 Régler une difficulté au ressenti, c'est régler pour la seule personne qui a

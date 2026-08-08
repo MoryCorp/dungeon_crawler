@@ -9,7 +9,8 @@
 import { buildFlowField, decideMonsterAction } from './ai.js'
 import { createDirector, updateDirector } from './director.js'
 import { profileOf } from './profile.js'
-import { RECIPES, planWave, type Placement } from './recipes.js'
+import { pickRecipe, recordReward } from './bandit.js'
+import { planWave, type Placement } from './recipes.js'
 import { computeFov } from './fov.js'
 import { generateFloor, type Rect } from './mapgen.js'
 import { inAttackArc, moveWithCollision, separateActors, solidAt, unstick } from './physics.js'
@@ -27,6 +28,7 @@ import {
   ACTOR_RADIUS,
   AGGRO_MAX_DIST,
   AGGRO_MEMORY,
+  BANDIT_WINDOW,
   ATTACK_SWING,
   BLEED_OUT_TICKS,
   BOSS_ATK_MULT,
@@ -366,6 +368,7 @@ export function createGame(seed: number, floor = 1): GameState {
     reserveCount: 0,
     director: createDirector(0),
     profiles: {},
+    bandit: {},
     floorKills: 0,
     events: [],
   }
@@ -392,6 +395,14 @@ export function descend(state: GameState): void {
     prof.floorsSeen += 1
   }
   state.floorKills = 0
+
+  // La vague en cours d'évaluation disparaît avec l'étage : on solde son
+  // levier avec ce qu'elle a produit jusqu'ici.
+  const pendingWave = state.banditPending
+  if (pendingWave) {
+    recordReward((state.bandit[pendingWave.id] ??= {}), pendingWave.recipe, pendingWave.peak)
+    delete state.banditPending
+  }
 
   state.floor += 1
   const layout = generateFloor(rng, state.floor)
@@ -584,6 +595,19 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
     downed,
     available,
   })
+
+  // Fenêtre d'évaluation de la dernière vague : son gain est le pic
+  // d'intensité atteint depuis la livraison. À l'échéance, il s'inscrit au
+  // levier de la recette — c'est comme ça que la Directrice apprend.
+  const pending = state.banditPending
+  if (pending) {
+    pending.peak = Math.max(pending.peak, state.director.intensity)
+    if (state.tick >= pending.until) {
+      recordReward((state.bandit[pending.id] ??= {}), pending.recipe, pending.peak)
+      delete state.banditPending
+    }
+  }
+
   if (wanted > 0) deliverHorde(state, wanted, visible, rng)
 }
 
@@ -705,17 +729,26 @@ function placementOpts(
  * revient en groupe, au moment où on ne s'y attend pas.
  */
 function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng: Rng): void {
-  const recipe = RECIPES[rng.int(RECIPES.length)]!
-  const stock = state.pursuers.length + state.reserveCount
-  const total = Math.min(stock, Math.max(1, Math.round(count * recipe.sizeMult)))
-  if (total <= 0) return
-
   let target: Actor | null = null
   for (const a of Object.values(state.actors)) {
     if (a.kind !== 'player' || !a.alive || a.downed || a.maxHp <= 0) continue
     if (!target || a.hp / a.maxHp > target.hp / target.maxHp) target = a
   }
   if (!target) return
+
+  // Une vague part avant la fin de la fenêtre de la précédente : on solde la
+  // précédente avec le pic observé jusqu'ici plutôt que de lui attribuer
+  // l'intensité de celle qui arrive.
+  const pending = state.banditPending
+  if (pending) {
+    recordReward((state.bandit[pending.id] ??= {}), pending.recipe, pending.peak)
+    delete state.banditPending
+  }
+
+  const recipe = pickRecipe((state.bandit[target.id] ??= {}), rng)
+  const stock = state.pursuers.length + state.reserveCount
+  const total = Math.min(stock, Math.max(1, Math.round(count * recipe.sizeMult)))
+  if (total <= 0) return
 
   const owed = new Map<string, number>()
   for (const p of state.pursuers) {
@@ -792,6 +825,13 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
       y: eventAnchor.y,
       recipe: recipe.name,
     })
+    // La fenêtre s'ouvre : ce que cette vague produit s'inscrira à son levier.
+    state.banditPending = {
+      id: target.id,
+      recipe: recipe.name,
+      until: state.tick + BANDIT_WINDOW,
+      peak: 0,
+    }
   }
 }
 

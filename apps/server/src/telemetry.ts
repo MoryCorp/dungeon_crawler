@@ -110,6 +110,12 @@ export interface FloorRecord {
   hordes: number[]
   /** Recettes des vagues livrées : combien de fois chacune est sortie. */
   recipes?: Tally
+  /**
+   * Ce que le bandit a appris, par joueur : tirages et gain moyen de chaque
+   * recette. Instantané de fin d'étage, comme les profils — le dernier étage
+   * porte l'état le plus à jour.
+   */
+  bandit?: Record<string, Record<string, { n: number; mean: number }>>
   /** Monstres gardés en réserve à l'arrivée sur l'étage : ses munitions. */
   held: number
 
@@ -308,6 +314,17 @@ export class RunTelemetry {
       }
     }
     if (Object.keys(profiles).length > 0) this.current.profiles = profiles
+
+    // Même principe pour la mémoire du bandit : instantané de fin d'étage.
+    const bandit: NonNullable<FloorRecord['bandit']> = {}
+    for (const [playerId, arms] of Object.entries(state.bandit ?? {})) {
+      const out: Record<string, { n: number; mean: number }> = {}
+      for (const [recipe, arm] of Object.entries(arms)) {
+        if (arm.n > 0) out[recipe] = { n: arm.n, mean: arm.sum / arm.n }
+      }
+      if (Object.keys(out).length > 0) bandit[playerId] = out
+    }
+    if (Object.keys(bandit).length > 0) this.current.bandit = bandit
   }
 
   private record(state: GameState, ev: GameEvent): void {

@@ -107,6 +107,10 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     state.pursuers ??= []
     state.reserveCount ??= 0
     state.profiles ??= {}
+    state.bandit ??= {}
+    // Une fenêtre d'évaluation en cours au moment de l'arrêt ne veut plus rien
+    // dire au rechargement : la vague qu'elle mesurait n'existe plus.
+    delete state.banditPending
     state.floorKills ??= 0
     // La Directrice repart d'une ardoise propre : son intensité mesure ce que le
     // joueur vient de vivre, et il ne vient de rien vivre du tout. Recharger un

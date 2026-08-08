@@ -23,12 +23,15 @@ import {
   HORDE_MIN,
   PURSUE_MAX,
   createDirector,
+  pickRecipe,
   profileStats,
+  recordReward,
   planWave,
   resolveBehavior,
   splitShares,
   updateDirector,
   RECIPES,
+  type BanditArms,
   type Behavior,
   type RecipeName,
   REVIVE_TICKS,
@@ -1203,6 +1206,70 @@ console.log('\nTests engine\n')
   }
   check('les vagues portent leur recette', seen.length >= 2, `${seen.length} vague(s) : ${seen.join(', ')}`)
   check('toutes les recettes sont valides', allValid)
+}
+
+// --- le bandit ---------------------------------------------------------------
+// La Directrice apprend : les recettes qui produisent de l'intensité sortent
+// plus, celles qui ne font rien sortent moins — mais jamais zéro.
+{
+  // Politique pure : toutes les recettes sont essayées avant qu'aucune ne soit
+  // répétée (le bénéfice du doute de l'UCB).
+  const arms: BanditArms = {}
+  const rng = new Rng(1)
+  const firstRound = new Set<string>()
+  for (let i = 0; i < RECIPES.length; i++) {
+    // rng biaisé hors exploration : on force le chemin UCB en rejouant tant que
+    // le tirage tombe dans la part d'exploration.
+    let r = pickRecipe(arms, rng)
+    for (let guard = 0; firstRound.has(r.name) && guard < 50; guard++) r = pickRecipe(arms, rng)
+    firstRound.add(r.name)
+    recordReward(arms, r.name, 0.5)
+  }
+  check('toutes les recettes sont essayées d\'abord', firstRound.size === RECIPES.length, `${firstRound.size}/${RECIPES.length}`)
+
+  // Un levier qui paie sort plus souvent qu'un levier mort.
+  const arms2: BanditArms = {}
+  for (const r of RECIPES) recordReward(arms2, r.name, r.name === 'clouage' ? 0.9 : 0.05)
+  const counts: Record<string, number> = {}
+  const rng2 = new Rng(2)
+  for (let i = 0; i < 300; i++) {
+    const picked = pickRecipe(arms2, rng2)
+    counts[picked.name] = (counts[picked.name] ?? 0) + 1
+    recordReward(arms2, picked.name, picked.name === 'clouage' ? 0.9 : 0.05)
+  }
+  const winner = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]!
+  check('la recette qui marche domine', winner[0] === 'clouage' && winner[1] > 150, `${winner[0]} ×${winner[1]}`)
+  check(
+    'mais aucune recette ne meurt',
+    RECIPES.every((r) => (counts[r.name] ?? 0) > 0),
+    RECIPES.map((r) => `${r.name} ×${counts[r.name] ?? 0}`).join(', '),
+  )
+}
+
+{
+  // Intégration : après une vague, la fenêtre se referme et le levier de la
+  // recette porte un gain.
+  const s = createGame(8801, 6)
+  const hero = addPlayer(s, 'p_learn', 'Élève')
+  clearMonsters(s)
+  hero.maxHp = 9000
+  hero.hp = 9000
+  s.reserveCount = 30
+  s.director = createDirector(s.tick)
+
+  let waves = 0
+  for (let i = 0; i < TICK_RATE * 240; i++) {
+    step(s, noInputs)
+    for (const ev of s.events) if (ev.t === 'horde') waves++
+    if (waves >= 2 && !s.banditPending) break
+  }
+  const arms = s.bandit.p_learn ?? {}
+  const pulls = Object.values(arms).reduce((a, b) => a + b.n, 0)
+  check('les vagues inscrivent leur gain', pulls >= 1, `${pulls} tirage(s) inscrits pour ${waves} vague(s)`)
+  check(
+    'les gains restent dans [0, 1]',
+    Object.values(arms).every((a) => a.sum >= 0 && a.sum <= a.n),
+  )
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)
