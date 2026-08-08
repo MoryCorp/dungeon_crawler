@@ -87,6 +87,43 @@ function report(run: RunRecord): void {
   }
 
   // --- les invariants du modèle de puissance ---------------------------------
+  // --- l'usure sur toute la descente -----------------------------------------
+  //
+  // Les PV au plus bas et le temps en danger décrivent chacun un étage isolé.
+  // Les PV d'entrée sont la seule mesure qui traverse la partie : si elle reste
+  // plate, la barre de vie n'est pas une ressource, c'est un stock qu'on
+  // rappelle à volonté entre deux escaliers.
+  const entries = run.floors
+    .map((f) => ({ floor: f.floor, hp: f.entryHpRatio }))
+    .filter((e): e is { floor: number; hp: number } => e.hp !== undefined)
+  if (entries.length >= 2) {
+    console.log('\n── Usure ──────────────────────────────────────────────────────')
+    console.log('  PV en franchissant chaque escalier, avant que l\'étage ait coûté')
+    console.log('  quoi que ce soit. C\'est la courbe qui dit si on descend ou si on')
+    console.log('  enchaîne des étages indépendants.\n')
+    for (const e of entries) {
+      const bar = '█'.repeat(Math.round(e.hp * 16)).padEnd(16, '·')
+      console.log(`   étage ${String(e.floor).padStart(2)}  ${bar} ${(e.hp * 100).toFixed(0).padStart(4)}%`)
+    }
+    const first = entries[0]!.hp
+    const last = entries[entries.length - 1]!.hp
+    const full = entries.filter((e) => e.hp > 0.97).length
+    console.log(
+      `\n  ${full} étage(s) sur ${entries.length} abordé(s) à pleine vie · ` +
+        `${(first * 100).toFixed(0)} % au départ, ${(last * 100).toFixed(0)} % à l'arrivée`,
+    )
+    console.log(
+      full >= entries.length - 1
+        ? '  → La barre se refait entièrement entre deux étages : rien ne s\'use,\n' +
+            '    et la mort ne peut arriver que par pic, jamais par épuisement.'
+        : last < first - 0.15
+          ? '  → L\'usure est réelle : la descente coûte quelque chose qui ne se\n' +
+              '    récupère pas sur place.'
+          : '  → L\'usure existe mais reste faible : la descente se rejoue presque\n' +
+              '    à neuf à chaque étage.',
+    )
+  }
+
   console.log('\n── Invariants ─────────────────────────────────────────────────')
   console.log('  TTK : coups qui touchent × cadence, pour tuer un monstre.')
   console.log('        Comparable à la cible. Ne compte pas les coups dans le vide.')

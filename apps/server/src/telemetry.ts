@@ -67,6 +67,16 @@ export interface FloorRecord {
   levelOut: number
   /** PV les plus bas atteints par un joueur, en fraction de ses PV max. */
   lowestHpRatio: number
+  /**
+   * PV du joueur le mieux portant en arrivant sur l'étage, en fraction du max.
+   *
+   * C'est la courbe qui dit si une descente est une descente ou une suite
+   * d'étages indépendants. Le plus bas atteint et le temps en danger décrivent
+   * chacun un étage isolé ; celle-ci est la seule mesure qui traverse la
+   * partie. Tant qu'elle reste plate à 100 %, la barre de vie n'est pas une
+   * ressource, c'est un stock qu'on rappelle à volonté entre deux escaliers.
+   */
+  entryHpRatio?: number
   /** Fraction du temps passée avec au moins un joueur sous 35 % de PV. */
   dangerRatio: number
   pickups: Tally
@@ -330,6 +340,17 @@ export class RunTelemetry {
         (a) => a.kind === 'monster',
       ).length
       this.current.held = state.reserveCount ?? 0
+      // Relevé au même moment que le recensement : c'est l'état de l'équipe en
+      // franchissant l'escalier, avant que l'étage ait pu lui coûter quoi que
+      // ce soit. On prend le mieux portant, cohérent avec `poolHp`.
+      let best = 0
+      let any = false
+      for (const a of Object.values(state.actors)) {
+        if (a.kind !== 'player' || a.maxHp <= 0) continue
+        any = true
+        best = Math.max(best, a.hp / a.maxHp)
+      }
+      if (any) this.current.entryHpRatio = Math.round(best * 1000) / 1000
     }
 
     const monsters = Object.values(state.actors).filter((a) => a.kind === 'monster' && a.alive)
