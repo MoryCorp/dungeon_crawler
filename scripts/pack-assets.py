@@ -12,10 +12,16 @@ Conventions produites :
   crush} et dir ∈ {down, side, up} — le personnage est le Chasseur du pack
   Cemetery, seul personnage habillé disposant des trois attaques.
 
-Toutes les feuilles sont des cadres carrés (côté = hauteur), animés de
-gauche à droite : le client les découpe sans métadonnées.
+Les cadres s'animent de gauche à droite, mais **ils ne sont pas toujours
+carrés** : les animations de mort où le corps s'effondre en travers (squelette,
+orc guerrier) sont plus larges que hautes. Deviner le découpage sur la hauteur
+émiettait ces animations en morceaux pris à cheval sur deux cadres. Le nombre
+de cadres est donc mesuré ici, une fois, et écrit dans `manifest.json` que le
+client lit — il ne devine plus rien.
 """
+import json
 import shutil
+import statistics
 import sys
 from pathlib import Path
 
@@ -52,6 +58,20 @@ HERO = {
     'crush': ('Attack_03_Base', 'Crush'),
 }
 DIRS = {'down': 'Down', 'side': 'Side', 'up': 'Up'}
+
+CASTLE = SRC / 'Castle_Environment' / 'Pixel Crawler - Castle Environment 0.3'
+
+# Arme du jeu → case (colonne, ligne, largeur, hauteur) dans l'arsenal du pack
+# Castle, en cases de 16 px. C'est l'acier du Chasseur : l'objet au sol et
+# l'objet en main doivent être le même, sinon ramasser une arme désoriente.
+WEAPON_ICONS = {
+    'sword': (2, 2, 1, 2),
+    'dagger': (3, 3, 1, 1),
+    'axe': (7, 2, 1, 2),
+    'spear': (4, 4, 1, 2),
+    'bow': (11, 4, 2, 2),
+}
+ICON_CELL = 16
 
 
 def copy(src: Path, name: str) -> None:
@@ -103,6 +123,67 @@ def align_walkers() -> None:
             shift_down(f'hero_{anim}_{d}.png', gap)
 
 
+def frame_count(sheet: Image.Image) -> int:
+    """Combien de cadres dans cette feuille ?
+
+    On repère les colonnes entièrement transparentes : elles séparent les
+    cadres. Le pas entre deux blocs de contenu donne la largeur d'un cadre, à
+    ceci près qu'un cadre où la pose déborde peut coller à son voisin — on
+    ramène donc le pas mesuré au diviseur le plus proche de la largeur totale,
+    puisqu'un découpage doit tomber juste. Sans bloc exploitable, on retombe
+    sur la convention carrée du pack.
+    """
+    w, h = sheet.size
+    px = sheet.load()
+    filled = [any(px[x, y][3] > 10 for y in range(h)) for x in range(w)]
+
+    centers: list[float] = []
+    start = None
+    for x, on in enumerate(filled):
+        if on and start is None:
+            start = x
+        elif not on and start is not None:
+            centers.append((start + x - 1) / 2)
+            start = None
+    if start is not None:
+        centers.append((start + w - 1) / 2)
+
+    if len(centers) < 2:
+        return max(1, w // h)
+
+    pitch = statistics.median(centers[i + 1] - centers[i] for i in range(len(centers) - 1))
+    divisors = [d for d in range(8, w + 1) if w % d == 0]
+    return w // min(divisors, key=lambda d: abs(d - pitch))
+
+
+def write_manifest() -> None:
+    counts = {
+        path.stem: frame_count(Image.open(path).convert('RGBA'))
+        for path in sorted(DST.glob('*.png'))
+        if path.stem != 'tiles' and not path.stem.startswith('weapon_')
+    }
+    (DST / 'manifest.json').write_text(json.dumps(counts, indent=2, sort_keys=True) + '\n')
+    odd = {n: c for n, c in counts.items() if c != Image.open(DST / f'{n}.png').width // Image.open(DST / f'{n}.png').height}
+    print(f'manifest.json : {len(counts)} feuilles, {len(odd)} au découpage non carré {sorted(odd)}')
+
+
+def cut_weapons() -> None:
+    """Découpe l'arsenal en icônes, une par arme, rognées au contenu."""
+    sheet = Image.open(CASTLE / 'Weapons' / 'Weapons.png').convert('RGBA')
+    for weapon, (cx, cy, cw, ch) in WEAPON_ICONS.items():
+        icon = sheet.crop((
+            cx * ICON_CELL,
+            cy * ICON_CELL,
+            (cx + cw) * ICON_CELL,
+            (cy + ch) * ICON_CELL,
+        ))
+        bbox = icon.getbbox()
+        if bbox:
+            icon = icon.crop(bbox)
+        icon.save(DST / f'weapon_{weapon}.png')
+        print(f'weapon_{weapon}.png : {icon.width}x{icon.height}')
+
+
 def main() -> None:
     if DST.exists():
         shutil.rmtree(DST)
@@ -127,6 +208,8 @@ def main() -> None:
             copy(base, f'hero_{anim}_{d}.png')
 
     align_walkers()
+    cut_weapons()
+    write_manifest()
 
 
 if __name__ == '__main__':

@@ -6,13 +6,18 @@
  * jouable partout, juste moins beau. La correspondance espèce → fichiers est
  * produite par `scripts/pack-assets.py`, seule vérité sur le contenu du pack.
  *
- * Convention des feuilles : cadres carrés, côté = hauteur de l'image, animation
- * de gauche à droite. Les cadres d'une même espèce changent de taille selon
- * l'animation (idle 32 px, course 64 px chez les mobs) mais **les pieds
- * touchent toujours le bord bas du cadre** : c'est l'invariant d'alignement.
- * Le rendu ancre donc les personnages aux pieds — jamais au centre, sinon le
- * corps saute de plusieurs pixels à chaque changement d'animation.
- * Exception : la chauve-souris vole, ses cadres sont centrés.
+ * Les cadres s'enchaînent de gauche à droite, mais leur largeur ne se devine
+ * pas : les animations de mort où le corps s'effondre en travers sont plus
+ * larges que hautes. Le nombre de cadres vient de `manifest.json`, mesuré à la
+ * copie ; sans lui, rien n'est chargé — un découpage faux vaut moins que le
+ * repli procédural.
+ *
+ * Les cadres d'une même espèce changent de taille selon l'animation (idle
+ * 32 px, course 64 px chez les mobs) mais **les pieds touchent toujours le bord
+ * bas du cadre** : c'est l'invariant d'alignement. Le rendu ancre donc les
+ * personnages aux pieds — jamais au centre, sinon le corps saute de plusieurs
+ * pixels à chaque changement d'animation. Exception : la chauve-souris vole,
+ * ses cadres sont centrés.
  */
 import { Assets, Rectangle, Texture } from 'pixi.js'
 import { Tile, isWalkable } from '@dc/engine'
@@ -55,26 +60,35 @@ const MOBS = [
 const DIRS: Dir[] = ['down', 'side', 'up']
 const ATTACKS: AttackKind[] = ['slice', 'pierce', 'crush']
 
-/** Arme du joueur → geste du héros. L'arc n'a pas de geste : la flèche qui
- * part est déjà toute la lisibilité nécessaire. */
+/**
+ * Arme du joueur → geste du héros.
+ *
+ * Le geste n'est joué que si l'objet dessiné dans la main **est** l'arme
+ * ramassée : le Chasseur tient une épée dans son estoc et un couperet dans sa
+ * taille, rien d'autre. Dague, lance et arc gardent la posture neutre et leur
+ * secteur de frappe — mieux vaut aucune arme en main qu'une autre arme en
+ * main, qui ferait douter de ce qu'on a ramassé.
+ */
 export const WEAPON_ATTACK: Record<string, AttackKind> = {
-  sword: 'slice',
-  axe: 'crush',
-  dagger: 'pierce',
-  spear: 'pierce',
+  sword: 'pierce',
+  axe: 'slice',
 }
 
 const sets = new Map<string, AnimSet>()
+const items = new Map<string, Texture>()
 let tileSheet: HTMLImageElement | null = null
 let ready = false
 
-function slice(sheet: Texture): Texture[] {
-  const side = sheet.height
-  const count = Math.max(1, Math.floor(sheet.width / side))
+/** Nombre de cadres par feuille, mesuré à la copie. */
+let manifest: Record<string, number> = {}
+
+function slice(name: string, sheet: Texture): Texture[] {
+  const count = Math.max(1, manifest[name] ?? Math.floor(sheet.width / sheet.height))
+  const w = Math.floor(sheet.width / count)
   const frames: Texture[] = []
   for (let i = 0; i < count; i++) {
     frames.push(
-      new Texture({ source: sheet.source, frame: new Rectangle(i * side, 0, side, side) }),
+      new Texture({ source: sheet.source, frame: new Rectangle(i * w, 0, w, sheet.height) }),
     )
   }
   return frames
@@ -83,7 +97,7 @@ function slice(sheet: Texture): Texture[] {
 async function sheet(name: string): Promise<Texture[]> {
   const tex = await Assets.load<Texture>(`${BASE}${name}.png`)
   tex.source.scaleMode = 'nearest'
-  return slice(tex)
+  return slice(name, tex)
 }
 
 const allDirs = (frames: Texture[]): Record<Dir, Texture[]> => ({
@@ -104,6 +118,10 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 /** Charge toutes les feuilles. Rend false si le pack n'est pas là — sans bruit. */
 export async function loadPack(): Promise<boolean> {
   try {
+    const res = await fetch(`${BASE}manifest.json`)
+    if (!res.ok) throw new Error(`manifest ${res.status}`)
+    manifest = (await res.json()) as Record<string, number>
+
     tileSheet = await loadImage(`${BASE}tiles.png`)
     for (const sp of MOBS) {
       const [idle, run, death] = await Promise.all([
@@ -131,12 +149,19 @@ export async function loadPack(): Promise<boolean> {
     }
     sets.set('hero', hero)
 
+    for (const weapon of Object.keys(WEAPON_ICONS)) {
+      const tex = await Assets.load<Texture>(`${BASE}weapon_${weapon}.png`)
+      tex.source.scaleMode = 'nearest'
+      items.set(weapon, tex)
+    }
+
     ready = true
     return true
   } catch (err) {
     // Repli silencieux pour le joueur, mais traçable pour le développeur.
     console.warn('pack de sprites indisponible, atlas procédural utilisé', err)
     sets.clear()
+    items.clear()
     tileSheet = null
     return false
   }
@@ -145,6 +170,21 @@ export async function loadPack(): Promise<boolean> {
 export function packAnim(species: string, isPlayer: boolean): AnimSet | null {
   if (!ready) return null
   return sets.get(isPlayer ? 'hero' : species) ?? null
+}
+
+/** Armes dont le pack fournit l'icône au sol. */
+const WEAPON_ICONS: Record<string, true> = {
+  sword: true,
+  dagger: true,
+  axe: true,
+  spear: true,
+  bow: true,
+}
+
+/** L'arme posée au sol, dans le même acier que celle qu'on aura en main. */
+export function packItemTexture(weapon: string | undefined): Texture | null {
+  if (!ready || !weapon) return null
+  return items.get(weapon) ?? null
 }
 
 // --- Tuiles du donjon ---------------------------------------------------------

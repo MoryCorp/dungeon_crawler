@@ -7,10 +7,11 @@
  */
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { ActorView, GameEvent, ItemView, ProjectileView } from '@dc/engine'
-import { MONSTERS, MONSTER_HALF_ARC } from '@dc/engine'
+import { MONSTERS, MONSTER_HALF_ARC, TICK_RATE, WEAPONS } from '@dc/engine'
 import {
   WEAPON_ATTACK,
   packAnim,
+  packItemTexture,
   paintPackTile,
   type AnimSet,
   type AttackKind,
@@ -46,6 +47,10 @@ interface Entity {
    * frame — le glitch de jambes qui se superposent. */
   speed: number
   moving: boolean
+  /** Direction de déplacement lissée : c'est elle qui oriente le sprite en
+   * course, pas la visée — sinon on marche à reculons. */
+  mvx: number
+  mvy: number
   /** Geste d'attaque en cours : temps écoulé et durée d'une passe. */
   attackT: number
   attackDur: number
@@ -91,8 +96,15 @@ const RANK_SCALE: Record<string, number> = { elite: 1.35, boss: 1.9 }
  */
 const FEET_OFFSET = 5
 
-/** Durée d'une passe du geste, calée sur le rythme réel de chaque arme. */
-const ATTACK_SECONDS: Record<AttackKind, number> = { slice: 0.28, pierce: 0.16, crush: 0.5 }
+/**
+ * Le geste dure exactement la fenêtre de frappe de l'arme : ce qu'on voit à
+ * l'écran et ce qui est en train de blesser sont la même chose. L'estoc de
+ * l'épée est bref, la taille de la hache s'étire — c'est déjà l'identité des
+ * armes, il n'y avait pas de raison de la réinventer côté client.
+ */
+function attackSeconds(weapon: string | undefined): number {
+  return (WEAPONS[weapon ?? '']?.swing ?? 6) / TICK_RATE
+}
 
 const CORPSE_FPS = 12
 
@@ -233,7 +245,8 @@ export class Renderer {
     }
 
     this.syncMovers(this.items, items, this.itemLayer, (item) => {
-      const sprite = new Sprite(makeItemTexture(item.kind, item.weapon))
+      const packed = item.kind === 'weapon' ? packItemTexture(item.weapon) : null
+      const sprite = new Sprite(packed ?? makeItemTexture(item.kind, item.weapon))
       sprite.anchor.set(0.5, 0.5)
       return sprite
     })
@@ -318,7 +331,7 @@ export class Renderer {
       sprite, shadow, hpBg, hpFill, telegraph,
       rx: view.x, ry: view.y, view, telegraphKey: '',
       anim, animT: Math.random() * 10,
-      speed: 0, moving: false,
+      speed: 0, moving: false, mvx: 1, mvy: 0,
       attackT: Infinity, attackDur: 1, attackKind: null,
     }
   }
@@ -358,7 +371,7 @@ export class Renderer {
           if (kind) {
             entity.attackKind = kind
             entity.attackT = 0
-            entity.attackDur = ATTACK_SECONDS[kind]
+            entity.attackDur = attackSeconds(entity.view.weapon)
             animated = true
           }
         }
@@ -501,24 +514,40 @@ export class Renderer {
       entity.sprite.y = py + (entity.anim?.grounded ? FEET_OFFSET : 0)
       entity.sprite.zIndex = entity.ry
 
-      const dir = entity.anim ? dirFromAim(view.aim) : 'side'
+      let dir: Dir = 'side'
+      let facing = view.aim
 
       if (entity.anim) {
         // Vitesse rendue lissée + hystérésis : on n'entre en course qu'au-delà
         // de 1.4 t/s et on n'en sort que sous 0.7 — un pas au seuil ne fait
         // plus clignoter les jambes entre deux animations.
-        const step = Math.hypot(px - wasX, py - wasY)
-        const inst = dt > 0 && step < TILE * 2 ? step / TILE / dt : 0
+        const dx = px - wasX
+        const dy = py - wasY
+        const step = Math.hypot(dx, dy)
+        const teleported = step > TILE * 2
+        const inst = dt > 0 && !teleported ? step / TILE / dt : 0
         entity.speed += (Math.min(inst, 15) - entity.speed) * Math.min(1, dt * 14)
         entity.moving = view.alive && entity.speed > (entity.moving ? 0.7 : 1.4)
+        if (step > 0.05 && !teleported) {
+          const k2 = Math.min(1, dt * 12)
+          entity.mvx += (dx / step - entity.mvx) * k2
+          entity.mvy += (dy / step - entity.mvy) * k2
+        }
 
         entity.animT += dt
         entity.attackT += dt
-        let frame: Texture
         const attacking =
           entity.attackKind !== null &&
           entity.anim.attack !== undefined &&
           entity.attackT < entity.attackDur
+
+        // On regarde où l'on frappe, et où l'on va quand on ne frappe pas :
+        // viser à droite en courant vers la gauche donnait une marche à
+        // reculons. Le secteur de frappe, lui, suit toujours la visée.
+        if (!attacking && entity.moving) facing = Math.atan2(entity.mvy, entity.mvx)
+        dir = dirFromAim(facing)
+
+        let frame: Texture
         if (attacking) {
           // Une passe complète du geste sur la durée du coup, sans boucler.
           const frames = entity.anim.attack![entity.attackKind!][dir]
@@ -538,10 +567,9 @@ export class Renderer {
       entity.shadow.visible = entity.anim !== null && view.alive
 
       const scale = view.rank ? (RANK_SCALE[view.rank] ?? 1) : 1
-      // On retourne le sprite selon la visée plutôt que selon le déplacement :
-      // le personnage regarde sa cible même en reculant. Les feuilles de face
-      // et de dos, elles, ne se retournent pas.
-      const flip = dir === 'side' && Math.cos(view.aim) < 0 ? -1 : 1
+      // Les feuilles de face et de dos ne se retournent pas : seule la vue de
+      // côté a un miroir.
+      const flip = dir === 'side' && Math.cos(facing) < 0 ? -1 : 1
       entity.sprite.scale.x = flip * scale
       entity.sprite.scale.y = scale
       // Un joueur à terre est couché : lisible d'un coup d'œil à travers la pièce.
