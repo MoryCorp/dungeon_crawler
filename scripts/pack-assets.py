@@ -117,6 +117,8 @@ def main() -> None:
     copy(BAT / 'Move' / 'Move_Side-Sheet.png', 'bat_run.png')
     copy(BAT / 'Death' / 'Death_Side-Sheet.png', 'bat_death.png')
 
+    copy(FREE / 'Environment' / 'Tilesets' / 'Dungeon_Tiles.png', 'tiles.png')
+
     for anim, (folder, prefix) in HERO.items():
         for d, suffix in DIRS.items():
             base = HUNTER / folder / f'{prefix}_{suffix}-Sheet.png'

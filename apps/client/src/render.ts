@@ -8,7 +8,14 @@
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { ActorView, GameEvent, ItemView, ProjectileView } from '@dc/engine'
 import { MONSTERS, MONSTER_HALF_ARC } from '@dc/engine'
-import { WEAPON_ATTACK, packAnim, type AnimSet, type AttackKind, type Dir } from './pack.js'
+import {
+  WEAPON_ATTACK,
+  packAnim,
+  paintPackTile,
+  type AnimSet,
+  type AttackKind,
+  type Dir,
+} from './pack.js'
 import {
   SCALE,
   TILE,
@@ -156,7 +163,9 @@ export class Renderer {
     const ctx = canvas.getContext('2d')!
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        paintTile(ctx, tiles[y * width + x]!, x * TILE, y * TILE)
+        if (!paintPackTile(ctx, tiles, width, height, x, y)) {
+          paintTile(ctx, tiles[y * width + x]!, x * TILE, y * TILE)
+        }
       }
     }
     this.mapSprite?.destroy()
