@@ -119,6 +119,10 @@ export async function loadRoom(code: string): Promise<GameState | null> {
         a.sprintedAt = state.tick - SPRINT_REFILL_DELAY
       }
       delete a.staggerReadyAt
+      // Une escouade décrit une approche en cours. Après un redéploiement, il
+      // n'y a plus d'approche : chacun repart pour soi.
+      delete a.squad
+      delete a.squadUntil
     }
     state.projectiles = []
     state.events = []

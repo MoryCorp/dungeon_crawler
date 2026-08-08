@@ -13,7 +13,15 @@
 import { hasLineOfSight } from './fov.js'
 import { angleDiff } from './physics.js'
 import type { Actor, GameState } from './types.js'
-import { AGGRO_MAX_DIST, AGGRO_MEMORY, MONSTERS, TICK_RATE, isWalkable } from './types.js'
+import {
+  AGGRO_MAX_DIST,
+  AGGRO_MEMORY,
+  MONSTERS,
+  SQUAD_ENGAGE,
+  SQUAD_SLACK,
+  TICK_RATE,
+  isWalkable,
+} from './types.js'
 
 const NEIGHBOURS: readonly (readonly [number, number])[] = [
   [0, -1], [1, -1], [1, 0], [1, 1],
@@ -134,6 +142,11 @@ export function decideMonsterAction(
   m: Actor,
   flow: Int16Array,
   visible: Uint8Array,
+  /**
+   * Distance du membre le plus en retard de son escouade, sur le champ de flux.
+   * Absente quand le monstre n'appartient à aucun groupe livré.
+   */
+  squadLag?: number,
 ): MonsterAction {
   const w = state.width
   const def = MONSTERS[m.species]!
@@ -199,6 +212,17 @@ export function decideMonsterAction(
     default: {
       if (ready && dist <= def.reach) return { type: 'windup', aim }
       break
+    }
+  }
+
+  // Cohésion d'escouade : celui qui a pris de l'avance patiente. Le contrôle
+  // vient après les décisions d'attaque — un monstre à portée frappe, il
+  // n'attend personne — et avant tout déplacement, y compris la charge à vue :
+  // c'est justement l'approche qui défaisait les groupes.
+  if (squadLag !== undefined && (m.squadUntil ?? 0) > state.tick) {
+    const here = flow[ty * w + tx] ?? -1
+    if (here >= 0 && here > SQUAD_ENGAGE && squadLag > here + SQUAD_SLACK) {
+      return { type: 'idle', aim }
     }
   }
 

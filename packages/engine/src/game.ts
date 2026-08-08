@@ -51,6 +51,7 @@ import {
   FLOOR_COOLDOWN_MIN,
   FLOOR_COOLDOWN_TIGHTEN,
   FLOOR_HP_GROWTH,
+  FLOW_MAX_DIST,
   FLOOR_XP_GROWTH,
   FOV_RADIUS,
   HEART_HEAL_MIN,
@@ -80,7 +81,9 @@ import {
   SPRINT_MULT,
   SPRINT_REFILL_DELAY,
   SPRINT_REGEN,
+  SQUAD_PATIENCE,
   STAGGER_IMMUNITY,
+  STAGGER_KNOCKBACK_MIN,
   STAGGER_RECOVER,
   PROFILE_EMA_ALPHA,
   PROJECTILE_RADIUS,
@@ -818,7 +821,12 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
 
   let placed = 0
   let eventAnchor: { x: number; y: number } | null = null
+  // Une escouade par groupe, pas par vague : les deux mâchoires d'une tenaille
+  // arrivent de deux côtés opposés et n'ont aucune raison de s'attendre l'une
+  // l'autre — chacune doit arriver entière, c'est tout.
+  let squadIndex = 0
   for (const group of plan) {
+    const squad = `s${state.tick}_${squadIndex++}`
     const anchor = recipeAnchor(
       state, visible, rng, target,
       placementOpts(state, target, group.placement, flankAngle),
@@ -869,6 +877,9 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
       actor.readyAt = state.tick + PURSUE_STRIKE_GRACE
       // Livrés déjà en chasse : une vague qui flâne n'est plus une vague.
       actor.aggroUntil = state.tick + AGGRO_MEMORY * 4
+      // Et livrés solidaires : ils avancent au rythme du plus lent des leurs.
+      actor.squad = squad
+      actor.squadUntil = state.tick + SQUAD_PATIENCE
       placed++
     }
   }
@@ -1090,11 +1101,13 @@ function damage(
 
   // Le coup encaissé fait manquer l'attaque en préparation. Réservé aux coups
   // portés par un joueur : deux monstres qui se blessent entre eux (l'explosion
-  // du kamikaze) ne doivent pas désamorcer tout un groupe.
+  // du kamikaze) ne doivent pas désamorcer tout un groupe. Et il y faut du
+  // poids : voir STAGGER_KNOCKBACK_MIN, une dague ne bouscule personne.
   if (
     to.kind === 'monster' &&
     !to.boss &&
     from?.kind === 'player' &&
+    knockback >= STAGGER_KNOCKBACK_MIN &&
     to.windupUntil !== undefined &&
     state.tick < to.windupUntil &&
     state.tick >= (to.staggerReadyAt ?? 0)
@@ -1492,7 +1505,7 @@ export function step(
     }
   }
 
-  buildFlowField(state, flow, AGGRO_MAX_DIST + 4)
+  buildFlowField(state, flow, FLOW_MAX_DIST)
 
   // 3. Joueurs.
   // Les monstres n'ont pas encore bougé ce tick : le profil mesure l'engagement
@@ -1534,6 +1547,26 @@ export function step(
   }
 
   // 4. Monstres.
+  //
+  // Retard de chaque escouade avant de faire agir qui que ce soit : c'est la
+  // distance du membre le plus loin de sa cible, mesurée sur le champ de flux
+  // qu'on vient de reconstruire. Une seule passe, et tout le monde décide sur
+  // la même photo — sinon le premier monstre de la boucle attendrait un
+  // retardataire qui a déjà rattrapé son retard plus bas dans la même boucle.
+  const squadLag = new Map<string, number>()
+  for (const m of Object.values(state.actors)) {
+    if (m.kind !== 'monster' || !m.alive || m.squad === undefined) continue
+    if ((m.squadUntil ?? 0) <= state.tick) {
+      delete m.squad
+      delete m.squadUntil
+      continue
+    }
+    const d = flow[Math.floor(m.y) * state.width + Math.floor(m.x)] ?? -1
+    if (d < 0) continue
+    const known = squadLag.get(m.squad)
+    if (known === undefined || d > known) squadLag.set(m.squad, d)
+  }
+
   for (const m of Object.values(state.actors)) {
     if (m.kind !== 'monster' || !m.alive) continue
     const def = MONSTERS[m.species]!
@@ -1567,7 +1600,10 @@ export function step(
     }
     if (m.dashUntil !== undefined) delete m.dashUntil
 
-    const action = decideMonsterAction(state, m, flow, visible)
+    const action = decideMonsterAction(
+      state, m, flow, visible,
+      m.squad !== undefined ? squadLag.get(m.squad) : undefined,
+    )
 
     if (action.type === 'windup') {
       if (m.windupUntil === undefined) {

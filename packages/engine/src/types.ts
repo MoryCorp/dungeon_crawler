@@ -257,18 +257,85 @@ export const MONSTER_HALF_ARC = deg(45)
  * le télégraphe devient une fenêtre à saisir plutôt qu'une sentence — la
  * difficulté reste dans la simultanéité, pas dans l'impuissance.
  *
- * Deux garde-fous. L'immunité empêche de verrouiller une cible indéfiniment en
+ * Trois garde-fous. L'immunité empêche de verrouiller une cible indéfiniment en
  * la martelant : une fois interrompu, le monstre prépare son prochain coup à
- * l'abri. Et les boss n'y sont pas sensibles — un boss qu'on peut empêcher de
- * jouer n'est plus un boss.
+ * l'abri. Les boss n'y sont pas sensibles — un boss qu'on peut empêcher de
+ * jouer n'est plus un boss. Et il faut du poids pour bousculer quelqu'un.
+ *
+ * Ce dernier point a été ajouté après coup, et c'est le plus important. Sans
+ * lui, la dague interrompait comme la hache : on fonçait sur n'importe quel
+ * monstre, on coupait son premier coup, on le tuait pendant qu'il se remettait.
+ * Chaque monstre offrait un tête-à-tête gratuit, et l'interruption ne réglait
+ * plus un problème de lisibilité, elle supprimait le combat.
+ *
+ * Le seuil porte sur le recul, pas sur les dégâts : bousculer est une affaire
+ * de masse, et le recul est déjà l'échelle de masse des armes. Épée et hache
+ * interrompent, dague et arc non. C'est une identité d'arme de plus, et la
+ * réponse honnête à « que faire contre des archers » devient « prends une arme
+ * qui pèse, ou passe ton chemin », pas « clique plus vite ».
  */
 export const STAGGER_IMMUNITY = ticks(2.2)
-/** Après une interruption, le monstre reste sonné un instant avant de relancer. */
-export const STAGGER_RECOVER = ticks(0.45)
+/**
+ * Après une interruption, le monstre perd un instant avant de relancer. Court
+ * exprès : c'est un coup manqué, pas un étourdissement. La récompense est de ne
+ * pas encaisser, elle n'a pas besoin d'être doublée d'une fenêtre de frappe
+ * offerte.
+ */
+export const STAGGER_RECOVER = ticks(0.22)
+/** Recul minimal pour bousculer quelqu'un. Épée 5, hache 9 · dague 1.5, arc 2. */
+export const STAGGER_KNOCKBACK_MIN = 4
+
+/**
+ * Cohésion des vagues.
+ *
+ * La Directrice livrait des groupes de cinq et le joueur en combattait deux :
+ * posés ensemble hors de vue, les monstres se défaisaient pendant l'approche —
+ * vitesses différentes, angles différents — et arrivaient en file indienne. Un
+ * groupe de six qui arrive un par un, c'est six tête-à-tête, et un tête-à-tête
+ * ne coûte rien. C'est ce qui produisait des étages entiers à 0 % de danger
+ * alors que toutes les vagues étaient bien livrées.
+ *
+ * La correction ne touche à aucune statistique : les monstres d'un même groupe
+ * s'attendent. Celui qui a pris de l'avance patiente le temps que les autres
+ * comblent leur retard, et le groupe repart ensemble. C'est le plus lent qui
+ * donne le tempo, exactement comme une escouade.
+ *
+ * L'avance se mesure sur le champ de flux, pas à vol d'oiseau : deux monstres
+ * séparés par un mur sont proches et pourtant loin l'un de l'autre.
+ */
+export const SQUAD_SLACK = 3
+/**
+ * Une fois à cette distance d'un joueur, plus personne n'attend : la cohésion
+ * sert l'approche, pas le combat. Un monstre qui refuserait d'engager parce
+ * qu'un retardataire traîne serait une absurdité visible à l'écran.
+ */
+export const SQUAD_ENGAGE = 7
+/**
+ * Et au bout de ce délai, l'escouade est dissoute quoi qu'il arrive. Sans lui,
+ * un seul membre coincé derrière un décor immobiliserait toute une vague pour
+ * le reste de l'étage.
+ */
+export const SQUAD_PATIENCE = ticks(14)
 
 export const FOV_RADIUS = 9
 export const AGGRO_MEMORY = ticks(3)
 export const AGGRO_MAX_DIST = 14
+
+/**
+ * Portée du champ de flux, en tuiles de chemin réel.
+ *
+ * Elle valait AGGRO_MAX_DIST + 4, soit 18, et c'était le vrai coupable derrière
+ * les vagues qui se défaisaient. La Directrice livre jusqu'à 15 tuiles à vol
+ * d'oiseau, ce qui fait couramment 25 à 30 tuiles de chemin réel derrière deux
+ * angles : les monstres livrés n'avaient donc aucune direction, chacun errait
+ * de son côté, et le groupe arrivait égrené sur plusieurs dizaines de secondes.
+ *
+ * Le plafond n'était qu'une optimisation, et elle ne servait à rien : le
+ * parcours est borné par la surface praticable de l'étage, quelques milliers de
+ * cases une fois par tick. Ça ne réveille personne — un monstre ne suit le flux
+ * que s'il a déjà l'aggro.
+ */
+export const FLOW_MAX_DIST = 512
 
 // --- Recul ------------------------------------------------------------------
 
@@ -634,6 +701,10 @@ export interface Actor {
   boss?: boolean
   /** Avant ce tick, l'attaque en préparation ne peut plus être interrompue. */
   staggerReadyAt?: number
+  /** Escouade de livraison : les membres d'un même groupe s'attendent. */
+  squad?: string
+  /** Passé ce tick, l'escouade est dissoute et chacun avance pour soi. */
+  squadUntil?: number
   /** charger : tick de fin de la ruée en cours. */
   dashUntil?: number
   dashVx?: number

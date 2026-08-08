@@ -13,6 +13,8 @@ import {
   HEART_HEAL_MIN,
   HEART_HEAL_RATIO,
   MAP_H,
+  FLOW_MAX_DIST,
+  HORDE_MAX_DIST,
   MAP_W,
   MONSTERS,
   MONSTER_HALF_ARC,
@@ -42,6 +44,7 @@ import {
   TARGET_TTK,
   TICK_RATE,
   Tile,
+  STAGGER_RECOVER,
   WEAPONS,
   addPlayer,
   computeFov,
@@ -1389,7 +1392,7 @@ console.log('\nTests engine\n')
   console.log('\nInterruption')
 
   /** Amène un monstre jusqu'au milieu de sa préparation, puis le frappe. */
-  function windupThenHit(species: string, boss = false): {
+  function windupThenHit(species: string, boss = false, weapon = 'sword'): {
     staggered: boolean
     monster: Actor
     state: GameState
@@ -1398,6 +1401,7 @@ console.log('\nTests engine\n')
     clearMonsters(s)
     const hero = addPlayer(s, 'p_int', 'Interrupteur')
     hero.invulnUntil = 0
+    hero.weapon = weapon
     const m = putMonster(s, 'm_wind', species, hero.x + 1.0, hero.y)
     m.hp = 9999
     if (boss) m.boss = true
@@ -1429,6 +1433,24 @@ console.log('\nTests engine\n')
   const boss = windupThenHit('skeleton', true)
   check('un boss ne s\'interrompt pas', !boss.staggered)
 
+  // Le garde-fou qui manquait : sans lui, on fonçait à la dague sur n'importe
+  // quel monstre, on coupait son premier coup et on le tuait pendant qu'il se
+  // remettait. Chaque tête-à-tête devenait gratuit.
+  check(
+    'une dague ne bouscule personne',
+    !windupThenHit('skeleton', false, 'dagger').staggered,
+  )
+  check('un arc non plus', !windupThenHit('skeleton', false, 'bow').staggered)
+  check('une hache, oui', windupThenHit('skeleton', false, 'axe').staggered)
+
+  // Et même avec une arme qui pèse, l'interruption ne doit pas offrir de coup
+  // supplémentaire : elle évite d'encaisser, c'est déjà la récompense.
+  check(
+    'interrompre n\'offre pas une frappe de plus',
+    STAGGER_RECOVER < WEAPONS.sword!.cooldown,
+    `${STAGGER_RECOVER} ticks de flottement contre ${WEAPONS.sword!.cooldown} de cadence`,
+  )
+
   // L'immunité empêche le verrou : sur la durée, le monstre place ses coups.
   {
     const s = createGame(4343)
@@ -1448,6 +1470,64 @@ console.log('\nTests engine\n')
       `${before} -> ${hero.hp} PV en 12 s`,
     )
   }
+}
+
+// --- Cohésion des vagues ------------------------------------------------------
+//
+// Une vague de six qui arrive un par un, c'est six tête-à-tête, et un
+// tête-à-tête ne coûte rien. On vérifie que le groupe se resserre pendant
+// l'approche, et surtout que la patience a une fin.
+{
+  console.log('\nCohésion')
+
+  /** Un couloir dégagé, un héros immobile, deux monstres de la même escouade. */
+  function approach(patience: number): { gapStart: number; gapEnd: number; lead: number } {
+    const s = createGame(4242)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_sq', 'Appât')
+    hero.invulnUntil = 999999
+    const row = Math.floor(hero.y)
+    for (let x = 1; x < MAP_W - 1; x++) {
+      for (let d = -2; d <= 2; d++) s.tiles[(row + d) * MAP_W + x] = Tile.Floor
+    }
+
+    const vanguard = putMonster(s, 'm_van', 'orc', hero.x + 10, hero.y)
+    const laggard = putMonster(s, 'm_lag', 'orc', hero.x + 20, hero.y)
+    for (const m of [vanguard, laggard]) {
+      m.hp = 99999
+      m.squad = 'sq'
+      m.squadUntil = s.tick + patience
+    }
+    const gapStart = laggard.x - vanguard.x
+    for (let i = 0; i < TICK_RATE * 8; i++) step(s, { p_sq: idle })
+    return { gapStart, gapEnd: laggard.x - vanguard.x, lead: vanguard.x - hero.x }
+  }
+
+  const together = approach(TICK_RATE * 60)
+  check(
+    'l\'avant-garde attend les siens',
+    together.gapEnd < together.gapStart * 0.6,
+    `écart ${together.gapStart.toFixed(1)} -> ${together.gapEnd.toFixed(1)} tuiles`,
+  )
+
+  // La patience a une fin : sans elle, un seul membre incapable de rattraper
+  // son retard immobiliserait la vague entière pour le reste de l'étage.
+  const dissolved = approach(1)
+  check(
+    'et l\'escouade finit par se dissoudre',
+    dissolved.lead < 2 && dissolved.gapEnd > together.gapEnd * 1.5,
+    `avant-garde à ${dissolved.lead.toFixed(1)} tuile(s) du héros, ` +
+      `écart ${dissolved.gapEnd.toFixed(1)}`,
+  )
+
+  // Le champ de flux doit porter jusqu'à la distance de livraison, sinon les
+  // monstres livrés n'ont aucune direction et errent : c'était la vraie cause
+  // des vagues qui se défaisaient.
+  check(
+    'le champ de flux porte plus loin que la livraison',
+    FLOW_MAX_DIST > HORDE_MAX_DIST * 3,
+    `${FLOW_MAX_DIST} contre ${HORDE_MAX_DIST} tuiles de livraison`,
+  )
 }
 
 // --- Lecture du terrain -------------------------------------------------------
