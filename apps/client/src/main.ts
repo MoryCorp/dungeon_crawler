@@ -35,6 +35,7 @@ const weaponLabel = $('weapon')
 const levelLabel = $('level')
 const xpFill = $('xp-fill')
 const objective = $('objective')
+const chase = $('chase')
 const downedBox = $('downed')
 const downedSub = $('downed-sub')
 const roomLabel = $('room-label')
@@ -148,7 +149,7 @@ async function main(): Promise<void> {
         const visible = msg.vis ? unpackBits(fromBase64(msg.vis), mapSize) : null
         renderer.applyState(msg.actors, msg.projectiles, msg.items, visible, msg.events)
         floorLabel.textContent = String(msg.floor)
-        updateHud(msg.actors, msg.locked)
+        updateHud(msg.actors, msg.locked, msg.chasing)
 
         for (const ev of msg.events) {
           if (ev.t === 'swing' && ev.id === selfId) debug.swings++
@@ -201,7 +202,7 @@ async function main(): Promise<void> {
     }
   }
 
-  function updateHud(actors: ActorView[], locked: boolean): void {
+  function updateHud(actors: ActorView[], locked: boolean, chasing: number): void {
     const self = actors.find((a) => a.id === selfId)
     if (self?.weapon) weaponId = self.weapon
     hpLabel.textContent = self ? `${self.hp}/${self.maxHp}` : '—'
@@ -215,6 +216,12 @@ async function main(): Promise<void> {
       const ratio = ((self.xp ?? 0) - prev) / Math.max(1, self.xpNext - prev)
       xpFill.style.width = `${Math.max(0, Math.min(100, ratio * 100))}%`
     }
+
+    chase.classList.toggle('hidden', chasing === 0)
+    chase.textContent =
+      chasing === 1
+        ? 'Un monstre descend derrière vous'
+        : `${chasing} monstres descendent derrière vous`
 
     objective.classList.remove('hidden')
     objective.classList.toggle('done', !locked)

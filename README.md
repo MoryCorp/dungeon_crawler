@@ -112,14 +112,46 @@ Quatre changements, dans l'ordre de leur importance :
 La courbe d'XP est aussi nettement plus raide : trois niveaux au premier étage
 rendaient les monstres décoratifs jusqu'au bout.
 
+### Ce qu'on ne tue pas descend derrière nous
+
+Les quatre changements ci-dessus ont durci les combats, et n'ont rien changé au
+problème de fond — que seules les mesures ont montré. Sur une vraie partie, un
+joueur compétent laissait **60 % de l'étage derrière lui** : il trouvait la clé,
+il descendait, et 5 étages sur 6 se traversaient sans jamais passer sous 65 % de
+PV. Le donjon n'était pas trop faible, il était **facultatif**.
+
+Alors les monstres laissés en vie suivent. À la descente, les survivants les
+plus proches de l'escalier viennent avec vous, blessures comprises, et
+débouchent **un par un** au pied de l'escalier d'arrivée après quelques secondes
+de répit.
+
+Trois détails font que c'est une difficulté et pas une punition :
+
+- **Ils sortent en file, pas en bloc.** Seize monstres surgissant d'un coup sur
+  le groupe seraient une condamnation sans réponse. Un par un, c'est un choix :
+  tenir le goulot et les cueillir à l'arrivée, ou filer chercher la clé en les
+  laissant s'accumuler dans le dos.
+- **Ils sortent à un endroit connu**, celui par lequel on est arrivé. Une menace
+  qu'on peut anticiper se joue ; une menace qui apparaît n'importe où se subit.
+- **La dette est entièrement choisie.** Nettoyer l'étage ne coûte rien. Le HUD
+  affiche en permanence combien descendent derrière vous.
+
+C'est le changement qui a le plus d'effet, et il ne touche à aucune statistique :
+il rend simplement le fait d'ignorer un monstre payant plus tard plutôt que
+gratuit.
+
 ## Mesurer au lieu de deviner
 
 Régler une difficulté au ressenti, c'est régler pour la seule personne qui a
 joué. Chaque partie enregistre donc ce qui s'y est passé, **étage par étage** :
-PV les plus bas atteints, temps passé sous 35 % de vie, dégâts infligés par
-espèce, dégâts subis **par espèce**, qui vous a mis à terre, mises à terre,
-morts, relèves, XP, niveau à l'entrée et à la sortie, coups portés et dégâts par
-arme.
+monstres présents et monstres tués, poursuivants traînés depuis l'étage
+précédent, PV les plus bas atteints, temps passé sous 35 % de vie, dégâts
+infligés par espèce, dégâts subis **par espèce**, qui vous a mis à terre, mises
+à terre, morts, relèves, XP, niveau à l'entrée et à la sortie, coups portés et
+dégâts par arme.
+
+Le rapport « tués sur présents » est celui qui a payé le plus : c'est lui qui a
+révélé qu'on ne combattait pas le donjon, on le traversait.
 
 C'est calculé uniquement à partir des événements que l'engine émet déjà, plus un
 échantillon des PV à chaque tick. `step()` reste pure : elle ne sait pas que la
@@ -136,18 +168,28 @@ aucun enjeu, quelle espèce fait mal, laquelle ne sert à rien, quelle espèce v
 met à terre, quelle arme vous utilisez vraiment. Il désigne explicitement les
 **ventres mous** — les étages traversés sans jamais descendre sous 70 % de PV.
 
-### Le bourrin
+### Les deux bots
 
 ```bash
-npx tsx scripts/botrun.ts 10        # 10 étages, graine par défaut
-npx tsx scripts/botrun.ts 10 1234
+npx tsx scripts/botrun.ts 10             # bourrin : nettoie tout
+npx tsx scripts/botrun.ts 10 1234 rush   # pressé : la clé, et on file
 ```
 
-Un bot joue la stratégie la plus bête possible : foncer sur le monstre le plus
-proche, bourriner l'attaque, ne jamais reculer. C'est le garde-fou d'équilibrage
-du projet — **si le bourrinage suffit, le jeu ne demande aucune décision**, quels
-que soient les chiffres. Le rapport final dit à quel étage la bêtise cesse de
-payer.
+Deux stratégies jouées sans réfléchir, qui encadrent le jeu par ses deux
+extrêmes :
+
+- **bourrin** — foncer sur le monstre le plus proche, bourriner, ne jamais
+  reculer. L'étage finit toujours nettoyé, donc aucune dette.
+- **pressé** — ignorer tout, aller chercher la clé, descendre. C'est la façon de
+  jouer qu'on a mesurée en vrai, et donc celle qui teste si laisser des monstres
+  en vie coûte quelque chose.
+
+C'est le garde-fou d'équilibrage du projet — **si l'une des deux suffit, le jeu
+ne demande aucune décision**, quels que soient les chiffres. Le rapport final dit
+à quel étage la bêtise cesse de payer.
+
+L'écart entre les deux est en soi une mesure : tant que « pressé » allait plus
+loin que « bourrin », la stratégie optimale était de ne pas jouer au jeu.
 
 Aucun réseau, aucun navigateur : uniquement l'engine, donc c'est reproductible
 et ça tourne en quelques secondes. Le relevé est écrit au même format qu'une
@@ -204,6 +246,10 @@ ramasser sa clé. Le HUD affiche l'objectif en permanence. Ça donne une raison
 d'explorer au lieu de courir vers la sortie, et un moment où toute l'équipe
 converge au même endroit.
 
+Ça ne suffisait pas : la clé donne un objectif, elle n'oblige pas à combattre.
+C'est la poursuite qui s'en charge — tout ce qu'on laisse en vie descend derrière
+nous. Descendre reste toujours possible, mais plus jamais gratuit.
+
 Un ou deux coffres sont posés dans des salles au hasard. Leur contenu est
 verrouillé pour celui qui ouvre le temps qu'il s'en écarte : on voit ce qui est
 tombé avant de décider d'échanger son arme, au lieu de subir l'échange.
@@ -258,10 +304,15 @@ Les quatre boutons qui pèsent le plus sur la difficulté :
 | `KB_STACK_FALLOFF` | à quel point on peut verrouiller un monstre au recul. **Le réglage le plus sensible du jeu** |
 | `FLOOR_HP_GROWTH` / `FLOOR_ATK_GROWTH` | la pente de difficulté par étage |
 | `PACK_MIN` / `PACK_MAX` / `CORRIDOR_SPAWN_SHARE` | combien on en affronte à la fois, et où |
+| `PURSUE_MAX` / `PURSUE_INTERVAL` | ce que coûte le fait d'esquiver un étage |
 | `movePenalty` d'une arme | ce qu'un coup coûte en mobilité — l'identité de l'arme |
 
-Après toute modification : `npx tsx scripts/botrun.ts 10` pour vérifier que le
-bourrinage ne suffit toujours pas, sur deux ou trois graines.
+Après toute modification, sur deux ou trois graines :
+
+```bash
+npx tsx scripts/botrun.ts 10           # le bourrinage ne doit pas suffire
+npx tsx scripts/botrun.ts 10 4242 rush # esquiver l'étage ne doit pas payer
+```
 
 Les événements réseau portent eux-mêmes la portée et l'ouverture d'un coup
 (`{t:'swing', reach, halfArc}`) : le client dessine l'arc sans avoir à savoir
@@ -274,6 +325,7 @@ rendu.
 npx tsx scripts/engine-test.ts   # règles pures, aucune dépendance externe
 npx tsx scripts/smoke.ts         # bout en bout, serveur lancé requis
 npx tsx scripts/botrun.ts 10     # équilibrage : le bourrinage suffit-il ?
+npx tsx scripts/botrun.ts 10 1 rush   # équilibrage : esquiver l'étage paie-t-il ?
 npx tsx scripts/report.ts ABCD   # rapport détaillé d'une partie
 npx tsx scripts/observe.ts ABCD  # affiche l'état d'une room en direct
 npx tsx scripts/mapdump.ts data/rooms/ABCD.json   # carte ASCII d'une sauvegarde
@@ -287,7 +339,8 @@ traverser, la diagonale ne donne pas de bonus de vitesse, un coup télégraphié
 rate si la cible se décale, **une meute ne pousse pas le héros à travers un
 mur**, rester sur l'arme qu'on vient de poser ne la reprend pas en boucle, un
 enchaînement de coups cesse de projeter, frapper à la hache coûte réellement de
-la vitesse, et **un joueur à terre finit par saigner** même sous les coups.
+la vitesse, **un joueur à terre finit par saigner** même sous les coups, et les
+poursuivants débouchent un par un au pied de l'escalier plutôt qu'en bloc.
 
 `mapdump` sert exactement à ça : quand une position n'a pas de sens, la carte
 ASCII dit en une seconde ce qu'un dump JSON cache.

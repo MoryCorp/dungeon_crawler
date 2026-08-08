@@ -23,6 +23,14 @@ export interface FloorRecord {
   floor: number
   /** Ticks écoulés dans l'étage. La durée est ce qui trahit un ventre mou. */
   ticks: number
+  /**
+   * Monstres générés à l'arrivée sur l'étage, hors poursuivants. Rapporté aux
+   * tués, c'est la mesure qui a révélé le vrai problème d'équilibrage : on ne
+   * combattait pas l'étage, on le traversait.
+   */
+  spawned: number
+  /** Monstres qui ont suivi depuis l'étage précédent — la dette qu'on traîne. */
+  pursuers: number
   /** Monstres tués, par espèce. */
   kills: Tally
   /** Dégâts infligés par les joueurs, par espèce de victime. */
@@ -65,6 +73,8 @@ function emptyFloor(floor: number, level: number): FloorRecord {
   return {
     floor,
     ticks: 0,
+    spawned: 0,
+    pursuers: 0,
     kills: {},
     damageDealt: {},
     damageTaken: {},
@@ -95,6 +105,8 @@ export class RunTelemetry {
   private lastHitBy = new Map<string, string>()
   /** L'XP étant commune à l'équipe, un seul compteur suffit à suivre les gains. */
   private xpSeen = -1
+  /** Recenser les monstres de l'étage, une seule fois, au tick de l'arrivée. */
+  private needsCensus = true
 
   constructor(
     readonly room: string,
@@ -105,6 +117,9 @@ export class RunTelemetry {
     const resumed = this.floors.find((f) => f.floor === state.floor)
     this.current = resumed ?? emptyFloor(state.floor, this.levelOf(state))
     if (!resumed) this.floors.push(this.current)
+    // Sur une reprise, le recensement d'origine est déjà dans le relevé : le
+    // refaire ne compterait que les survivants et effacerait la vraie valeur.
+    this.needsCensus = !resumed
   }
 
   private levelOf(state: GameState): number {
@@ -120,6 +135,13 @@ export class RunTelemetry {
     this.current.ticks += 1
 
     for (const ev of events) this.record(state, ev)
+
+    if (this.needsCensus) {
+      this.needsCensus = false
+      this.current.spawned = Object.values(state.actors).filter(
+        (a) => a.kind === 'monster',
+      ).length
+    }
 
     let lowest = 1
     let inDanger = false
@@ -195,8 +217,15 @@ export class RunTelemetry {
         this.current = emptyFloor(ev.floor, level)
         this.floors.push(this.current)
         this.dangerTicks = 0
+        this.needsCensus = true
         break
       }
+
+      // Émis juste après 'descend', donc sur le relevé du nouvel étage : c'est
+      // bien la dette qu'on emmène, pas celle qu'on avait en arrivant.
+      case 'pursuit':
+        this.current.pursuers = ev.count
+        break
 
       default:
         break
@@ -213,9 +242,13 @@ export function floorSummary(f: FloorRecord): string {
   const seconds = (f.ticks / TICK_RATE).toFixed(0)
   const kills = Object.values(f.kills).reduce((a, b) => a + b, 0)
   const taken = Object.values(f.damageTaken).reduce((a, b) => a + b, 0)
+  const present = f.spawned + f.pursuers
+  const left = present > 0 ? Math.max(0, present - kills) : 0
   return (
     `étage ${f.floor} · ${seconds}s · niveau ${f.levelIn}→${f.levelOut} · ` +
-    `${kills} tués · ${taken} dégâts subis · ${f.downs} mise(s) à terre · ` +
+    `${kills}/${present} tués` +
+    (f.pursuers ? ` (dont ${f.pursuers} suiveur${f.pursuers > 1 ? 's' : ''})` : '') +
+    ` · ${left} laissé(s) · ${taken} dégâts subis · ${f.downs} mise(s) à terre · ` +
     `PV au plus bas ${(f.lowestHpRatio * 100).toFixed(0)}% · ` +
     `en danger ${(f.dangerRatio * 100).toFixed(0)}% du temps`
   )

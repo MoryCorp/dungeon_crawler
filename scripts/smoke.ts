@@ -36,6 +36,7 @@ class FakeClient {
   items: ItemView[] = []
   projectiles: ProjectileView[] = []
   locked = false
+  chasing = -1
   visibleCount = 0
   stateCount = 0
   ready: Promise<void>
@@ -58,6 +59,7 @@ class FakeClient {
           this.items = msg.items
           this.projectiles = msg.projectiles
           this.locked = msg.locked
+          this.chasing = msg.chasing
           this.stateCount++
           // Le brouillard n'accompagne qu'un paquet sur cinq.
           if (this.mapSize && msg.vis) {
@@ -117,6 +119,7 @@ async function run(): Promise<void> {
   check('le héros démarre niveau 1', me.level === 1 && me.xp === 0, `n${me.level}, ${me.xp} xp`)
   check('le palier de niveau suivant est annoncé', (me.xpNext ?? 0) > 0, `${me.xpNext} xp`)
   check('l\'escalier est verrouillé au début de l\'étage', alice.locked)
+  check('personne ne poursuit au premier étage', alice.chasing === 0, `${alice.chasing}`)
   check('le héros démarre avec les PV de base', me.maxHp === PLAYER_BASE_HP, `${me.maxHp} PV`)
   check('l\'état transporte objets et projectiles',
     Array.isArray(alice.items) && Array.isArray(alice.projectiles),

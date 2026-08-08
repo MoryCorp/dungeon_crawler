@@ -65,6 +65,10 @@ import {
   PLAYER_BASE_HP,
   PLAYER_SPEED,
   PROJECTILE_RADIUS,
+  PURSUE_DELAY,
+  PURSUE_INTERVAL,
+  PURSUE_MAX,
+  PURSUE_STRIKE_GRACE,
   RESPAWN_GRACE,
   RESPAWN_TICKS,
   REVIVE_HP_RATIO,
@@ -341,6 +345,7 @@ export function createGame(seed: number, floor = 1): GameState {
     stairs: layout.stairs,
     spawn: layout.spawn,
     stairsLocked: true,
+    pursuers: [],
     events: [],
   }
 
@@ -362,6 +367,29 @@ export function descend(state: GameState): void {
   state.stairsLocked = true
   state.projectiles = []
   state.items = []
+
+  // Ce qu'on n'a pas tué nous suit. On garde en priorité les plus proches de
+  // l'escalier : ce sont ceux qui nous collaient réellement, et ça laisse au
+  // joueur un moyen de choisir sa dette — décrocher avant de descendre.
+  const survivors = Object.values(state.actors)
+    .filter((a) => a.kind === 'monster' && a.alive)
+    .sort(
+      (a, b) =>
+        Math.hypot(a.x - state.stairs.x, a.y - state.stairs.y) -
+        Math.hypot(b.x - state.stairs.x, b.y - state.stairs.y),
+    )
+    .slice(0, PURSUE_MAX)
+
+  state.pursuers = survivors.map((actor, i) => {
+    actor.kx = 0
+    actor.ky = 0
+    actor.swingUntil = 0
+    actor.kbStacks = 0
+    delete actor.windupUntil
+    delete actor.dashUntil
+    delete actor.kbStackAt
+    return { atTick: state.tick + PURSUE_DELAY + i * PURSUE_INTERVAL, actor }
+  })
 
   for (const a of Object.values(state.actors)) {
     if (a.kind === 'monster') delete state.actors[a.id]
@@ -391,6 +419,39 @@ export function descend(state: GameState): void {
   populate(state, layout.rooms, rng)
   state.rng = rng.s
   state.events.push({ t: 'descend', floor: state.floor })
+  if (state.pursuers.length > 0) {
+    state.events.push({ t: 'pursuit', count: state.pursuers.length })
+  }
+}
+
+/**
+ * Fait déboucher les poursuivants dus, au pied de l'escalier par lequel on est
+ * arrivé. Ils sortent là et nulle part ailleurs : une menace qui apparaît à un
+ * endroit connu se joue, une menace qui apparaît n'importe où se subit.
+ */
+function releasePursuers(state: GameState): void {
+  if (state.pursuers.length === 0) return
+
+  const due = state.pursuers.filter((p) => state.tick >= p.atTick)
+  if (due.length === 0) return
+  state.pursuers = state.pursuers.filter((p) => state.tick < p.atTick)
+
+  for (const { actor } of due) {
+    const spot = findFreeSpot(state, state.spawn.x + 0.5, state.spawn.y + 0.5)
+    actor.x = spot.x
+    actor.y = spot.y
+    // Sans ce délai, un monstre qui avait fini de récupérer à l'étage du dessus
+    // frappe dans la seconde où il apparaît, sans télégraphe visible.
+    actor.readyAt = state.tick + PURSUE_STRIKE_GRACE
+    state.actors[actor.id] = actor
+    state.events.push({
+      t: 'arrive',
+      id: actor.id,
+      species: actor.species,
+      x: actor.x,
+      y: actor.y,
+    })
+  }
 }
 
 export function addPlayer(state: GameState, id: string, name: string): Actor {
@@ -913,6 +974,9 @@ export function step(
   visible.fill(0)
 
   const rng = new Rng(state.rng)
+
+  // 0. Les poursuivants de l'étage précédent débouchent de l'escalier.
+  releasePursuers(state)
 
   // 1. Réapparitions dues (après saignement complet).
   for (const a of Object.values(state.actors)) {

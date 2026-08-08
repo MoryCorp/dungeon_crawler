@@ -15,6 +15,9 @@ import {
   MONSTER_HALF_ARC,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
+  PURSUE_DELAY,
+  PURSUE_INTERVAL,
+  PURSUE_MAX,
   REVIVE_TICKS,
   Rng,
   TICK_RATE,
@@ -23,6 +26,7 @@ import {
   addPlayer,
   computeFov,
   createGame,
+  descend,
   generateFloor,
   inAttackArc,
   isWalkable,
@@ -710,6 +714,86 @@ console.log('\nTests engine\n')
   const boss = Object.values(s.actors).find((a) => a.boss)
   check('l\'étage 5 a un boss', boss !== undefined, boss?.name)
   check('le boss est vraiment gros', (boss?.maxHp ?? 0) > 200, `${boss?.maxHp} PV`)
+}
+
+// --- poursuite : ce qu'on n'a pas tué descend derrière nous -----------------
+{
+  const s = createGame(777)
+  addPlayer(s, 'p_run', 'Fuyard')
+  clearMonsters(s)
+
+  const wounded = putMonster(s, 'm_a', 'orc', s.stairs.x + 1.5, s.stairs.y + 0.5)
+  wounded.hp = 3
+  putMonster(s, 'm_b', 'skeleton', s.stairs.x + 2.5, s.stairs.y + 0.5)
+  putMonster(s, 'm_c', 'skeleton', s.stairs.x + 3.5, s.stairs.y + 0.5)
+
+  const tickAtDescend = s.tick
+  descend(s)
+
+  check('les monstres laissés en vie suivent', s.pursuers.length === 3, `${s.pursuers.length}`)
+  check(
+    'ils ne débarquent pas dans la foulée',
+    s.pursuers.every((p) => !(p.actor.id in s.actors)),
+  )
+  check(
+    'ils gardent leurs blessures',
+    s.pursuers.find((p) => p.actor.id === 'm_a')?.actor.hp === 3,
+  )
+  check('la descente annonce la poursuite', s.events.some((e) => e.t === 'pursuit'))
+
+  const arrivals: { tick: number; x: number; y: number }[] = []
+  for (let i = 1; i <= TICK_RATE * 20; i++) {
+    step(s, noInputs)
+    for (const ev of s.events) {
+      if (ev.t === 'arrive') arrivals.push({ tick: i, x: ev.x, y: ev.y })
+    }
+  }
+
+  check('tous finissent par déboucher', arrivals.length === 3, `${arrivals.length}/3`)
+  check(
+    'le premier laisse un répit',
+    arrivals[0]?.tick === tickAtDescend + PURSUE_DELAY,
+    `tick ${arrivals[0]?.tick} au lieu de ${tickAtDescend + PURSUE_DELAY}`,
+  )
+  // Le point entier de l'échelonnement : un mur de seize monstres d'un coup
+  // serait une condamnation, une file est un choix.
+  check(
+    'ils débouchent un par un, pas en bloc',
+    arrivals.length === 3 &&
+      arrivals[1]!.tick - arrivals[0]!.tick === PURSUE_INTERVAL &&
+      arrivals[2]!.tick - arrivals[1]!.tick === PURSUE_INTERVAL,
+    arrivals.map((a) => a.tick).join(', '),
+  )
+  check(
+    'ils sortent au pied de l\'escalier d\'arrivée',
+    arrivals.every((a) => Math.hypot(a.x - (s.spawn.x + 0.5), a.y - (s.spawn.y + 0.5)) < 5),
+  )
+}
+
+// Un étage nettoyé ne coûte rien : c'est ce qui rend la dette juste.
+{
+  const s = createGame(778)
+  addPlayer(s, 'p_clean', 'Méthodique')
+  clearMonsters(s)
+  descend(s)
+  check('nettoyer l\'étage n\'emmène aucun poursuivant', s.pursuers.length === 0)
+  check('et rien n\'est annoncé', !s.events.some((e) => e.t === 'pursuit'))
+}
+
+// Sans plafond, sauter trois étages d'affilée construit un mur infranchissable.
+{
+  const s = createGame(779)
+  addPlayer(s, 'p_lazy', 'Négligent')
+  clearMonsters(s)
+  for (let i = 0; i < PURSUE_MAX + 9; i++) {
+    putMonster(s, `m_h${i}`, 'skeleton', s.stairs.x + 1.5 + i * 0.01, s.stairs.y + 0.5)
+  }
+  descend(s)
+  check(
+    'le nombre de poursuivants est plafonné',
+    s.pursuers.length === PURSUE_MAX,
+    `${s.pursuers.length} pour ${PURSUE_MAX + 9} laissés`,
+  )
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)

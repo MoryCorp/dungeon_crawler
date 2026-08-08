@@ -7,7 +7,13 @@
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fromBase64, toBase64, type GameState } from '@dc/engine'
+import {
+  PURSUE_DELAY,
+  PURSUE_INTERVAL,
+  fromBase64,
+  toBase64,
+  type GameState,
+} from '@dc/engine'
 import type { RunRecord } from './telemetry.js'
 
 const DATA_DIR = process.env.DATA_DIR ?? './data'
@@ -92,6 +98,15 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     }
     state.projectiles = []
     state.events = []
+    // Sauvegarde d'avant la poursuite : le champ manque, et une room chargée
+    // sans lui planterait au premier tick.
+    state.pursuers ??= []
+    // Une room qui s'arrête pendant que des arrivées sont dues les ferait toutes
+    // déboucher au même tick à la réouverture, soit exactement le mur qu'on veut
+    // éviter. On réétale le calendrier depuis maintenant, ordre conservé.
+    state.pursuers.forEach((p, i) => {
+      p.atTick = state.tick + PURSUE_DELAY + i * PURSUE_INTERVAL
+    })
     return state
   } catch {
     return null

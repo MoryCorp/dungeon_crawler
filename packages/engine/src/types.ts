@@ -194,6 +194,37 @@ export const PACK_MAX = 4
 /** Rayon dans lequel les membres d'une meute sont dispersés. */
 export const PACK_SPREAD = 2.5
 
+/**
+ * Poursuite : les monstres laissés en vie descendent l'escalier derrière vous.
+ *
+ * Les mesures ont montré que le vrai problème n'était pas la force des
+ * monstres mais le fait que rien n'obligeait à les affronter : on trouvait la
+ * clé, on descendait, et on ignorait 60 % de l'étage sans conséquence. Une
+ * dette qui suit règle ça sans toucher à un seul chiffre de statistique — et
+ * elle reste entièrement sous contrôle du joueur, puisqu'il suffit de tuer
+ * pour ne rien devoir.
+ *
+ * Ils débouchent **un par un** au pied de l'escalier d'arrivée, pas d'un bloc :
+ * un mur de seize monstres surgissant sur la tête du groupe serait une
+ * condamnation sans réponse. En file, c'est un choix — tenir le goulot et les
+ * cueillir à l'arrivée, ou filer chercher la clé en les laissant s'accumuler
+ * dans le dos.
+ */
+export const PURSUE_MAX = 16
+/** Temps de répit avant que le premier ne débouche. */
+export const PURSUE_DELAY = ticks(4)
+/** Intervalle entre deux arrivées. */
+export const PURSUE_INTERVAL = ticks(0.9)
+/** Répit accordé à celui qui débouche, pour qu'il ne frappe pas dès l'apparition. */
+export const PURSUE_STRIKE_GRACE = ticks(0.6)
+
+/** Un monstre de l'étage précédent, en train de descendre derrière l'équipe. */
+export interface Pursuer {
+  /** Tick auquel il débouche de l'escalier. */
+  atTick: number
+  actor: Actor
+}
+
 // --- Monstres ---------------------------------------------------------------
 
 /**
@@ -405,6 +436,10 @@ export type GameEvent =
       y: number
     }
   | { t: 'blast'; x: number; y: number; radius: number }
+  /** Émis à la descente : voilà ce qu'on a laissé derrière soi, et qui suit. */
+  | { t: 'pursuit'; count: number }
+  /** Un poursuivant vient de déboucher de l'escalier. */
+  | { t: 'arrive'; id: string; species: string; x: number; y: number }
   | { t: 'death'; id: string; kind: Actor['kind']; species: string; x: number; y: number }
   | { t: 'downed'; id: string; x: number; y: number }
   | { t: 'revived'; id: string; x: number; y: number }
@@ -432,5 +467,7 @@ export interface GameState {
   spawn: { x: number; y: number }
   /** L'escalier ne s'ouvre qu'une fois la clé récupérée. */
   stairsLocked: boolean
+  /** Monstres de l'étage précédent, en attente de déboucher de l'escalier. */
+  pursuers: Pursuer[]
   events: GameEvent[]
 }

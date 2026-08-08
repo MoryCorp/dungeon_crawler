@@ -167,6 +167,7 @@ export class Room {
       projectiles: buildProjectileViews(this.state, visible),
       items: buildItemViews(this.state, visible),
       locked: this.state.stairsLocked,
+      chasing: this.state.pursuers.length,
       ...(withVis ? { vis: toBase64(packBits(visible)) } : {}),
       events: this.state.events,
     })

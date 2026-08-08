@@ -120,6 +120,12 @@ export type ServerMsg =
       items: ItemView[]
       /** L'escalier reste fermé tant que la clé du gardien n'est pas prise. */
       locked: boolean
+      /**
+       * Monstres de l'étage précédent pas encore sortis de l'escalier. Le joueur
+       * doit le savoir : une menace qu'on ne peut pas anticiper n'est pas de la
+       * difficulté, c'est une embuscade gratuite.
+       */
+      chasing: number
       /** Absent sur la plupart des paquets : le brouillard bouge lentement. */
       vis?: string
       events: GameEvent[]

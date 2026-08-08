@@ -1,14 +1,19 @@
 /**
- * Simulation d'une descente jouée « bêtement » : foncer sur le monstre le plus
- * proche et bourriner l'attaque, sans jamais esquiver ni reculer.
+ * Simulation d'une descente jouée sans réfléchir, en deux stratégies :
  *
- *   npx tsx scripts/botrun.ts [étages] [graine]
+ *   npx tsx scripts/botrun.ts [étages] [graine] [brute|rush]
  *
- * C'est le garde-fou d'équilibrage du projet. Si cette stratégie traverse dix
- * étages sans jamais descendre sous 70 % de PV, le jeu est trop facile — pas
- * parce qu'un chiffre est mal réglé, mais parce qu'aucune décision n'est
- * demandée au joueur. Le rapport de fin dit à quel étage la bêtise cesse de
- * suffire.
+ * - `brute` (défaut) : foncer sur le monstre le plus proche et bourriner, sans
+ *   jamais esquiver ni reculer. L'étage finit toujours nettoyé.
+ * - `rush` : ignorer tout, aller chercher la clé, descendre. C'est la façon de
+ *   jouer qu'on a mesurée en vrai — 60 % de l'étage laissé derrière — et donc
+ *   celle qui teste si laisser des monstres en vie coûte quelque chose.
+ *
+ * C'est le garde-fou d'équilibrage du projet. Si l'une de ces stratégies
+ * traverse dix étages sans jamais descendre sous 70 % de PV, le jeu est trop
+ * facile — pas parce qu'un chiffre est mal réglé, mais parce qu'aucune décision
+ * n'est demandée au joueur. Le rapport de fin dit à quel étage la bêtise cesse
+ * de suffire.
  *
  * Aucun réseau, aucun serveur : uniquement l'engine, donc c'est reproductible
  * et ça tourne en quelques secondes.
@@ -31,7 +36,8 @@ import { RunTelemetry, floorSummary } from '../apps/server/src/telemetry.js'
 
 const floorsToRun = Number(process.argv[2] ?? 10)
 const seed = Number(process.argv[3] ?? 20260808)
-const OUT = process.env.BOTRUN_OUT ?? 'data/runs/BOTRUN.json'
+const mode = process.argv[4] === 'rush' ? 'rush' : 'brute'
+const OUT = process.env.BOTRUN_OUT ?? `data/runs/BOTRUN${mode === 'rush' ? '_RUSH' : ''}.json`
 
 const BOT_ID = 'p_bot'
 /** Au-delà, on considère la partie perdue : le bot ne progresse plus. */
@@ -97,7 +103,7 @@ function stepToward(state: GameState, bot: Actor, dist: Int16Array): [number, nu
 }
 
 const state = createGame(seed)
-const bot = addPlayer(state, BOT_ID, 'Bourrin')
+const bot = addPlayer(state, BOT_ID, mode === 'rush' ? 'Pressé' : 'Bourrin')
 const telemetry = new RunTelemetry('BOTRUN', state)
 
 let deaths = 0
@@ -105,7 +111,8 @@ let floorTicks = 0
 let startFloor = state.floor
 let stalled = false
 
-console.log(`\nDescente bourrin — graine ${seed}, ${floorsToRun} étage(s) visé(s)\n`)
+const label = mode === 'rush' ? 'Descente pressée (clé et on file)' : 'Descente bourrin (on nettoie tout)'
+console.log(`\n${label} — graine ${seed}, ${floorsToRun} étage(s) visé(s)\n`)
 
 while (state.floor < startFloor + floorsToRun && deaths < MAX_DEATHS && !stalled) {
   const me = state.actors[BOT_ID]!
@@ -113,19 +120,35 @@ while (state.floor < startFloor + floorsToRun && deaths < MAX_DEATHS && !stalled
   let input: PlayerInput = { mx: 0, my: 0, aim: me.aim, attack: false }
 
   if (me.alive && !me.downed) {
-    // Cible : le monstre le plus proche. À défaut, l'escalier — le bot ne
-    // cherche jamais à fuir, c'est tout l'intérêt du test.
-    let target: { x: number; y: number } | null = null
-    let bestD = Infinity
-    for (const a of Object.values(state.actors)) {
-      if (a.kind !== 'monster' || !a.alive) continue
-      const d = Math.hypot(a.x - me.x, a.y - me.y)
-      if (d < bestD) {
-        bestD = d
-        target = a
+    const stairs = { x: state.stairs.x + 0.5, y: state.stairs.y + 0.5 }
+    let goal: { x: number; y: number }
+
+    if (mode === 'rush') {
+      // Le strict nécessaire pour descendre : la clé si elle est tombée, sinon
+      // le gardien qui la porte, sinon l'escalier. Tout le reste est ignoré —
+      // le bot frappe quand même en permanence, donc il tue ce qui le bloque,
+      // mais il ne va jamais chercher personne.
+      const key = state.items.find((it) => it.kind === 'key')
+      const keeper = Object.values(state.actors).find(
+        (a) => a.kind === 'monster' && a.alive && (a.elite === true || a.boss === true),
+      )
+      goal = state.stairsLocked ? (key ?? keeper ?? stairs) : stairs
+    } else {
+      // Cible : le monstre le plus proche. À défaut, l'escalier — le bot ne
+      // cherche jamais à fuir, c'est tout l'intérêt du test.
+      let target: { x: number; y: number } | null = null
+      let bestD = Infinity
+      for (const a of Object.values(state.actors)) {
+        if (a.kind !== 'monster' || !a.alive) continue
+        const d = Math.hypot(a.x - me.x, a.y - me.y)
+        if (d < bestD) {
+          bestD = d
+          target = a
+        }
       }
+      goal = target ?? stairs
     }
-    const goal = target ?? { x: state.stairs.x + 0.5, y: state.stairs.y + 0.5 }
+
     const dist = distancesTo(state, Math.floor(goal.x), Math.floor(goal.y))
     const [mx, my] = stepToward(state, me, dist)
 
@@ -155,7 +178,7 @@ while (state.floor < startFloor + floorsToRun && deaths < MAX_DEATHS && !stalled
 
 startFloor = state.floor
 
-console.log('── Ce que le bourrinage a donné ───────────────────────────────')
+console.log('── Ce que ça a donné ──────────────────────────────────────────')
 for (const f of telemetry.floors) console.log('  ' + floorSummary(f))
 
 const cleared = telemetry.floors.filter((f) => f.ticks > 0)
