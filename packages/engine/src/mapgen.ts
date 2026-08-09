@@ -4,7 +4,7 @@
  *
  * Entièrement déterministe à partir du Rng passé en argument.
  */
-import type { Rng } from './rng.js'
+import { Rng } from './rng.js'
 import { MAP_H, MAP_W, Tile } from './types.js'
 
 export interface Rect {
@@ -32,11 +32,33 @@ export interface Room extends Rect {
   kind: RoomKind
 }
 
+/**
+ * Décor : purement visuel, jamais solide, jamais ramassable.
+ *
+ * Il existe pour une seule raison — se repérer. Toutes les salles d'un donjon
+ * généré se ressemblent, et un joueur qui revient sur ses pas ne le sait pas.
+ * Chaque salle reçoit donc sa signature : un motif dominant, en deux ou trois
+ * exemplaires, tiré de la graine de l'étage. « La salle aux champignons »
+ * devient un lieu, et non un rectangle de plus.
+ */
+export type DecorKind = 'pot' | 'caillou' | 'os' | 'champignon' | 'colonne' | 'caisse'
+
+export const DECOR_KINDS: readonly DecorKind[] = [
+  'pot', 'caillou', 'os', 'champignon', 'colonne', 'caisse',
+]
+
+export interface Decor {
+  x: number
+  y: number
+  kind: DecorKind
+}
+
 export interface FloorLayout {
   width: number
   height: number
   tiles: Uint8Array
   rooms: Room[]
+  decor: Decor[]
   spawn: { x: number; y: number }
   stairs: { x: number; y: number }
 }
@@ -233,7 +255,57 @@ export function generateFloor(rng: Rng, floor: number): FloorLayout {
     height,
     tiles,
     rooms,
+    decor: scatterDecor(tiles, width, rooms, floor, sx, sy, stx, sty),
     spawn: { x: sx, y: sy },
     stairs: { x: stx, y: sty },
   }
+}
+
+/**
+ * Sème la signature de chaque salle. Une salle = un motif dominant en
+ * plusieurs exemplaires : c'est la répétition qui fait le repère, pas la
+ * variété. Les bords sont évités (on longe les murs en combat) ainsi que le
+ * spawn et l'escalier, qui ont déjà leur propre lecture.
+ */
+function scatterDecor(
+  tiles: Uint8Array,
+  w: number,
+  rooms: Room[],
+  floor: number,
+  sx: number,
+  sy: number,
+  stx: number,
+  sty: number,
+): Decor[] {
+  // Tirage à part, dérivé de la géométrie déjà produite plutôt que du flux
+  // principal : puiser dans le RNG de la partie décalerait le placement des
+  // monstres, et une graine donnée ne rejouerait plus le même donjon qu'avant.
+  // Un ornement ne doit rien pouvoir changer au jeu.
+  const rng = new Rng(
+    (Math.imul(floor, 2654435761) ^
+      Math.imul(rooms.length, 40503) ^
+      Math.imul(sx * 64 + sy, 73856093) ^
+      Math.imul(stx * 64 + sty, 19349663)) >>> 0,
+  )
+  const out: Decor[] = []
+  const taken = new Set<number>([sy * w + sx, sty * w + stx])
+  for (const room of rooms) {
+    const kind = DECOR_KINDS[rng.int(DECOR_KINDS.length)]!
+    // Assez pour former un motif, jamais au point d'encombrer la lecture du
+    // combat : une grande salle en reçoit quatre, une petite deux.
+    const count = Math.min(4, 2 + Math.floor((room.w * room.h) / 60))
+    for (let i = 0; i < count; i++) {
+      // Quelques essais suffisent : rater une pose n'a aucune conséquence.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const x = room.x + 1 + rng.int(Math.max(1, room.w - 2))
+        const y = room.y + 1 + rng.int(Math.max(1, room.h - 2))
+        const idx = y * w + x
+        if (taken.has(idx) || tiles[idx] !== Tile.Floor) continue
+        taken.add(idx)
+        out.push({ x, y, kind })
+        break
+      }
+    }
+  }
+  return out
 }

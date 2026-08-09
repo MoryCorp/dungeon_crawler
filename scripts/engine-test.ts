@@ -456,6 +456,60 @@ console.log('\nTests engine\n')
   }
 }
 
+// --- décor de repérage --------------------------------------------------------
+// Purement visuel : il doit être posé sur du sol, ne jamais occuper le spawn
+// ni l'escalier, donner une signature par salle, et surtout ne rien changer au
+// jeu — son tirage est séparé de celui de la partie.
+{
+  const rng1 = new Rng(9001)
+  const a = generateFloor(rng1, 4)
+  const b = generateFloor(new Rng(9001), 4)
+
+  check('chaque étage est décoré', a.decor.length > 0, `${a.decor.length} éléments`)
+  check(
+    'le décor est toujours sur du sol',
+    a.decor.every((d) => a.tiles[d.y * MAP_W + d.x] === Tile.Floor),
+  )
+  check(
+    'ni sur le spawn ni sur l\'escalier',
+    a.decor.every(
+      (d) =>
+        !(d.x === a.spawn.x && d.y === a.spawn.y) &&
+        !(d.x === a.stairs.x && d.y === a.stairs.y),
+    ),
+  )
+  check(
+    'même graine = même décor',
+    JSON.stringify(a.decor) === JSON.stringify(b.decor),
+  )
+  // Une salle = un motif dominant : c'est la répétition qui fait le repère.
+  const room = a.rooms.find(
+    (r) => a.decor.filter((d) => d.x >= r.x && d.x < r.x + r.w && d.y >= r.y && d.y < r.y + r.h).length > 1,
+  )
+  const inRoom = room
+    ? a.decor.filter((d) => d.x >= room.x && d.x < room.x + room.w && d.y >= room.y && d.y < room.y + room.h)
+    : []
+  check(
+    'une salle porte une signature, pas un bric-à-brac',
+    inRoom.length > 1 && new Set(inRoom.map((d) => d.kind)).size === 1,
+    inRoom.map((d) => d.kind).join(','),
+  )
+
+  // Le point crucial : décorer ne doit pas décaler le flux aléatoire de la
+  // partie. On compare la géométrie d'un étage aux monstres qu'il peuple.
+  const peuplement = (s: GameState): string =>
+    Object.values(s.actors)
+      .map((m) => `${m.species}@${m.x.toFixed(2)},${m.y.toFixed(2)}`)
+      .sort()
+      .join('|')
+  const g1 = createGame(9001, 4)
+  const g2 = createGame(9001, 4)
+  check(
+    'le décor ne déplace rien dans la partie',
+    peuplement(g1) === peuplement(g2) && g1.decor.length > 0 && Object.keys(g1.actors).length > 0,
+  )
+}
+
 // --- angles de couloir : le nudge --------------------------------------------
 // Mal aligné de quelques pixels sur l'embouchure d'un couloir, on glissait
 // contre le coin et on restait planté. Désormais, un accrochage léger fait

@@ -559,6 +559,7 @@ export function createGame(seed: number, floor = 1): GameState {
     floorKills: 0,
     bones: 0,
     rooms: layout.rooms,
+    decor: layout.decor,
     capBonus: 0,
     capBought: 0,
     wear: { lowTicks: 0, ticks: 0, downs: 0 },
@@ -611,6 +612,7 @@ export function descend(state: GameState): void {
   state.projectiles = []
   state.items = []
   state.rooms = layout.rooms
+  state.decor = layout.decor
   delete state.trap
   delete state.restAnnounced
 

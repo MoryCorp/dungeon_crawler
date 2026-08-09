@@ -152,6 +152,7 @@ export class Room {
       width: this.state.width,
       height: this.state.height,
       tiles: toBase64(this.state.tiles),
+      decor: this.state.decor ?? [],
     }
   }
 

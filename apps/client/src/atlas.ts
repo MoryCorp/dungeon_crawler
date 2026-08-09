@@ -372,6 +372,113 @@ const WALL_JOINT = '#131521'
  * du bloc est plus clair que sa tranche, ce qui suffit à donner du relief à
  * tout le donjon sans calculer quoi que ce soit sur les voisins.
  */
+/**
+ * Décor de repérage, peint directement dans la carte cuite de l'étage.
+ *
+ * Aucun sprite, aucun acteur : ce sont des pixels du sol, donc coût nul au
+ * rendu et masquage par le brouillard offert. Chaque motif se lit à la
+ * silhouette plus qu'à la couleur — c'est ce qui permet de reconnaître une
+ * salle du coin de l'œil, sans la regarder.
+ */
+export function paintDecor(
+  ctx: CanvasRenderingContext2D,
+  kind: string,
+  tx: number,
+  ty: number,
+): void {
+  const px = tx * TILE
+  const py = ty * TILE
+  // Deux variantes par motif, tirées de la position : une rangée de pots
+  // strictement identiques trahirait la génération.
+  const v = ((tx * 7) ^ (ty * 13)) & 1
+  const shade = 'rgba(0,0,0,0.30)'
+
+  switch (kind) {
+    case 'pot': {
+      ctx.fillStyle = shade
+      ctx.fillRect(px + 5, py + 13, 7, 2)
+      ctx.fillStyle = '#7a5b46'
+      ctx.fillRect(px + 5, py + 7, 6, 6)
+      ctx.fillRect(px + 6, py + 5, 4, 2)
+      ctx.fillStyle = '#8f6c52'
+      ctx.fillRect(px + 6, py + 8, 2, 4)
+      ctx.fillStyle = '#241a15'
+      // Ébréché : le morceau manquant change de côté selon la variante.
+      if (v === 0) ctx.fillRect(px + 9, py + 5, 2, 3)
+      else ctx.fillRect(px + 5, py + 6, 2, 3)
+      break
+    }
+    case 'caillou': {
+      ctx.fillStyle = shade
+      ctx.fillRect(px + 3, py + 12, 9, 2)
+      ctx.fillStyle = '#4a5162'
+      ctx.fillRect(px + 4, py + 8, 6, 4)
+      ctx.fillRect(px + 5, py + 7, 4, 1)
+      ctx.fillStyle = '#5b6376'
+      ctx.fillRect(px + 5, py + 8, 3, 2)
+      ctx.fillStyle = '#3b4150'
+      ctx.fillRect(px + 10 - v, py + 10, 3, 2)
+      break
+    }
+    case 'os': {
+      ctx.fillStyle = shade
+      ctx.fillRect(px + 3, py + 11, 10, 2)
+      ctx.fillStyle = '#b9b7a6'
+      // Deux fémurs croisés : la silhouette la plus reconnaissable du lot.
+      ctx.fillRect(px + 3, py + 9, 9, 1)
+      ctx.fillRect(px + 3, py + 8, 1, 1)
+      ctx.fillRect(px + 11, py + 10, 1, 1)
+      ctx.fillRect(px + 4 + v, py + 11, 7, 1)
+      ctx.fillStyle = '#8d8b7d'
+      ctx.fillRect(px + 5, py + 6, 4, 3)
+      ctx.fillRect(px + 6, py + 9, 2, 1)
+      break
+    }
+    case 'champignon': {
+      ctx.fillStyle = shade
+      ctx.fillRect(px + 4, py + 12, 8, 2)
+      ctx.fillStyle = '#cfd8e8'
+      ctx.fillRect(px + 6, py + 9, 1, 3)
+      ctx.fillRect(px + 10, py + 10, 1, 2)
+      ctx.fillStyle = v === 0 ? '#6fbfa0' : '#7fae6f'
+      ctx.fillRect(px + 4, py + 7, 5, 2)
+      ctx.fillRect(px + 5, py + 6, 3, 1)
+      ctx.fillRect(px + 9, py + 9, 4, 1)
+      ctx.fillStyle = '#3f6a58'
+      ctx.fillRect(px + 5, py + 8, 1, 1)
+      ctx.fillRect(px + 7, py + 7, 1, 1)
+      break
+    }
+    case 'colonne': {
+      ctx.fillStyle = shade
+      ctx.fillRect(px + 3, py + 12, 10, 2)
+      ctx.fillStyle = '#6d7386'
+      ctx.fillRect(px + 5, py + 4 + v, 6, 8 - v)
+      ctx.fillStyle = '#848b9e'
+      ctx.fillRect(px + 5, py + 4 + v, 2, 8 - v)
+      ctx.fillStyle = '#565c6d'
+      ctx.fillRect(px + 4, py + 11, 8, 2)
+      // Fût brisé net : le sommet est plus clair, comme une cassure fraîche.
+      ctx.fillStyle = '#9aa2b6'
+      ctx.fillRect(px + 5, py + 4 + v, 6, 1)
+      break
+    }
+    case 'caisse': {
+      ctx.fillStyle = shade
+      ctx.fillRect(px + 3, py + 13, 10, 2)
+      ctx.fillStyle = '#6b5334'
+      ctx.fillRect(px + 4, py + 5, 8, 8)
+      ctx.fillStyle = '#846741'
+      ctx.fillRect(px + 4, py + 5, 8, 1)
+      ctx.fillRect(px + 4, py + 8 + v, 8, 1)
+      ctx.fillStyle = '#4a3823'
+      ctx.fillRect(px + 4, py + 12, 8, 1)
+      ctx.fillRect(px + 7, py + 6, 1, 6)
+      break
+    }
+  }
+}
+
 export function paintTile(
   ctx: CanvasRenderingContext2D,
   tile: number,

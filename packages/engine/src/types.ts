@@ -9,7 +9,7 @@
  * Tous les réglages de game feel sont ici et nulle part ailleurs.
  */
 
-import type { Room } from './mapgen.js'
+import type { Decor, Room } from './mapgen.js'
 
 export const TICK_RATE = 30
 export const TICK_MS = 1000 / TICK_RATE
@@ -1131,6 +1131,8 @@ export interface GameState {
   bones: number
   /** Salles typées de l'étage courant — la matière des recettes filtrées. */
   rooms: Room[]
+  /** Décor purement visuel : repères pour se situer. Voir scatterDecor. */
+  decor: Decor[]
   /** La salle piégée de l'étage, si l'étage en a une. */
   trap?: TrapState
   /** Plafond de soin racheté à l'étal, cumulé sur la partie. */

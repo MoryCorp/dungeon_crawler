@@ -6,7 +6,7 @@
  * position prédite, sinon on sentirait un aller-retour à chaque paquet.
  */
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
-import type { ActorView, GameEvent, ItemView, ProjectileView } from '@dc/engine'
+import type { ActorView, Decor, GameEvent, ItemView, ProjectileView } from '@dc/engine'
 import { MONSTERS, MONSTER_HALF_ARC, ROLL_TICKS, TICK_RATE, WEAPONS, chestPrice } from '@dc/engine'
 import {
   WEAPON_ATTACK,
@@ -24,6 +24,7 @@ import {
   makeCanvas,
   makeItemTexture,
   makeProjectileTexture,
+  paintDecor,
   nearestTexture,
   paintTile,
   whiteTexture,
@@ -172,6 +173,8 @@ export class Renderer {
   private fogTexture: Texture | null = null
 
   private explored = new Uint8Array(0)
+  /** Tuiles de l'étage courant — la minicarte les relit chaque rafraîchissement. */
+  private tiles: Uint8Array = new Uint8Array(0)
   private entities = new Map<string, Entity>()
   private items = new Map<string, Mover>()
   private projectiles = new Map<string, Mover>()
@@ -196,9 +199,16 @@ export class Renderer {
     app.stage.addChild(this.world)
   }
 
-  setFloor(width: number, height: number, tiles: Uint8Array, keepExplored = false): void {
+  setFloor(
+    width: number,
+    height: number,
+    tiles: Uint8Array,
+    keepExplored = false,
+    decor: readonly Decor[] = [],
+  ): void {
     this.width = width
     this.height = height
+    this.tiles = tiles
     // Repeindre le même étage (la grille du piège vient de bouger) ne doit
     // pas effacer ce qu'on a déjà exploré.
     if (!keepExplored || this.explored.length !== width * height) {
@@ -214,6 +224,9 @@ export class Renderer {
         }
       }
     }
+    // Le décor est cuit dans la même image que le sol : rien à animer, rien à
+    // trier en profondeur, et le brouillard le masque sans code en plus.
+    for (const d of decor) paintDecor(ctx, d.kind, d.x, d.y)
     this.mapSprite?.destroy()
     this.mapSprite = new Sprite(nearestTexture(canvas))
     this.mapLayer.removeChildren()
@@ -618,6 +631,54 @@ export class Renderer {
       tag.destroy()
       this.priceTags.delete(id)
     }
+  }
+
+  /**
+   * Peint la minicarte dans le contexte fourni.
+   *
+   * Elle ne montre que l'exploré — jamais le donjon entier. Sa raison d'être
+   * n'est pas de révéler la carte mais d'empêcher de repasser deux fois au
+   * même endroit sans le savoir, ce que le champ de vision de neuf tuiles rend
+   * autrement inévitable. L'escalier n'apparaît qu'une fois vu : le trouver
+   * reste le travail du joueur.
+   */
+  paintMinimap(ctx: CanvasRenderingContext2D, cell: number): void {
+    const w = this.width
+    const h = this.height
+    ctx.clearRect(0, 0, w * cell, h * cell)
+    if (w === 0 || this.tiles.length !== w * h) return
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x
+        if (!this.explored[i]) continue
+        const t = this.tiles[i]!
+        if (t === 0) ctx.fillStyle = '#1b1e28'
+        else if (t === 3) ctx.fillStyle = '#e8c95a'
+        else if (t === 4) ctx.fillStyle = '#6b4a4a'
+        else ctx.fillStyle = '#48506250'
+        ctx.fillRect(x * cell, y * cell, cell, cell)
+      }
+    }
+
+    // Les coéquipiers d'abord, soi-même par-dessus : on doit toujours pouvoir
+    // se trouver, même superposé à quelqu'un.
+    const dot = (px: number, py: number, color: string, size: number): void => {
+      ctx.fillStyle = color
+      ctx.fillRect(
+        Math.round(px * cell) - size / 2,
+        Math.round(py * cell) - size / 2,
+        size, size,
+      )
+    }
+    for (const e of this.entities.values()) {
+      if (e.view.kind !== 'player' || e.view.id === this.selfId) continue
+      dot(e.view.x, e.view.y, e.view.alive && !e.view.downed ? '#7fb2e8' : '#8a5a5a', cell * 2)
+    }
+    const selfEntity = this.entities.get(this.selfId)
+    const sx = this.predicted?.x ?? selfEntity?.view.x
+    const sy = this.predicted?.y ?? selfEntity?.view.y
+    if (sx !== undefined && sy !== undefined) dot(sx, sy, '#f0e6d2', cell * 2 + 1)
   }
 
   /** Nombre d'effets visuels actifs — utile pour vérifier que les swings sortent. */

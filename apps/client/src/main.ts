@@ -46,6 +46,9 @@ const potionLabel = $('potion')
 const xpFill = $('xp-fill')
 const staminaFill = $('stamina-fill')
 const staminaTrack = $('stamina-track')
+const minimap = $<HTMLCanvasElement>('minimap')
+/** Deux pixels par tuile : la carte de 64 tuiles tient dans 128 px. */
+const MINIMAP_CELL = 2
 const objective = $('objective')
 const hpFill = $('hp-fill')
 const weaponGlyph = $('weapon-glyph')
@@ -157,6 +160,8 @@ async function main(): Promise<void> {
   let lastInput: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }
   let accumulator = 0
   let sendTimer = 0
+  let mapTimer = 0
+  const miniCtx = minimap.getContext('2d')
 
   const debug = {
     frames: 0, states: 0, floors: 0, swings: 0, effects: 0, lastTick: 0,
@@ -203,7 +208,7 @@ async function main(): Promise<void> {
         debug.floors++
         mapSize = msg.width * msg.height
         tiles = fromBase64(msg.tiles)
-        renderer.setFloor(msg.width, msg.height, tiles, samefloor)
+        renderer.setFloor(msg.width, msg.height, tiles, samefloor, msg.decor ?? [])
         audio.setFloor(msg.floor)
         floorLabel.textContent = String(msg.floor)
         if (!samefloor) localReady = false
@@ -451,6 +456,16 @@ async function main(): Promise<void> {
     }
 
     renderer.render(dt)
+
+    // La minicarte n'a pas besoin de 60 Hz : elle ne bouge qu'à la vitesse du
+    // personnage, et la redessiner à chaque frame coûterait plus cher que tout
+    // le reste du HUD réuni.
+    mapTimer -= dt
+    if (mapTimer <= 0 && miniCtx) {
+      mapTimer = 0.12
+      renderer.paintMinimap(miniCtx, MINIMAP_CELL)
+    }
+
     debug.effects = renderer.effectCount
   })
 
