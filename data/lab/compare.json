@@ -1,0 +1,750 @@
+[
+ {
+  "name": "bow·prudent·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "sword·presse·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "spear·presse·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "bow·prudent·optimal",
+  "avant": {
+   "floorMed": 2,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "axe·prudent·optimal",
+  "avant": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "dagger·kite·optimal",
+  "avant": {
+   "floorMed": 2,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 2,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "duo·prudent·humain",
+  "avant": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 5,
+   "firstDeathMed": 4,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 4,
+   "p75": 6,
+   "firstDeathMed": 4,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "axe·kite·humain",
+  "avant": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 4,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 5,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "axe·presse·humain",
+  "avant": {
+   "floorMed": 4,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "sword·kite·humain",
+  "avant": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "axe·bourrin·humain",
+  "avant": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "bow·bourrin·humain",
+  "avant": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 5,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 2,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "bow·kite·humain",
+  "avant": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 5,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "spear·kite·humain",
+  "avant": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 5,
+   "firstDeathMed": 4,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "sword·presse·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 1,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "sword·bourrin·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "sword·bourrin·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "axe·prudent·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "bow·kite·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "axe·kite·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 4,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "spear·bourrin·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "bow·bourrin·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "spear·bourrin·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "sword·kite·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "spear·prudent·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "sword·prudent·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 1,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "sword·prudent·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "spear·presse·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 1,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "spear·prudent·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "dagger·bourrin·humain",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 2,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 1,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "axe·bourrin·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "axe·presse·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 3,
+   "p25": 1,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "dagger·prudent·optimal",
+  "avant": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 3,
+   "firstDeathMed": 2,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 2,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "dagger·presse·optimal",
+  "avant": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 2,
+   "firstDeathMed": 2,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 2,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 2,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "dagger·kite·humain",
+  "avant": {
+   "floorMed": 2,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 2,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 2,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 2,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "dagger·presse·humain",
+  "avant": {
+   "floorMed": 2,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 2,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 2,
+   "p25": 2,
+   "p75": 3,
+   "firstDeathMed": 2,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "dagger·bourrin·optimal",
+  "avant": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 3,
+   "firstDeathMed": 1,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 2,
+   "firstDeathMed": 2,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "dagger·prudent·humain",
+  "avant": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 2,
+   "firstDeathMed": 1,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 2,
+   "firstDeathMed": 1,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "quatuor·prudent·optimal",
+  "avant": {
+   "floorMed": 7,
+   "p25": 6,
+   "p75": 8,
+   "firstDeathMed": 6,
+   "reach10": 0.0625
+  },
+  "apres": {
+   "floorMed": 6,
+   "p25": 5,
+   "p75": 8,
+   "firstDeathMed": 5,
+   "reach10": 0.0625
+  }
+ },
+ {
+  "name": "duo·prudent·optimal",
+  "avant": {
+   "floorMed": 5,
+   "p25": 4,
+   "p75": 6,
+   "firstDeathMed": 4,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 6,
+   "firstDeathMed": 4,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "bow·presse·humain",
+  "avant": {
+   "floorMed": 5,
+   "p25": 3,
+   "p75": 5,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 4,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "bow·presse·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 2,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "spear·kite·optimal",
+  "avant": {
+   "floorMed": 3,
+   "p25": 3,
+   "p75": 4,
+   "firstDeathMed": 4,
+   "reach10": 0
+  },
+  "apres": {
+   "floorMed": 2,
+   "p25": 1,
+   "p75": 4,
+   "firstDeathMed": 3,
+   "reach10": 0
+  }
+ },
+ {
+  "name": "quatuor·prudent·humain",
+  "avant": {
+   "floorMed": 7,
+   "p25": 6,
+   "p75": 9,
+   "firstDeathMed": 5,
+   "reach10": 0.0625
+  },
+  "apres": {
+   "floorMed": 5,
+   "p25": 4,
+   "p75": 7,
+   "firstDeathMed": 5,
+   "reach10": 0
+  }
+ }
+]
