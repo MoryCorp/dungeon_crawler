@@ -1924,6 +1924,17 @@ console.log('\nTests engine\n')
       plan2.some((g) => MONSTERS[g.species]!.behavior === 'archer'),
     plan2.map((g) => g.species).join(', '),
   )
+
+  // Le pool réel de l'entrée d'un acte : soldats et chauves-souris seulement.
+  // Une recette qui exige des archers doit dégrader en douceur, pas planter —
+  // c'est ce qui rend les premiers étages d'un acte plus cléments, à dessein.
+  const entryPool = ['bat', 'soldat', 'soldat']
+  const plan3 = planWave(snipers, 4, entryPool, new Map(), new Rng(11))
+  check(
+    "à l'entrée d'un acte, les tireurs dégradent sans planter",
+    plan3.length > 0 && plan3.every((g) => entryPool.includes(g.species)),
+    plan3.map((g) => g.species).join(', '),
+  )
 }
 
 {
