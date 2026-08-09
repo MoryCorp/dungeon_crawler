@@ -2,6 +2,7 @@ import { Application } from 'pixi.js'
 import {
   BLEED_OUT_TICKS,
   DT,
+  PICKUP_RANGE,
   ROLL_MIN_STAMINA,
   ROLL_SPEED,
   SPRINT_MIN_START,
@@ -51,6 +52,7 @@ const minimap = $<HTMLCanvasElement>('minimap')
 const MINIMAP_CELL = 2
 const objective = $('objective')
 const hpFill = $('hp-fill')
+const hpCap = $('hp-cap')
 const weaponGlyph = $('weapon-glyph')
 const vitalsBox = $('vitals')
 const goVeil = $('gameover')
@@ -307,6 +309,10 @@ async function main(): Promise<void> {
     hpFill.style.width = `${hpRatio * 100}%`
     hpFill.classList.toggle('warn', hpRatio > 0.25 && hpRatio <= 0.5)
     hpFill.classList.toggle('crit', hpRatio > 0 && hpRatio <= 0.25)
+    // Le trait du plafond de soin : ce que les cœurs ne remonteront pas.
+    const ceilRatio = self?.hpCeil !== undefined ? self.hpCeil / Math.max(1, self.maxHp) : 1
+    hpCap.style.display = ceilRatio < 1 ? 'block' : 'none'
+    hpCap.style.left = `${Math.round(ceilRatio * 100)}%`
     weaponLabel.textContent = WEAPONS[self?.weapon ?? '']?.label ?? '—'
     weaponGlyph.textContent = (WEAPONS[self?.weapon ?? '']?.label ?? '—').charAt(0).toUpperCase()
     levelLabel.textContent = String(self?.level ?? 1)
@@ -365,9 +371,37 @@ async function main(): Promise<void> {
       .join('')
   }
 
+  // Ramassage d'armes : curseur sur l'arme + clic droit maintenu. La jauge se
+  // remplit en une seconde, l'impulsion part une seule fois par pression —
+  // relâcher avant de reprendre, pour qu'un échange ne ré-avale pas l'arme
+  // qu'on vient de poser.
+  const TAKE_HOLD_S = 1.0
+  let takeHoldId: string | null = null
+  let takeHoldS = 0
+  let takeFired = false
+
   app.ticker.add((ticker) => {
     debug.frames++
     const dt = Math.min(0.1, ticker.deltaMS / 1000)
+
+    const hover = renderer.weaponUnderCursor(input.mouseX, input.mouseY)
+    const hoverInRange =
+      hover !== null && Math.hypot(hover.x - local.x, hover.y - local.y) <= PICKUP_RANGE
+    if (!input.rightHeld) takeFired = false
+    if (hover && input.rightHeld && hoverInRange && !takeFired && alive && !downed) {
+      if (takeHoldId !== hover.id) takeHoldS = 0
+      takeHoldId = hover.id
+      takeHoldS += dt
+      if (takeHoldS >= TAKE_HOLD_S) {
+        input.queueTake()
+        takeFired = true
+        takeHoldS = 0
+      }
+    } else {
+      takeHoldId = hover?.id ?? null
+      takeHoldS = 0
+    }
+    renderer.setTakeHold(takeHoldId, takeHoldS / TAKE_HOLD_S)
 
     // Le personnage est toujours au centre de l'écran : la souris vise par
     // rapport à ce point.

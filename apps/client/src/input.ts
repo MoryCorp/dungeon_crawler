@@ -32,8 +32,9 @@ const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight'])
 /** Boire la fiole portée — R près de ZQSD, F près des flèches. */
 const DRINK_KEYS = new Set(['KeyR', 'KeyF'])
 
-/** Ramasser l'arme sous ses pieds — E, ou le clic droit. */
-const TAKE_KEYS = new Set(['KeyE'])
+// Le ramassage d'armes ne passe plus par une touche : curseur sur l'arme +
+// clic droit maintenu (voir la boucle de main.ts). À la manette, Y reste une
+// impulsion — pas de curseur à maintenir dessus.
 
 /**
  * Touches que le navigateur détournerait. Tab passe au champ suivant, ce qui
@@ -53,10 +54,17 @@ export class InputManager {
   private padRollHeld = false
   private padTakeHeld = false
   private mouseDown = false
-  private mouseX = 0
-  private mouseY = 0
+  mouseX = 0
+  mouseY = 0
+  /** Clic droit enfoncé — l'état brut, lu par la jauge de ramassage. */
+  rightHeld = false
   private aim = 0
   gamepadConnected = false
+
+  /** Déclenche l'impulsion de ramassage (jauge remplie, ou Y à la manette). */
+  queueTake(): void {
+    this.takeQueued = true
+  }
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
@@ -76,16 +84,13 @@ export class InputManager {
         e.preventDefault()
         this.rollQueued = true
       }
-      if (TAKE_KEYS.has(e.code)) {
-        e.preventDefault()
-        this.takeQueued = true
-      }
     })
     window.addEventListener('keyup', (e) => this.held.delete(e.code))
     // Sans ça, changer d'onglet touche enfoncée laisse le perso courir seul.
     window.addEventListener('blur', () => {
       this.held.clear()
       this.mouseDown = false
+      this.rightHeld = false
     })
 
     canvas.addEventListener('mousemove', (e) => {
@@ -97,14 +102,16 @@ export class InputManager {
         e.preventDefault()
         this.mouseDown = true
       }
-      // Clic droit : ramasser. Le menu contextuel est déjà neutralisé.
+      // Clic droit : maintenu sur une arme, il la ramasse — la boucle de jeu
+      // lit `rightHeld` et gère la jauge. Le menu contextuel est neutralisé.
       if (e.button === 2) {
         e.preventDefault()
-        this.takeQueued = true
+        this.rightHeld = true
       }
     })
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.mouseDown = false
+      if (e.button === 2) this.rightHeld = false
     })
     // Le clic droit ouvrirait le menu contextuel en plein combat.
     canvas.addEventListener('contextmenu', (e) => e.preventDefault())

@@ -10,7 +10,7 @@
  */
 import type { Decor, Room } from './mapgen.js'
 import type { Actor, GameEvent, GameState, ItemKind, PlayerInput } from './types.js'
-import { xpForLevel } from './types.js'
+import { healCapOf, xpForLevel } from './types.js'
 
 const g = globalThis as unknown as {
   Buffer?: { from(b: Uint8Array | string, enc?: string): Uint8Array & { toString(e: string): string } }
@@ -90,6 +90,11 @@ export interface ActorView {
   hasted?: boolean
   /** Roulade en cours : le rendu incline le sprite et laisse une traînée. */
   rolling?: boolean
+  /**
+   * Plafond de soin en PV : au-dessus, les cœurs restent au sol. Le client
+   * l'affiche — un soin qu'on refuse sans le dire ressemble à un bug.
+   */
+  hpCeil?: number
 
   /** Monstres uniquement. */
   rank?: 'elite' | 'boss'
@@ -210,6 +215,7 @@ export function buildActorViews(state: GameState, visible: Uint8Array): ActorVie
       if (a.potion !== undefined) view.potion = a.potion
       if ((a.hasteUntil ?? 0) > state.tick) view.hasted = true
       if (a.rollUntil !== undefined && a.rollUntil > state.tick) view.rolling = true
+      view.hpCeil = Math.round(a.maxHp * healCapOf(state))
     } else {
       if (a.boss) view.rank = 'boss'
       else if (a.elite) view.rank = 'elite'

@@ -185,6 +185,9 @@
       #hp-fill { width: 100%; background: var(--hp); transition: width 120ms linear; }
       #hp-fill.warn { background: var(--hp-warn); }
       #hp-fill.crit { background: var(--hp-crit); animation: hp-pulse 1s ease-in-out infinite; }
+      /* Le plafond de soin : au-delà de ce trait, les cœurs ne remontent plus.
+         Visible seulement quand le plafond est entamé (sous 100 %). */
+      #hp-cap { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.55); display: none; }
       @keyframes hp-pulse { 50% { filter: brightness(1.4); } }
       #hp {
         position: absolute; inset: 0; display: grid; place-items: center;
@@ -374,7 +377,7 @@
         <div class="bars">
           <div class="hp-row">
             <div class="level-badge panel">N<b id="level" class="num">1</b></div>
-            <div id="hp-track" class="gauge"><div id="hp-fill"></div><span id="hp" class="num">—</span></div>
+            <div id="hp-track" class="gauge"><div id="hp-fill"></div><div id="hp-cap"></div><span id="hp" class="num">—</span></div>
           </div>
           <div id="stamina-track" class="gauge"><div id="stamina-fill"></div></div>
           <div id="xp-track" class="gauge"><div id="xp-fill"></div></div>

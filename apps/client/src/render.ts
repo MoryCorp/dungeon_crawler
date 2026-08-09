@@ -198,6 +198,10 @@ export class Renderer {
   floor = 1
   private priceTags = new Map<string, Text>()
   private takeTag: Text | null = null
+  private takeGauge: Graphics | null = null
+  private takeHoverId: string | null = null
+  private takeHoldProgress = 0
+  private lastItems: ItemView[] = []
 
   constructor(private readonly app: Application) {
     this.entityLayer.sortableChildren = true
@@ -326,6 +330,17 @@ export class Renderer {
       return sprite
     })
 
+    // Un cœur qu'on ne peut pas prendre (plafond de soin atteint) s'éteint :
+    // un soin refusé sans le dire ressemble à un bug, pas à une règle.
+    const me = actors.find((a) => a.id === this.selfId)
+    const capped = me !== undefined && me.hpCeil !== undefined && me.hp >= me.hpCeil
+    for (const item of items) {
+      if (item.kind !== 'heart') continue
+      const mover = this.items.get(item.id)
+      if (mover) mover.sprite.alpha = capped ? 0.35 : 1
+    }
+
+    this.lastItems = items
     this.syncPriceTags(items)
 
     this.syncMovers(this.projectiles, projectiles, this.fxLayer, (p) => {
@@ -663,18 +678,22 @@ export class Renderer {
   }
 
   /**
-   * Invite au-dessus de l'arme sous nos pieds. Une arme ne se ramasse plus en
-   * marchant dessus : il faut donc dire laquelle, et comment. Une seule invite
-   * à la fois, sur l'arme la plus proche — deux étiquettes superposées dans un
-   * couloir ne se lisent pas.
+   * Invite au-dessus de l'arme visée. Une arme se ramasse en gardant le
+   * curseur dessus et le clic droit enfoncé : l'invite dit laquelle et
+   * comment, et la jauge montre la prise en cours. Une seule invite à la
+   * fois — deux étiquettes superposées dans un couloir ne se lisent pas.
    */
   private syncTakePrompt(items: ItemView[]): void {
     const px = this.predicted?.x ?? this.entities.get(this.selfId)?.view.x
     const py = this.predicted?.y ?? this.entities.get(this.selfId)?.view.y
 
-    let best: ItemView | null = null
-    let bestD = PICKUP_RANGE
-    if (px !== undefined && py !== undefined) {
+    // L'arme sous le curseur d'abord — c'est elle qu'on est en train de
+    // prendre. À défaut, la plus proche à portée, comme rappel du geste.
+    let best: ItemView | null = this.takeHoverId
+      ? items.find((i) => i.id === this.takeHoverId && i.kind === 'weapon') ?? null
+      : null
+    if (!best && px !== undefined && py !== undefined) {
+      let bestD = PICKUP_RANGE
       for (const item of items) {
         if (item.kind !== 'weapon') continue
         const d = Math.hypot(item.x - px, item.y - py)
@@ -687,6 +706,7 @@ export class Renderer {
 
     if (!best) {
       if (this.takeTag) this.takeTag.visible = false
+      if (this.takeGauge) this.takeGauge.visible = false
       return
     }
     if (!this.takeTag) {
@@ -702,11 +722,58 @@ export class Renderer {
       this.takeTag.anchor.set(0.5, 1)
       this.fxLayer.addChild(this.takeTag)
     }
+    if (!this.takeGauge) {
+      this.takeGauge = new Graphics()
+      this.fxLayer.addChild(this.takeGauge)
+    }
+    const inRange =
+      px !== undefined && py !== undefined &&
+      Math.hypot(best.x - px, best.y - py) <= PICKUP_RANGE
     const label = WEAPONS[best.weapon ?? '']?.label ?? 'arme'
-    this.takeTag.text = `E · ${label}`
+    this.takeTag.text = `clic droit · ${label}`
+    this.takeTag.alpha = inRange ? 1 : 0.5
     this.takeTag.visible = true
     this.takeTag.x = best.x * TILE
     this.takeTag.y = best.y * TILE - TILE * 0.55
+
+    // La jauge : un trait qui se remplit sous l'étiquette pendant la prise.
+    this.takeGauge.clear()
+    if (this.takeHoldProgress > 0 && best.id === this.takeHoverId) {
+      const w = TILE * 0.9
+      const x0 = best.x * TILE - w / 2
+      const y0 = best.y * TILE - TILE * 0.45
+      this.takeGauge.rect(x0, y0, w, 1.5).fill({ color: 0x000000, alpha: 0.6 })
+      this.takeGauge
+        .rect(x0, y0, w * Math.min(1, this.takeHoldProgress), 1.5)
+        .fill({ color: 0xf0c86a })
+      this.takeGauge.visible = true
+    } else {
+      this.takeGauge.visible = false
+    }
+  }
+
+  /** L'arme au sol sous le curseur (coordonnées écran), s'il y en a une. */
+  weaponUnderCursor(sx: number, sy: number): ItemView | null {
+    const local = this.world.toLocal({ x: sx, y: sy })
+    const wx = local.x / TILE
+    const wy = local.y / TILE
+    let best: ItemView | null = null
+    let bestD = 0.6
+    for (const item of this.lastItems) {
+      if (item.kind !== 'weapon') continue
+      const d = Math.hypot(item.x - wx, item.y - wy)
+      if (d <= bestD) {
+        bestD = d
+        best = item
+      }
+    }
+    return best
+  }
+
+  /** La prise en cours, affichée par syncTakePrompt : arme visée + jauge 0-1. */
+  setTakeHold(id: string | null, progress: number): void {
+    this.takeHoverId = id
+    this.takeHoldProgress = progress
   }
 
   /**
