@@ -921,6 +921,8 @@ export interface Actor {
   rolledAt?: number
   /** Dernier tick où la roulade a été demandée — voir ROLL_BUFFER. */
   rollWantAt?: number
+  /** Dernier tick où le joueur a demandé à ramasser. Voir PlayerInput.take. */
+  takeAt?: number
 
   /** Monstres. */
   elite?: boolean
@@ -1004,6 +1006,13 @@ export interface GroundItem {
 
 /** Distance de ramassage automatique. Les coffres, eux, s'ouvrent au contact. */
 export const PICKUP_RANGE = 0.75
+/**
+ * Fenêtre pendant laquelle une demande de ramassage reste valable. Même rôle
+ * que ROLL_BUFFER : la touche est pressée à la frame, l'objet est testé au
+ * tick, et rater d'un pixel une commande explicite est bien plus agaçant que
+ * de la voir partir un chouïa trop tôt.
+ */
+export const TAKE_BUFFER = ticks(0.25)
 export const XP_MAGNET_RANGE = 3.0
 export const XP_MAGNET_SPEED = 6
 
@@ -1019,6 +1028,14 @@ export interface PlayerInput {
   drink?: boolean
   /** Roulade. Impulsion, pas un état — même contrat que `drink`. */
   roll?: boolean
+  /**
+   * Ramasser ce qu'on a sous les pieds. Impulsion.
+   *
+   * Réservé aux armes : changer d'arme est un choix, et marcher dessus n'en
+   * est pas un. Revenir sur ses pas dans un couloir rééquipait l'arme qu'on
+   * venait d'abandonner, sans rien demander à personne.
+   */
+  take?: boolean
 }
 
 export const NEUTRAL_INPUT: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }

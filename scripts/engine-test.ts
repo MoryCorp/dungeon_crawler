@@ -62,6 +62,7 @@ import {
   REVIVE_TICKS,
   ROLL_BUFFER,
   ROLL_COOLDOWN,
+  TAKE_BUFFER,
   ROLL_COST,
   ROLL_TICKS,
   Rng,
@@ -454,6 +455,37 @@ console.log('\nTests engine\n')
       placed && hero.rollUntil === undefined && Math.abs(hero.x - start) < 0.4,
       `parcouru ${Math.abs(hero.x - start).toFixed(2)}`)
   }
+}
+
+// --- ramassage explicite des armes --------------------------------------------
+// Marcher sur une arme ne la ramasse plus : repasser dans un couloir
+// rééquipait celle qu'on venait d'abandonner. Tout le reste se prend toujours
+// en marchant dessus — un soin ne pose aucune question, une arme si.
+{
+  const s = createGame(4242)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_t', 'Ramasseur')
+  hero.weapon = 'sword'
+  s.items.push({ id: 'it_axe', kind: 'weapon', x: hero.x, y: hero.y, weapon: 'axe' })
+
+  for (let i = 0; i < 10; i++) step(s, { p_t: idle })
+  check('marcher sur une arme ne la ramasse pas', hero.weapon === 'sword')
+
+  step(s, { p_t: { ...idle, take: true } })
+  check('la demande explicite la ramasse', hero.weapon === 'axe')
+
+  // L'ancienne arme retombe au sol, verrouillée le temps qu'on s'éloigne :
+  // une seule pression ne doit pas faire l'aller-retour.
+  step(s, { p_t: { ...idle, take: true } })
+  check('une pression ne rééquipe pas l\'ancienne dans la foulée', hero.weapon === 'axe')
+
+  const soin = createGame(4242)
+  clearMonsters(soin)
+  const other = addPlayer(soin, 'p_s', 'Passant')
+  other.hp = 1
+  soin.items.push({ id: 'it_heart', kind: 'heart', x: other.x, y: other.y })
+  step(soin, { p_s: idle })
+  check('le reste se ramasse toujours en marchant dessus', other.hp > 1, `${other.hp} PV`)
 }
 
 // --- décor de repérage --------------------------------------------------------
@@ -1279,20 +1311,26 @@ console.log('\nTests engine\n')
   s.items.length = 0
   s.items.push({ id: 'i_axe', kind: 'weapon', x: hero.x, y: hero.y, weapon: 'axe' })
 
-  step(s, noInputs)
-  check('marcher sur une arme l\'équipe', hero.weapon === 'axe', String(hero.weapon))
+  const take: PlayerInput = { ...idle, take: true }
+  step(s, { p_swap: take })
+  check('demander une arme l\'équipe', hero.weapon === 'axe', String(hero.weapon))
   check('l\'ancienne arme reste au sol', s.items.some((i) => i.weapon === 'sword'))
 
-  // En restant planté dessus, on ne doit pas réenchaîner les échanges.
-  for (let i = 0; i < TICK_RATE * 3; i++) step(s, noInputs)
+  // En restant planté dessus, on ne doit pas réenchaîner les échanges — même
+  // en maintenant la touche : le verrou de pose tient jusqu'à ce qu'on parte.
+  for (let i = 0; i < TICK_RATE * 3; i++) step(s, { p_swap: take })
   check('rester sur l\'arme posée ne la reprend pas', hero.weapon === 'axe', String(hero.weapon))
 
-  // En s'éloignant puis en revenant, si.
+  // En s'éloignant puis en revenant, si — mais toujours sur demande. On laisse
+  // d'abord expirer le tampon de la dernière pression, sinon c'est elle qu'on
+  // mesurerait et non l'absence de demande.
   hero.x += 4
-  step(s, noInputs)
+  for (let i = 0; i < TAKE_BUFFER + 2; i++) step(s, noInputs)
   hero.x -= 4
   for (let i = 0; i < 3; i++) step(s, noInputs)
-  check('revenir sur son arme la reprend', hero.weapon === 'sword', String(hero.weapon))
+  check('y revenir sans rien demander ne reprend rien', hero.weapon === 'axe', String(hero.weapon))
+  step(s, { p_swap: take })
+  check('revenir et demander la reprend', hero.weapon === 'sword', String(hero.weapon))
 }
 
 // --- l'XP est commune à l'équipe --------------------------------------------

@@ -32,6 +32,9 @@ const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight'])
 /** Boire la fiole portée — R près de ZQSD, F près des flèches. */
 const DRINK_KEYS = new Set(['KeyR', 'KeyF'])
 
+/** Ramasser l'arme sous ses pieds — E, ou le clic droit. */
+const TAKE_KEYS = new Set(['KeyE'])
+
 /**
  * Touches que le navigateur détournerait. Tab passe au champ suivant, ce qui
  * sort du jeu sans prévenir — on se le réserve dès maintenant, l'inventaire à
@@ -46,7 +49,9 @@ export class InputManager {
   private held = new Set<string>()
   private drinkQueued = false
   private rollQueued = false
+  private takeQueued = false
   private padRollHeld = false
+  private padTakeHeld = false
   private mouseDown = false
   private mouseX = 0
   private mouseY = 0
@@ -71,6 +76,10 @@ export class InputManager {
         e.preventDefault()
         this.rollQueued = true
       }
+      if (TAKE_KEYS.has(e.code)) {
+        e.preventDefault()
+        this.takeQueued = true
+      }
     })
     window.addEventListener('keyup', (e) => this.held.delete(e.code))
     // Sans ça, changer d'onglet touche enfoncée laisse le perso courir seul.
@@ -87,6 +96,11 @@ export class InputManager {
       if (e.button === 0) {
         e.preventDefault()
         this.mouseDown = true
+      }
+      // Clic droit : ramasser. Le menu contextuel est déjà neutralisé.
+      if (e.button === 2) {
+        e.preventDefault()
+        this.takeQueued = true
       }
     })
     window.addEventListener('mouseup', (e) => {
@@ -142,6 +156,10 @@ export class InputManager {
     const rollHeld = Boolean(pad.buttons[1]?.pressed)
     if (rollHeld && !this.padRollHeld) this.rollQueued = true
     this.padRollHeld = rollHeld
+    // Y / triangle : ramasser. Fronts montants, comme la roulade.
+    const takeHeld = Boolean(pad.buttons[3]?.pressed)
+    if (takeHeld && !this.padTakeHeld) this.takeQueued = true
+    this.padTakeHeld = takeHeld
     return { mx, my, aim, attack, sprint }
   }
 
@@ -184,7 +202,9 @@ export class InputManager {
     this.drinkQueued = false
     const roll = this.rollQueued
     this.rollQueued = false
-    return { mx, my, aim: this.aim, attack, sprint, drink, roll }
+    const take = this.takeQueued
+    this.takeQueued = false
+    return { mx, my, aim: this.aim, attack, sprint, drink, roll, take }
   }
 }
 
@@ -197,6 +217,7 @@ export function sameInput(a: PlayerInput, b: PlayerInput): boolean {
     a.sprint === b.sprint &&
     a.drink === b.drink &&
     a.roll === b.roll &&
+    a.take === b.take &&
     Math.abs(a.aim - b.aim) < 0.02
   )
 }

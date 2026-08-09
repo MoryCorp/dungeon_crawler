@@ -118,6 +118,7 @@ import {
   PROFILE_EMA_ALPHA,
   BODY_HEIGHT,
   PROJECTILE_RADIUS,
+  TAKE_BUFFER,
   PURSUE_MAX,
   PURSUE_STRIKE_GRACE,
   RECIPE_FAR_MIN,
@@ -1814,6 +1815,15 @@ function stepItems(state: GameState, rng: Rng): void {
     const range = item.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
     if (Math.hypot(nearest.x - item.x, nearest.y - item.y) > range) continue
 
+    // Une arme ne se ramasse que sur demande. Tout le reste continue de se
+    // prendre en marchant dessus : l'or et les soins ne posent aucune question,
+    // l'arme si — et la reprendre par accident en repassant dans un couloir
+    // annulait une décision qu'on venait de prendre.
+    if (item.kind === 'weapon') {
+      if (state.tick - (nearest.takeAt ?? -TAKE_BUFFER - 1) > TAKE_BUFFER) continue
+      delete nearest.takeAt
+    }
+
     // Ce qui a un prix ne se prend que si l'équipe peut payer. Pas de message
     // d'erreur côté engine : le prix est affiché au-dessus de l'objet, un
     // objet qui reste au sol est une information, pas une panne.
@@ -2024,6 +2034,7 @@ export function step(
     }
 
     actor.aim = input.aim
+    if (input.take === true) actor.takeAt = state.tick
 
     // Roulade : elle consomme le tick entier — ni coup, ni fiole, ni sprint
     // tant qu'on roule. Le recul est écrasé (le verbe reprend le contrôle du

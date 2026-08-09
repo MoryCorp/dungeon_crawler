@@ -7,7 +7,9 @@
  */
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { ActorView, Decor, GameEvent, ItemView, ProjectileView } from '@dc/engine'
-import { MONSTERS, MONSTER_HALF_ARC, ROLL_TICKS, TICK_RATE, WEAPONS, chestPrice } from '@dc/engine'
+import {
+  MONSTERS, MONSTER_HALF_ARC, PICKUP_RANGE, ROLL_TICKS, TICK_RATE, WEAPONS, chestPrice,
+} from '@dc/engine'
 import {
   WEAPON_ATTACK,
   packAnim,
@@ -191,6 +193,7 @@ export class Renderer {
   bones = 0
   floor = 1
   private priceTags = new Map<string, Text>()
+  private takeTag: Text | null = null
 
   constructor(private readonly app: Application) {
     this.entityLayer.sortableChildren = true
@@ -631,6 +634,54 @@ export class Renderer {
       tag.destroy()
       this.priceTags.delete(id)
     }
+    this.syncTakePrompt(items)
+  }
+
+  /**
+   * Invite au-dessus de l'arme sous nos pieds. Une arme ne se ramasse plus en
+   * marchant dessus : il faut donc dire laquelle, et comment. Une seule invite
+   * à la fois, sur l'arme la plus proche — deux étiquettes superposées dans un
+   * couloir ne se lisent pas.
+   */
+  private syncTakePrompt(items: ItemView[]): void {
+    const px = this.predicted?.x ?? this.entities.get(this.selfId)?.view.x
+    const py = this.predicted?.y ?? this.entities.get(this.selfId)?.view.y
+
+    let best: ItemView | null = null
+    let bestD = PICKUP_RANGE
+    if (px !== undefined && py !== undefined) {
+      for (const item of items) {
+        if (item.kind !== 'weapon') continue
+        const d = Math.hypot(item.x - px, item.y - py)
+        if (d <= bestD) {
+          bestD = d
+          best = item
+        }
+      }
+    }
+
+    if (!best) {
+      if (this.takeTag) this.takeTag.visible = false
+      return
+    }
+    if (!this.takeTag) {
+      this.takeTag = new Text({
+        text: '',
+        style: {
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: 7,
+          fill: 0xf0e6d2,
+          stroke: { color: 0x000000, width: 2 },
+        },
+      })
+      this.takeTag.anchor.set(0.5, 1)
+      this.fxLayer.addChild(this.takeTag)
+    }
+    const label = WEAPONS[best.weapon ?? '']?.label ?? 'arme'
+    this.takeTag.text = `E · ${label}`
+    this.takeTag.visible = true
+    this.takeTag.x = best.x * TILE
+    this.takeTag.y = best.y * TILE - TILE * 0.55
   }
 
   /**
