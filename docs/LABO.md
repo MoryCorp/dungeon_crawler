@@ -108,23 +108,80 @@ Mesures de santé des chantiers, relevées sur les runs :
 3. L'évolution optimise par arme en solo ; le plafond coop évolué n'a pas été
    mesuré (coût).
 
-## Recommandations d'équilibrage — chiffrées, non appliquées
+## La seconde campagne (9 août) — la cause du mur
 
-1. **skeleton_mage** : ramener sa part de mises à terre sous 40 % (aujourd'hui
-   ~70 % en médiane). Leviers au choix : `atk` 5 → 4 (−20 %, soit 6 → ~4,8 de
-   dégâts effectifs à l'étage 4 avec la croissance par étage), ou `cooldown`
-   1,6 → 2,0 s (−20 % de cadence), ou portée effective −1 case. Un seul levier
-   à la fois, re-mesurer.
-2. **Composition des vagues de piège** : plafonner la part d'espèces à
+Une relecture extérieure du moteur a proposé un modèle : *le hasard suit les
+archétypes qui ignorent la vitesse de marche*. Aucune espèce de mêlée ou
+d'essaim ne peut rattraper un joueur qui marche (vitesses 1,7-3,6 contre
+4,2) ; les trois seules menaces fonctionnelles du jeu sont le projectile
+(mages), le dash (rôdeurs) et le boss-chargeur — et le joueur n'a qu'un seul
+verbe défensif, « s'écarter », qui marche à 100 % contre la première famille
+et à 0 % contre la seconde. La campagne a testé ce modèle contre son rival
+(« le mur est économique ») en éprouvette sur mule, rien de committé.
+
+Instrument : le **hasard conditionnel** `h(N)` = morts à l'étage N / runs
+entrés dans N (variante « risques concurrents » : runs coincés à N exclus du
+dénominateur), lu avec `n(N)` en face de chaque ligne. La médiane est aveugle
+ici : la distribution est une falaise, pas une pente.
+
+Ce qui a été mesuré, chaque cellule = 704 runs sur 16 graines communes :
+
+| expérience | résultat |
+|---|---|
+| nerf mage −20 % (dégâts ou cadence) | part du mage 64 → 55 %, médiane inchangée — symptôme, pas cause |
+| distance de livraison 7 → 5 | quasi nul : l'occultation (FOV 9) est la contrainte active, distance réalisée ~10 tuiles |
+| rattrapage mêlée/essaim 0,9× joueur | +28 % de hasard à l'étage 2, falaise intacte |
+| marge économique (4-5 étages de butin en plus) | hasard au contact inchangé — la marge n'achète rien |
+| **mage+rôdeur repoussés à l'étage 6** | **la falaise de l'étage 3 disparaît (3,24 → 0,47) et se rallume sur le premier archétype fonctionnel rencontré** |
+
+L'expérience naturelle qui tranche : sous ce dernier test, le pic de hasard
+n'est pas réapparu à 6 mais à **5** — l'étage du boss (`BOSS_EVERY = 5`), un
+orc_warrior, donc un chargeur, attribution vérifiée à 68 %. Personne n'avait
+mis le boss dans le protocole : le modèle a prédit juste sur un cas hors
+expérience. Le mur du jeu **est** la ligne `monsterPool()` où les archétypes
+fonctionnels s'allument, et la difficulté réelle n'est ni statistique ni
+économique : c'est l'inventaire des verbes du joueur.
+
+Conséquences actées :
+- **Appliqué** (correctif de cohérence, mesuré avant/après) : dague `reach`
+  1,00 → 1,25 — seule arme à portée inférieure au trash de mêlée ; downs par
+  squelette 26 → 12 %, par orc 28 → 19 %, +1 étage sur la moitié des profils.
+- **Le chantier** : une esquive/roulade à brèves i-frames — le verbe qui
+  répond aux trois archétypes fonctionnels. Contrainte de conception posée
+  d'avance : jamais seule, sinon elle devient le nouveau « kite partout ».
+  Son contrepoids est l'encerclement, donc le rattrapage de mêlée (V1+V2)
+  est son prérequis d'équilibre, pas une variante concurrente.
+- **`monsterPool()` est un objet de conception**, pas une liste de cinq
+  `if` : l'introduction de chaque archétype fonctionnel doit être un choix
+  délibéré, boss compté dans l'échelle (son orthogonalité actuelle est
+  précisément ce qui a produit l'expérience naturelle).
+- Sous la forme « pente » (rattrapage + falaise repoussée), les plafonds
+  évolués montent tous d'un étage (3,67 → 4,67 en moyenne) et viennent buter
+  exactement sur la falaise du boss ; les styles champions divergent enfin
+  par arme (la hache cesse de sprinter, l'arc raccourcit son kite).
+
+Corrections d'instrument de la journée, committées : la distance de livraison
+réalisée dans l'événement `horde` ; un seul secouriste par coéquipier à terre
+et esquives plafonnées en rafale (cerveau) ; l'étal ne pose plus d'article
+dans un mur (bug du jeu trouvé par les bots) ; un boss-fight n'est pas du
+piétinement (coup porté/reçu = activité). Avant ces correctifs, 60-80 % des
+runs finissaient coincés : la campagne 1 mesurait surtout la solidité du
+cerveau — ses conclusions fines sont caduques, ses ordres de grandeur tiennent.
+
+## Recommandations restantes — chiffrées, non appliquées
+
+1. **Composition des vagues de piège** : plafonner la part d'espèces à
    distance à 50 % de la vague (aujourd'hui 7 mages sur 7 possibles dès
-   l'étage 4 dans une salle de 8×6 fermée). C'est le seul endroit du jeu où
-   une vague 100 % distance apparaît dans un espace clos sans repli.
-3. **Dague** : +1 dégât ou +15 % de cadence, objectif médiane 3 (parité avec
-   les autres armes, identité « rapide mais courte » conservée).
-4. **Le mur étages 3-5** : si l'étalon étage 10 tient, le levier honnête est
-   la pente de difficulté entre les étages 3 et 6 (c'est là que meurent 80 %
-   des runs solo), pas les étages profonds. À instruire séparément — aucun
-   chiffre de TTK/K n'est proposé ici, règle intangible.
+   l'étage 4 dans une salle de 8×6 fermée). Toujours valable.
+2. **Rattrapage des vagues de mêlée/essaim** : 0,9× la vitesse du joueur
+   depuis la livraison jusqu'au premier engagement de l'escouade, jamais pour
+   archers et chargeurs. Mesuré : +28 % de hasard à l'étage 2, tueurs de
+   mêlée enfin présents au tableau. À appliquer comme socle de la roulade.
+3. **Échelle d'archétypes** : étaler l'allumage (ex. rôdeur à 3, mage à 5,
+   boss compté dans l'échelle) pour que chaque menace s'apprenne avant la
+   suivante. Les valeurs exactes sont à concevoir, pas à optimiser.
+4. Le nerf du skeleton_mage (reco 1 d'origine) est **retiré** : testé à
+   −20 %, il redistribue les downs sans déplacer le mur.
 
 ## Refaire les mesures
 
