@@ -303,6 +303,41 @@ function report(run: RunRecord): void {
     console.log(`\n  Préparations interrompues d'un coup bien placé : ${staggerTotal}`)
   }
 
+  // --- les verbes défensifs ---------------------------------------------------
+  // Trois outils, trois menaces. Ce qui compte n'est pas le total mais le
+  // rapport à ce qui l'appelait : des mages qui tuent en face de zéro renvoi
+  // veut dire un outil injouable ou invisible, pas un outil inutile.
+  const sum = (pick: (f: (typeof run.floors)[number]) => number): number =>
+    run.floors.reduce((a, f) => a + pick(f), 0)
+  const rolls = sum((f) => f.rolls ?? 0)
+  const parries = sum((f) => f.parries ?? 0)
+  const breaks = sum((f) => Object.values(f.dashbreaks ?? {}).reduce((x, y) => x + y, 0))
+  if (rolls + parries + breaks > 0 || run.floors.some((f) => f.rolls !== undefined)) {
+    const swings = sum((f) => Object.values(f.swings ?? {}).reduce((x, y) => x + y, 0))
+    console.log('\n── Les verbes défensifs ───────────────────────────────────────')
+    console.log(`  Roulades : ${rolls}`)
+    console.log(
+      `  Projectiles renvoyés : ${parries}` +
+        (swings > 0 ? ` (${((parries / swings) * 100).toFixed(1)} % des coups portés)` : ''),
+    )
+    const byBreak = Object.entries(
+      run.floors.reduce<Record<string, number>>((acc, f) => {
+        for (const [k, v] of Object.entries(f.dashbreaks ?? {})) acc[k] = (acc[k] ?? 0) + v
+        return acc
+      }, {}),
+    ).sort((a, b) => b[1] - a[1])
+    console.log(
+      `  Ruées coupées : ${breaks}` +
+        (byBreak.length > 0 ? ` — ${byBreak.map(([k, v]) => `${k} ×${v}`).join(', ')}` : ''),
+    )
+    if (rolls === 0 && parries === 0 && breaks === 0) {
+      console.log('  → Aucun des trois n\'a servi. Avant d\'en conclure quoi que ce soit')
+      console.log('    sur l\'équilibrage, il faut savoir si c\'est un problème de')
+      console.log('    lisibilité (le joueur ignore l\'outil) ou de fenêtre (il essaie')
+      console.log('    et rate). Le relevé ne distingue pas les deux.')
+    }
+  }
+
   // --- le travail de la Directrice -------------------------------------------
   const anyWave = run.floors.some((f) => (f.hordes ?? []).length > 0 || (f.held ?? 0) > 0)
   if (anyWave) {

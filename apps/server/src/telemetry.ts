@@ -109,6 +109,17 @@ export interface FloorRecord {
   staggers?: Tally
 
   /**
+   * Les verbes défensifs, comptés séparément parce qu'ils répondent chacun à
+   * une menace précise : la roulade aux projectiles et aux ruées, le renvoi
+   * aux tireurs, le cancel aux chargeurs. Sans ces trois compteurs, le relevé
+   * ne peut pas dire si un joueur est mort faute d'outil ou faute de s'en
+   * être servi — et c'est exactement la question qu'on pose.
+   */
+  rolls?: number
+  parries?: number
+  dashbreaks?: Tally
+
+  /**
    * Économie des ossements : gagné et dépensé sur l'étage, et le solde
    * d'équipe au moment de chaque mort. Un solde de mort élevé veut dire que
    * la monnaie dort — le puits est trop cher, trop rare, ou pas assez
@@ -572,6 +583,18 @@ export class RunTelemetry {
 
       case 'stagger':
         bump((this.current.staggers ??= {}), ev.species)
+        break
+
+      case 'roll':
+        this.current.rolls = (this.current.rolls ?? 0) + 1
+        break
+
+      case 'parry':
+        this.current.parries = (this.current.parries ?? 0) + 1
+        break
+
+      case 'dashbreak':
+        bump((this.current.dashbreaks ??= {}), ev.species)
         break
 
       case 'wipe':
