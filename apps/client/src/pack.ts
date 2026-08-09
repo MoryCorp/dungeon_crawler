@@ -242,6 +242,19 @@ interface TileTheme {
   wallFaces: readonly (readonly [number, number])[]
   wallTop: string
   /**
+   * Sol en motif continu : un bloc répétable posé en coordonnées absolues,
+   * qui remplace le tirage tuile à tuile de `floor` — c'est ce qu'exige un
+   * tapis à losanges, où le motif traverse les tuiles. L'ombre de contact
+   * devient un voile peint par-dessus.
+   */
+  floorPattern?: { ox: number; oy: number; pw: number; ph: number }
+  /**
+   * Corniche : posée dans la tuile de mur juste au-dessus d'une tranche —
+   * c'est elle qui donne l'épaisseur des murs des maquettes du pack, la
+   * tranche seule ressemble à une plinthe.
+   */
+  cornice?: readonly (readonly [number, number])[]
+  /**
    * Matériaux de salle : des blocs répétables de la feuille (origine + période
    * en cases), posés en coordonnées absolues pour que le motif continue d'une
    * tuile à l'autre. Chaque salle en tire un au hasard de sa géométrie — les
@@ -265,20 +278,24 @@ const THEMES: Record<string, TileTheme> = {
     wallFaces: [[0, 1], [1, 1], [2, 1]],
     wallTop: '#0b0d13',
   },
-  // Tiles château : les grandes dalles claires du hall (bloc 4-6 × 11-12,
-  // la rangée 13 porte le liseré bas du bloc), briques de la rangée 1, et le
-  // prune sombre qui sert de fond à toute la feuille.
+  // Tiles château, calé sur les maquettes du pack (Social/MockUp_0*.png) :
+  // sol commun = tapis navy à losanges, murs = panneaux crème surmontés de la
+  // corniche à denticules, et le navy-violet du fond des maquettes en dessus
+  // de bloc — la corniche s'y fond, les murs prennent de l'épaisseur.
   chateau: {
     floor: [[5, 12], [4, 11], [5, 11], [6, 11], [4, 12], [6, 12]],
     floorShaded: [],
-    wallFaces: [[5, 1], [6, 1], [7, 1]],
-    wallTop: '#352a34',
-    // Le tapis gris de la feuille est écarté : posé sur une grande salle, il
-    // éteint tout — vu sur maquette, c'est lui qui rendait l'étage terne.
+    floorPattern: { ox: 15, oy: 17, pw: 3, ph: 3 },
+    wallFaces: [[1, 6], [2, 6], [3, 6]],
+    cornice: [[4, 3], [5, 3], [6, 3]],
+    wallTop: '#1c172c',
+    // Les dalles kaki et le tapis gris de la feuille sont écartés : posés en
+    // grand, ils éteignent tout (vu sur maquette) — et le kaki est la couleur
+    // des murs, un sol assorti brouille la lecture.
     materials: [
       { ox: 6, oy: 17, pw: 3, ph: 2 },   // parquet chaud
-      { ox: 12, oy: 17, pw: 3, ph: 3 },  // tapis à losanges bleu
-      { ox: 4, oy: 11, pw: 2, ph: 2 },   // dalles claires (le sol commun)
+      { ox: 12, oy: 17, pw: 3, ph: 3 },  // tapis à losanges bleu-violet
+      { ox: 15, oy: 17, pw: 3, ph: 3 },  // le sol commun — continuité avec le couloir
     ],
     sanctuary: { ox: 19, oy: 18, pw: 1, ph: 1, trim: '#d69000' },
   },
@@ -314,6 +331,15 @@ export function paintPackTile(
 
   const paintFloor = () => {
     const shaded = y > 0 && tiles[(y - 1) * width + x] === Tile.Wall
+    if (theme.floorPattern) {
+      const p = theme.floorPattern
+      ctx.drawImage(sheet, (p.ox + (x % p.pw)) * T, (p.oy + (y % p.ph)) * T, T, T, x * T, y * T, T, T)
+      if (shaded) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+        ctx.fillRect(x * T, y * T, T, T)
+      }
+      return
+    }
     if (shaded && theme.floorShaded.length > 0) {
       blit(theme.floorShaded[h % theme.floorShaded.length]!)
       return
@@ -333,6 +359,12 @@ export function paintPackTile(
     const below = y + 1 < height ? tiles[(y + 1) * width + x]! : Tile.Wall
     if (isWalkable(below)) {
       blit(theme.wallFaces[h % theme.wallFaces.length]!)
+      // La corniche coiffe la tranche : peinte dans la tuile du dessus, déjà
+      // remplie en dessus-de-bloc par le balayage (il descend ligne à ligne).
+      if (theme.cornice && y > 0 && tiles[(y - 1) * width + x] === Tile.Wall) {
+        const c = theme.cornice[h % theme.cornice.length]!
+        ctx.drawImage(sheet, c[0] * T, c[1] * T, T, T, x * T, (y - 1) * T, T, T)
+      }
     } else {
       ctx.fillStyle = theme.wallTop
       ctx.fillRect(x * T, y * T, T, T)
@@ -382,7 +414,7 @@ export function paintRoomFloors(
     // L'ombre de contact sous les murs vaut pour tous les matériaux : c'est
     // elle qui donne le relief, pas la couleur du sol.
     if (y > 0 && tiles[(y - 1) * width + x] === Tile.Wall) {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
       ctx.fillRect(x * T, y * T, T, T)
     }
   }
