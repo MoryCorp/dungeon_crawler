@@ -600,18 +600,12 @@ Gardez `TILE = 16` et un `SCALE` **entier**, sinon les pixels bavent.
 
 ## Pistes
 
-1. **Piloter l'intensité plutôt que la subir.** L'IA Directrice de Left 4 Dead
-   (2008) mesure en continu une intensité perçue par joueur et fait tourner une
-   machine à états *montée → pic → décompression → repos* : les apparitions sont
-   asservies à ce signal, pas posées sur la carte. C'est la bonne réponse à
-   « du stress en permanence, mais juste » — une onde, pas une rampe. La
-   télémétrie calcule déjà le signal (`lowestHpRatio`, `dangerRatio`) ; il n'est
-   pas encore branché sur `populate()`.
-2. **Salles neutres** entre deux étages : marchand, réparation, repenser son
-   stuff. C'est la phase de repos de la Directrice, rendue explicite.
-3. **Armures**, sur l'axe protection contre vitesse. Les formules sont déjà
-   écrites pour les accueillir (`mitigation`, `effectiveHp`, `Actor.armor`).
-4. Une esquive / roulade avec brèves i-frames (le recul, les télégraphes et le
+1. Une esquive / roulade avec brèves i-frames (le recul, les télégraphes et le
    dash des monstres sont déjà là, il ne manque que la version joueur)
-5. Classes de héros, modificateurs d'arme sur les boss (feu, poison, vol de vie)
-6. Sons — Howler.js, un fichier par événement, la moitié du game feel
+2. **Armures**, sur l'axe protection contre vitesse. Les formules sont déjà
+   écrites pour les accueillir (`mitigation`, `effectiveHp`, `Actor.armor`).
+3. Classes de héros, modificateurs d'arme sur les boss (feu, poison, vol de vie)
+
+Livrées depuis : la Directrice pilotée par l'intensité (§ La Directrice), les
+salles neutres (salle de repos et son étal, gagnées à l'usure), le son
+(bande générative maison).
