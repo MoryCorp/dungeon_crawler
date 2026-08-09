@@ -60,6 +60,7 @@ import {
   moveWithCollision,
   separateActors,
   REVIVE_TICKS,
+  ROLL_BUFFER,
   ROLL_COOLDOWN,
   ROLL_COST,
   ROLL_TICKS,
@@ -389,10 +390,38 @@ console.log('\nTests engine\n')
   }
 
   {
+    // La roulade coupe la récupération du coup : le coup a déjà porté, seule
+    // l'animation saute. C'est ce qui rend la commande fiable clic enfoncé.
     const { s, hero, dir } = fresh()
     hero.swingUntil = s.tick + 10
     step(s, { p_r: rollInput(dir) })
-    check('lame sortie, pas de roulade', hero.rollUntil === undefined)
+    check('la roulade coupe la récupération du coup',
+      hero.rollUntil !== undefined && hero.swingUntil <= s.tick)
+  }
+
+  {
+    // Tampon d'entrée : une impulsion tombée pendant le temps mort part dès
+    // que le temps mort est écoulé, au lieu d'être perdue.
+    const { s, hero, dir } = fresh()
+    step(s, { p_r: rollInput(dir) })
+    const readyAt = (hero.rolledAt ?? 0) + ROLL_TICKS + ROLL_COOLDOWN
+    while (s.tick < readyAt - 3) step(s, { p_r: idle })
+    // Une seule pression, trois ticks trop tôt, puis plus rien.
+    step(s, { p_r: rollInput(dir) })
+    const tooEarly = hero.rollUntil === undefined
+    for (let i = 0; i < 5; i++) step(s, { p_r: idle })
+    check('une impulsion un peu trop précoce est mémorisée puis jouée',
+      tooEarly && hero.rollUntil !== undefined)
+
+    // Mais elle ne se garde pas indéfiniment : appuyer une seconde trop tôt
+    // ne doit pas déclencher une roulade fantôme bien plus tard.
+    const b = fresh()
+    b.hero.stamina = 0.1
+    step(b.s, { p_r: rollInput(b.dir) })
+    for (let i = 0; i < ROLL_BUFFER * 3; i++) step(b.s, { p_r: idle })
+    b.hero.stamina = 1
+    step(b.s, { p_r: idle })
+    check('un tampon expiré ne déclenche rien', b.hero.rollUntil === undefined)
   }
 
   {

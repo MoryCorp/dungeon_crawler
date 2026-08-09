@@ -2,6 +2,7 @@ import { Application } from 'pixi.js'
 import {
   BLEED_OUT_TICKS,
   DT,
+  ROLL_MIN_STAMINA,
   ROLL_SPEED,
   SPRINT_MIN_START,
   STARTING_WEAPON,
@@ -44,6 +45,7 @@ const potionRow = $('potion-row')
 const potionLabel = $('potion')
 const xpFill = $('xp-fill')
 const staminaFill = $('stamina-fill')
+const staminaTrack = $('stamina-track')
 const objective = $('objective')
 const hpFill = $('hp-fill')
 const weaponGlyph = $('weapon-glyph')
@@ -139,6 +141,7 @@ async function main(): Promise<void> {
     rollVx?: number
     rollVy?: number
     rolledAt?: number
+    rollWantAt?: number
     freshUntil?: number
     invulnUntil?: number
   } = { stamina: 1, sprinting: false, sprintedAt: -999, downed: false }
@@ -389,16 +392,29 @@ async function main(): Promise<void> {
       const penalty = swinging ? weapon.movePenalty : 1
       const moving = current.mx !== 0 || current.my !== 0
       localSprint.downed = downed
-      if (current.roll) pendingRoll = true
+      if (current.roll) {
+        pendingRoll = true
+        // Roulade demandée sans le souffle pour la payer : la jauge clignote.
+        // Sans ce retour, une commande refusée est indistinguable d'une
+        // commande qui ne marche pas.
+        const fresh = (localSprint.freshUntil ?? 0) > predictTick
+        if (!fresh && localSprint.stamina < ROLL_MIN_STAMINA) {
+          staminaTrack.classList.remove('denied')
+          void staminaTrack.offsetWidth
+          staminaTrack.classList.add('denied')
+        }
+      }
 
       accumulator += dt
       let steps = 0
       while (accumulator >= DT && steps < 5) {
         const rolled = stepRoll(
           localSprint, predictTick, pendingRoll,
-          current.mx, current.my, current.aim, swinging,
+          current.mx, current.my, current.aim,
         )
         if (rolled !== null) {
+          // La roulade coupe la récupération du coup, comme côté serveur.
+          if (rolled === 'start') localSwingUntilMs = 0
           const bx = local.x
           const by = local.y
           local.kx = 0

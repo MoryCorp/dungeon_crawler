@@ -91,6 +91,14 @@ export const ROLL_COST = 0.45
 export const ROLL_MIN_STAMINA = 0.4
 /** Temps mort après une roulade avant la suivante — même sous fiole de souffle. */
 export const ROLL_COOLDOWN = ticks(0.4)
+/**
+ * Mémoire de l'impulsion. Une roulade demandée pendant le temps mort ou la
+ * jauge à sec part dès que c'est possible, dans cette fenêtre. Sans ce tampon,
+ * appuyer une fraction de seconde trop tôt ne produit rien du tout, et le
+ * joueur conclut que la commande ne marche pas — c'est exactement ce qui s'est
+ * passé au premier essai en conditions réelles.
+ */
+export const ROLL_BUFFER = ticks(0.25)
 
 // --- Armes ------------------------------------------------------------------
 
@@ -911,6 +919,8 @@ export interface Actor {
   rollVy?: number
   /** Tick de départ de la dernière roulade — impose le temps mort entre deux. */
   rolledAt?: number
+  /** Dernier tick où la roulade a été demandée — voir ROLL_BUFFER. */
+  rollWantAt?: number
 
   /** Monstres. */
   elite?: boolean

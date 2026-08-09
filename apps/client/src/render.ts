@@ -729,26 +729,38 @@ export class Renderer {
       // Roulade : un tour complet dans le sens du regard, sprite légèrement
       // tassé, et des images rémanentes déposées derrière — c'est ce qui rend
       // l'i-frame lisible pour les autres joueurs comme pour soi.
+      const grounded = entity.anim?.grounded === true
       if (view.rolling === true && view.alive) {
         entity.rollT += dt
         const spin = Math.min(1, entity.rollT / ROLL_SECONDS)
+        // Le pivot doit être le centre du corps. Ancré aux pieds — ce qu'il
+        // est le reste du temps, pour que le point de contact au sol soit
+        // juste — la rotation faisait décrire au personnage un arc de la
+        // hauteur de son sprite : une toupie géante autour de ses chevilles.
+        // On bascule l'ancrage au centre le temps de la roulade et on remonte
+        // la position d'autant, pour que rien ne bouge à l'écran.
+        const half = grounded ? (entity.sprite.texture.height * scale) / 2 : 0
+        if (grounded) {
+          entity.sprite.anchor.set(0.5, 0.5)
+          entity.sprite.y = py + FEET_OFFSET - half
+        }
         entity.sprite.rotation = spin * Math.PI * 2 * entity.flip
-        entity.sprite.scale.y = scale * 0.88
-        if (this.clock - entity.ghostAt > 0.055) {
+        entity.sprite.scale.y = scale * 0.9
+        if (this.clock - entity.ghostAt > 0.05) {
           entity.ghostAt = this.clock
           const ghost = new Sprite(entity.sprite.texture)
-          ghost.anchor.set(0.5, entity.anim?.grounded ? 1 : 0.5)
+          ghost.anchor.set(0.5, grounded ? 0.5 : 0.5)
           ghost.x = entity.sprite.x
           ghost.y = entity.sprite.y
           ghost.rotation = entity.sprite.rotation
           ghost.scale.set(entity.sprite.scale.x, entity.sprite.scale.y)
-          ghost.alpha = 0.5
           ghost.tint = 0x9aa8c0
           ghost.zIndex = entity.ry - 0.01
           this.entityLayer.addChild(ghost)
-          this.effects.push({ node: ghost, ttl: 0.22, life: 0.22, vy: 0, fade: 0.5 })
+          this.effects.push({ node: ghost, ttl: 0.18, life: 0.18, vy: 0, fade: 0.45 })
         }
       } else {
+        if (grounded && entity.sprite.anchor.y !== 1) entity.sprite.anchor.set(0.5, 1)
         entity.rollT = 0
         // Un joueur à terre est couché : lisible d'un coup d'œil à travers la pièce.
         entity.sprite.rotation = view.downed ? Math.PI / 2 : 0

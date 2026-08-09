@@ -188,6 +188,18 @@
         background: var(--stamina-spent);
         background-image: repeating-linear-gradient(45deg, transparent 0 4px, rgba(0,0,0,.35) 4px 8px);
       }
+      /* Roulade refusée faute de souffle : la jauge cogne une fois. Le joueur
+         doit pouvoir distinguer « la commande a été refusée » de « la commande
+         ne marche pas ». */
+      #stamina-track.denied { animation: denied 260ms ease-out; }
+      @keyframes denied {
+        0%   { box-shadow: 0 0 0 0 rgba(216,120,110,.9); }
+        40%  { box-shadow: 0 0 0 3px rgba(216,120,110,.55); }
+        100% { box-shadow: 0 0 0 0 rgba(216,120,110,0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #stamina-track.denied { animation: none; }
+      }
       #xp-track { height: 4px; }
       #xp-fill { width: 0%; background: var(--xp); transition: width 120ms linear; }
       #vitals.downed #hp-fill { background: #5a4444; animation: none; }

@@ -99,6 +99,7 @@ import {
   PLACED_PER_FLOOR,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
+  ROLL_BUFFER,
   ROLL_COOLDOWN,
   ROLL_COST,
   ROLL_IFRAMES,
@@ -247,30 +248,38 @@ export function stepSprint(
  * gratuite comme elle rend le sprint inépuisable. Le temps mort, lui, tient
  * même sous fiole : sinon elle transformerait la roulade en téléportation
  * continue.
+ *
+ * Elle coupe le geste d'attaque en cours. Le coup a déjà porté — les dégâts
+ * partent au tick de la frappe, la suite n'est que récupération — donc annuler
+ * cette récupération ne vole rien à personne, et c'est ce qui rend la commande
+ * fiable : sans ça, un joueur qui tient le clic passe un tiers du temps
+ * incapable de rouler, sans jamais comprendre pourquoi.
  */
 export function stepRoll(
   actor: Pick<
     Actor,
     | 'downed' | 'stamina' | 'freshUntil' | 'invulnUntil'
-    | 'rollUntil' | 'rollVx' | 'rollVy' | 'rolledAt' | 'sprintedAt'
+    | 'rollUntil' | 'rollVx' | 'rollVy' | 'rolledAt' | 'rollWantAt' | 'sprintedAt'
   >,
   tick: number,
   wants: boolean,
   mx: number,
   my: number,
   aim: number,
-  swinging: boolean,
 ): 'start' | 'roll' | null {
   if (actor.rollUntil !== undefined) {
     if (tick < actor.rollUntil && !actor.downed) return 'roll'
     delete actor.rollUntil
   }
-  if (!wants || swinging || actor.downed) return null
+  if (wants) actor.rollWantAt = tick
+  const asked = tick - (actor.rollWantAt ?? -ROLL_BUFFER - 1) < ROLL_BUFFER
+  if (!asked || actor.downed) return null
   if (tick - (actor.rolledAt ?? -ROLL_TICKS - ROLL_COOLDOWN) < ROLL_TICKS + ROLL_COOLDOWN) return null
 
   const stamina = actor.stamina ?? 1
   const fresh = (actor.freshUntil ?? 0) > tick
   if (!fresh && stamina < ROLL_MIN_STAMINA) return null
+  delete actor.rollWantAt
 
   let dx = mx
   let dy = my
@@ -2021,10 +2030,12 @@ export function step(
     const rolled = stepRoll(
       actor, state.tick, input.roll === true,
       input.mx, input.my, input.aim,
-      state.tick < actor.swingUntil,
     )
     if (rolled !== null) {
       if (rolled === 'start') {
+        // Le geste d'attaque est coupé : le coup a déjà porté, seule la
+        // récupération saute.
+        actor.swingUntil = state.tick
         state.events.push({ t: 'roll', id: actor.id, x: actor.x, y: actor.y })
       }
       const beforeX = actor.x

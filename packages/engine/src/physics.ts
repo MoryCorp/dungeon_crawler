@@ -11,13 +11,18 @@ import { isWalkable } from './types.js'
 const EPS = 1e-4
 
 /**
- * Tolérance d'accrochage aux angles, en tuiles. En tournant dans un couloir
- * avec un alignement imparfait de quelques pixels, l'ancien comportement
- * bloquait net sur le coin ; en-dessous de ce dépassement, on glisse
- * latéralement dans l'ouverture au lieu de s'arrêter. Au-delà, c'est un vrai
- * mur et il se comporte comme tel.
+ * Tolérance d'accrochage aux angles, en tuiles. En abordant l'embouchure d'un
+ * couloir sans être parfaitement aligné, l'ancien comportement bloquait net
+ * sur le coin ; en-dessous de ce dépassement, on glisse dans l'ouverture au
+ * lieu de s'arrêter. Au-delà, c'est un vrai mur et il se comporte comme tel.
+ *
+ * Un couloir fait une tuile de large et le personnage 0.66 : la marge d'entrée
+ * réelle n'est que de 0.17 tuile de part et d'autre du centre. Une tolérance
+ * du même ordre ne se sentait pas. À 0.3, viser grossièrement l'ouverture
+ * suffit — et comme le glissement ne s'applique que si un seul côté accroche,
+ * un mur plein reste un mur plein.
  */
-const CORNER_NUDGE = 0.18
+const CORNER_NUDGE = 0.3
 
 /** Toute la surface de l'acteur est-elle sur du sol à cette position ? */
 function positionFree(
@@ -58,6 +63,8 @@ export function moveWithCollision(
 ): { x: number; y: number } {
   let nx = x + dx
   let ny = y
+  /** Ce tick sert à se recaler sur une ouverture plutôt qu'à avancer. */
+  let alignedX = false
 
   if (dx !== 0) {
     const minTy = Math.floor(y - r)
@@ -74,25 +81,28 @@ export function moveWithCollision(
       }
     }
     if (blocked) {
-      // Accroché à un seul coin, de peu : on tente le glissement latéral dans
-      // l'ouverture, et on ne le garde que si la position d'arrivée est
-      // entièrement sur du sol.
-      let nudged = false
+      // Accroché par un seul coin, de peu : on glisse vers l'ouverture au lieu
+      // de s'arrêter. Le glissement est plafonné à la vitesse du pas — sinon
+      // le personnage se téléporterait de trois pixels sur le côté — donc il
+      // s'aligne en deux ou trois ticks, ce qui se lit comme une trajectoire
+      // et non comme un saut. Tant qu'il s'aligne, il n'avance pas.
       if (minTy !== maxTy && solidLow !== solidHigh) {
-        const cy = solidLow ? minTy + 1 + r + EPS : maxTy - r - EPS
-        const overlap = solidLow ? minTy + 1 - (y - r) : y + r - maxTy
-        if (overlap <= CORNER_NUDGE && positionFree(tiles, w, h, nx, cy, r)) {
+        const goal = solidLow ? minTy + 1 + r + EPS : maxTy - r - EPS
+        const need = goal - y
+        const cy = y + Math.sign(need) * Math.min(Math.abs(need), Math.abs(dx))
+        if (Math.abs(need) <= CORNER_NUDGE && positionFree(tiles, w, h, x, cy, r)) {
           ny = cy
-          nudged = true
+          alignedX = true
         }
       }
-      if (!nudged) nx = dx > 0 ? tx - r - EPS : tx + 1 + r + EPS
+      nx = alignedX ? x : dx > 0 ? tx - r - EPS : tx + 1 + r + EPS
     }
   }
 
-  const wantY = ny + dy
-  ny = wantY
-  if (dy !== 0) {
+  // Le tick consacré à s'aligner sur une ouverture ne sert qu'à ça : ajouter
+  // le déplacement de l'autre axe par-dessus ferait dépasser l'alignement.
+  if (!alignedX) ny += dy
+  if (dy !== 0 && !alignedX) {
     const minTx = Math.floor(nx - r)
     const maxTx = Math.floor(nx + r)
     const ty = dy > 0 ? Math.floor(ny + r) : Math.floor(ny - r)
@@ -109,14 +119,15 @@ export function moveWithCollision(
     if (blocked) {
       let nudged = false
       if (minTx !== maxTx && solidLow !== solidHigh) {
-        const cx = solidLow ? minTx + 1 + r + EPS : maxTx - r - EPS
-        const overlap = solidLow ? minTx + 1 - (nx - r) : nx + r - maxTx
-        if (overlap <= CORNER_NUDGE && positionFree(tiles, w, h, cx, ny, r)) {
+        const goal = solidLow ? minTx + 1 + r + EPS : maxTx - r - EPS
+        const need = goal - nx
+        const cx = nx + Math.sign(need) * Math.min(Math.abs(need), Math.abs(dy))
+        if (Math.abs(need) <= CORNER_NUDGE && positionFree(tiles, w, h, cx, y, r)) {
           nx = cx
           nudged = true
         }
       }
-      if (!nudged) ny = dy > 0 ? ty - r - EPS : ty + 1 + r + EPS
+      ny = nudged ? y : dy > 0 ? ty - r - EPS : ty + 1 + r + EPS
     }
   }
 
