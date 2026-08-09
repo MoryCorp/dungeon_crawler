@@ -122,8 +122,13 @@ export function runOne(job: Job): RunResult {
     totalTicks++
 
     for (const ev of state.events) {
-      if (ev.t === 'hit' && ev.toSpecies === 'hero') {
-        lastHitBy.set(ev.to, ev.fromSpecies || 'inconnu')
+      if (ev.t === 'hit') {
+        // Un coup porté ou reçu, c'est un combat en cours : un duel de boss
+        // peut durer plus de 90 s sans kill ni mort, ce n'est pas du
+        // piétinement — mesuré : la moitié des « coincements » de l'étage 5
+        // étaient des boss-fights en cours, tués par le chrono.
+        lastEventTick = totalTicks
+        if (ev.toSpecies === 'hero') lastHitBy.set(ev.to, ev.fromSpecies || 'inconnu')
       } else if (ev.t === 'downed') {
         result.downs++
         const by = lastHitBy.get(ev.id) ?? 'inconnu'
