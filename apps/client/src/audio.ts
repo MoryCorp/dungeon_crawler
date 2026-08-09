@@ -441,6 +441,22 @@ export class GameAudio {
         }
         break
 
+      case 'parry':
+        // Un tintement métallique clair : la lame qui claque sur le projectile.
+        if (this.gate('parry', 80)) {
+          this.tone({ freq: 1560, to: 2100, type: 'square', dur: 0.09, gain: 0.14 })
+          this.burst({ dur: 0.06, gain: 0.1, from: 4200, to: 2400 })
+        }
+        break
+
+      case 'dashbreak':
+        // Un impact sourd et court : la charge qui bute sur la lame.
+        if (this.gate('dashbreak', 80)) {
+          this.burst({ dur: 0.14, gain: 0.22, from: 600, to: 110 })
+          this.tone({ freq: 240, to: 130, type: 'triangle', dur: 0.12, gain: 0.12 })
+        }
+        break
+
       case 'roll':
         // Un souffle bref qui descend : le corps qui fend l'air, pas une arme.
         if (this.gate('roll', 120)) {

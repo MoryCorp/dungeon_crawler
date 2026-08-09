@@ -953,6 +953,12 @@ export interface Projectile {
 }
 
 export const PROJECTILE_RADIUS = 0.18
+/**
+ * Hauteur du corps au-dessus du cercle au sol, en tuiles — la capsule que
+ * testent les projectiles. Multipliée par l'échelle du rang (élite, boss),
+ * comme le sprite l'est à l'écran : la hitbox suit ce qu'on voit.
+ */
+export const BODY_HEIGHT = 0.55
 
 export type ItemKind =
   | 'heart'
@@ -1061,6 +1067,8 @@ export type GameEvent =
   /** Une fiole vient d'être bue. */
   | { t: 'drink'; id: string; potion: string; x: number; y: number }
   | { t: 'roll'; id: string; x: number; y: number }
+  | { t: 'parry'; id: string; x: number; y: number }
+  | { t: 'dashbreak'; id: string; species: string; x: number; y: number }
   | { t: 'levelup'; id: string; level: number; x: number; y: number }
   | { t: 'keydrop'; x: number; y: number }
   /** Attaque en préparation avortée par un coup encaissé. */

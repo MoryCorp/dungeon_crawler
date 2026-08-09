@@ -13,7 +13,7 @@ import { pickRecipe, recordReward, warmStart } from './bandit.js'
 import { planWave, recipesFor, type Placement } from './recipes.js'
 import { computeFov } from './fov.js'
 import { generateFloor, type Rect, type Room } from './mapgen.js'
-import { inAttackArc, moveWithCollision, separateActors, solidAt, unstick } from './physics.js'
+import { hitsBody, inAttackArc, moveWithCollision, separateActors, solidAt, unstick } from './physics.js'
 import { Rng } from './rng.js'
 import type {
   Actor,
@@ -115,6 +115,7 @@ import {
   STAGGER_KNOCKBACK_MIN,
   STAGGER_RECOVER,
   PROFILE_EMA_ALPHA,
+  BODY_HEIGHT,
   PROJECTILE_RADIUS,
   PURSUE_MAX,
   PURSUE_STRIKE_GRACE,
@@ -1510,6 +1511,23 @@ function damage(
     to.staggerReadyAt = state.tick + STAGGER_IMMUNITY
     state.events.push({ t: 'stagger', id: to.id, species: to.species, x: to.x, y: to.y })
   }
+
+  // Une ruée frappée en plein vol se coupe net — même sanction que le mur :
+  // le monstre s'arrête et reste vulnérable un instant. Pas d'étourdissement
+  // en plus, le contre EST la récompense. Contrairement au stagger, ça vaut
+  // aussi pour le boss et sans seuil de poids : c'est un coup au timing, pas
+  // une bousculade — les chargeurs sont les premiers tueurs du relevé et
+  // c'était le verbe qui manquait contre eux.
+  if (
+    to.kind === 'monster' &&
+    from?.kind === 'player' &&
+    to.dashUntil !== undefined &&
+    state.tick < to.dashUntil
+  ) {
+    delete to.dashUntil
+    to.readyAt = Math.max(to.readyAt, state.tick + monsterCooldown(state, MONSTERS[to.species]!))
+    state.events.push({ t: 'dashbreak', id: to.id, species: to.species, x: to.x, y: to.y })
+  }
 }
 
 function spawnProjectile(
@@ -1579,6 +1597,38 @@ function playerAttack(state: GameState, actor: Actor, rng: Rng): void {
     damage(state, actor, target, dmg, weapon.knockback, actor.x, actor.y)
     // L'XP n'est pas donnée ici : elle tombe au sol en orbe, à ramasser.
     if (target.hp <= 0) killOrDown(state, target, rng)
+  }
+
+  // Renvoi : un projectile hostile balayé par l'arc repart vers son tireur,
+  // avec ses dégâts d'origine. C'est la réponse au mage qu'on cherchait sans
+  // toucher à ses chiffres — le tir reste dangereux, mais il devient un pari
+  // dans les deux sens. La fenêtre est le geste lui-même : il faut frapper le
+  // projectile en vol, au timing, pas tenir une garde.
+  for (const p of state.projectiles) {
+    if (!p.hostileToPlayers) continue
+    if (
+      !inAttackArc(
+        actor.x, actor.y, actor.aim,
+        weapon.halfArc, weapon.reach,
+        p.x, p.y, PROJECTILE_RADIUS + 0.15,
+      )
+    ) {
+      continue
+    }
+    const shooter = state.actors[p.ownerId]
+    const speed = Math.hypot(p.vx, p.vy)
+    const back = shooter?.alive
+      ? Math.atan2(shooter.y - p.y, shooter.x - p.x)
+      : actor.aim
+    p.vx = Math.cos(back) * speed
+    p.vy = Math.sin(back) * speed
+    p.hostileToPlayers = false
+    p.ownerId = actor.id
+    p.ownerSpecies = actor.species
+    // Assez de vie pour retraverser la salle — un renvoi qui expire en vol
+    // n'aurait l'air de rien.
+    p.ttl = Math.max(p.ttl, 60)
+    state.events.push({ t: 'parry', id: actor.id, x: p.x, y: p.y })
   }
 }
 
@@ -1698,7 +1748,10 @@ function stepProjectiles(state: GameState, rng: Rng): void {
       if (!target.alive || target.id === p.ownerId) continue
       if (p.hostileToPlayers !== (target.kind === 'player')) continue
       if (target.kind === 'player' && target.downed) continue
-      if (Math.hypot(target.x - p.x, target.y - p.y) > ACTOR_RADIUS + PROJECTILE_RADIUS) continue
+      // Capsule verticale à l'échelle du rang : la hitbox suit le sprite,
+      // une flèche qui traverse visiblement un torse doit toucher.
+      const bodyScale = target.boss ? 1.9 : target.elite ? 1.35 : 1
+      if (!hitsBody(p.x, p.y, target.x, target.y, ACTOR_RADIUS + PROJECTILE_RADIUS, BODY_HEIGHT * bodyScale)) continue
 
       const owner = state.actors[p.ownerId] ?? null
       damage(state, owner, target, p.damage, p.knockback, p.x, p.y, p.ownerSpecies)

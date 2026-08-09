@@ -10,6 +10,32 @@ import { isWalkable } from './types.js'
 
 const EPS = 1e-4
 
+/**
+ * Tolérance d'accrochage aux angles, en tuiles. En tournant dans un couloir
+ * avec un alignement imparfait de quelques pixels, l'ancien comportement
+ * bloquait net sur le coin ; en-dessous de ce dépassement, on glisse
+ * latéralement dans l'ouverture au lieu de s'arrêter. Au-delà, c'est un vrai
+ * mur et il se comporte comme tel.
+ */
+const CORNER_NUDGE = 0.18
+
+/** Toute la surface de l'acteur est-elle sur du sol à cette position ? */
+function positionFree(
+  tiles: Uint8Array,
+  w: number,
+  h: number,
+  x: number,
+  y: number,
+  r: number,
+): boolean {
+  for (let ty = Math.floor(y - r); ty <= Math.floor(y + r); ty++) {
+    for (let tx = Math.floor(x - r); tx <= Math.floor(x + r); tx++) {
+      if (solidAt(tiles, w, h, tx, ty)) return false
+    }
+  }
+  return true
+}
+
 export function solidAt(tiles: Uint8Array, w: number, h: number, tx: number, ty: number): boolean {
   if (tx < 0 || ty < 0 || tx >= w || ty >= h) return true
   return !isWalkable(tiles[ty * w + tx]!)
@@ -36,49 +62,84 @@ export function moveWithCollision(
   if (dx !== 0) {
     const minTy = Math.floor(y - r)
     const maxTy = Math.floor(y + r)
-    if (dx > 0) {
-      const tx = Math.floor(nx + r)
-      for (let ty = minTy; ty <= maxTy; ty++) {
-        if (solidAt(tiles, w, h, tx, ty)) {
-          nx = tx - r - EPS
-          break
+    const tx = dx > 0 ? Math.floor(nx + r) : Math.floor(nx - r)
+    let blocked = false
+    let solidLow = false
+    let solidHigh = false
+    for (let ty = minTy; ty <= maxTy; ty++) {
+      if (solidAt(tiles, w, h, tx, ty)) {
+        blocked = true
+        if (ty === minTy) solidLow = true
+        if (ty === maxTy) solidHigh = true
+      }
+    }
+    if (blocked) {
+      // Accroché à un seul coin, de peu : on tente le glissement latéral dans
+      // l'ouverture, et on ne le garde que si la position d'arrivée est
+      // entièrement sur du sol.
+      let nudged = false
+      if (minTy !== maxTy && solidLow !== solidHigh) {
+        const cy = solidLow ? minTy + 1 + r + EPS : maxTy - r - EPS
+        const overlap = solidLow ? minTy + 1 - (y - r) : y + r - maxTy
+        if (overlap <= CORNER_NUDGE && positionFree(tiles, w, h, nx, cy, r)) {
+          ny = cy
+          nudged = true
         }
       }
-    } else {
-      const tx = Math.floor(nx - r)
-      for (let ty = minTy; ty <= maxTy; ty++) {
-        if (solidAt(tiles, w, h, tx, ty)) {
-          nx = tx + 1 + r + EPS
-          break
-        }
-      }
+      if (!nudged) nx = dx > 0 ? tx - r - EPS : tx + 1 + r + EPS
     }
   }
 
-  ny = y + dy
+  const wantY = ny + dy
+  ny = wantY
   if (dy !== 0) {
     const minTx = Math.floor(nx - r)
     const maxTx = Math.floor(nx + r)
-    if (dy > 0) {
-      const ty = Math.floor(ny + r)
-      for (let tx = minTx; tx <= maxTx; tx++) {
-        if (solidAt(tiles, w, h, tx, ty)) {
-          ny = ty - r - EPS
-          break
+    const ty = dy > 0 ? Math.floor(ny + r) : Math.floor(ny - r)
+    let blocked = false
+    let solidLow = false
+    let solidHigh = false
+    for (let tx = minTx; tx <= maxTx; tx++) {
+      if (solidAt(tiles, w, h, tx, ty)) {
+        blocked = true
+        if (tx === minTx) solidLow = true
+        if (tx === maxTx) solidHigh = true
+      }
+    }
+    if (blocked) {
+      let nudged = false
+      if (minTx !== maxTx && solidLow !== solidHigh) {
+        const cx = solidLow ? minTx + 1 + r + EPS : maxTx - r - EPS
+        const overlap = solidLow ? minTx + 1 - (nx - r) : nx + r - maxTx
+        if (overlap <= CORNER_NUDGE && positionFree(tiles, w, h, cx, ny, r)) {
+          nx = cx
+          nudged = true
         }
       }
-    } else {
-      const ty = Math.floor(ny - r)
-      for (let tx = minTx; tx <= maxTx; tx++) {
-        if (solidAt(tiles, w, h, tx, ty)) {
-          ny = ty + 1 + r + EPS
-          break
-        }
-      }
+      if (!nudged) ny = dy > 0 ? ty - r - EPS : ty + 1 + r + EPS
     }
   }
 
   return { x: nx, y: ny }
+}
+
+/**
+ * Un projectile touche-t-il ce corps ? Le point (x, y) d'un acteur est son
+ * cercle au sol, mais le sprite se dresse au-dessus : tester le seul cercle
+ * laissait les flèches traverser le torse des monstres sans les toucher. On
+ * teste donc une capsule verticale — du sol jusqu'à `bodyHeight` tuiles plus
+ * haut — qui épouse ce que le joueur voit à l'écran.
+ */
+export function hitsBody(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  radius: number,
+  bodyHeight: number,
+): boolean {
+  const cy = Math.min(ay, Math.max(ay - bodyHeight, py))
+  return Math.hypot(ax - px, cy - py) <= radius
 }
 
 /** Écart angulaire signé, ramené dans [-π, π]. */
@@ -130,16 +191,22 @@ export function separateActors(
   tiles: Uint8Array,
   w: number,
   h: number,
-  actors: { x: number; y: number; alive: boolean }[],
+  actors: { x: number; y: number; alive: boolean; kind?: string }[],
   r: number,
 ): void {
-  const minDist = r * 2
   for (let i = 0; i < actors.length; i++) {
     const a = actors[i]!
     if (!a.alive) continue
     for (let j = i + 1; j < actors.length; j++) {
       const b = actors[j]!
       if (!b.alive) continue
+      // Deux monstres se tolèrent plus près l'un de l'autre qu'ils ne tolèrent
+      // un joueur : à l'écartement plein (0.66 tuile), deux poursuivants qui
+      // convergent vers la même embouchure de couloir (1 tuile) se poussaient
+      // mutuellement dans les murs et s'y coinçaient. En laissant la meute se
+      // chevaucher, le suiveur se glisse derrière le meneur et la file indienne
+      // passe. Le contact avec le joueur, lui, reste à distance pleine.
+      const minDist = a.kind === 'monster' && b.kind === 'monster' ? r * 2 * 0.65 : r * 2
       let dx = b.x - a.x
       let dy = b.y - a.y
       const d2 = dx * dx + dy * dy

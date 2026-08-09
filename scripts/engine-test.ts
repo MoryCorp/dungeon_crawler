@@ -54,6 +54,11 @@ import {
   type BanditArms,
   type Behavior,
   type RecipeName,
+  BODY_HEIGHT,
+  PROJECTILE_RADIUS,
+  hitsBody,
+  moveWithCollision,
+  separateActors,
   REVIVE_TICKS,
   ROLL_COOLDOWN,
   ROLL_COST,
@@ -420,6 +425,121 @@ console.log('\nTests engine\n')
       placed && hero.rollUntil === undefined && Math.abs(hero.x - start) < 0.4,
       `parcouru ${Math.abs(hero.x - start).toFixed(2)}`)
   }
+}
+
+// --- angles de couloir : le nudge --------------------------------------------
+// Mal aligné de quelques pixels sur l'embouchure d'un couloir, on glissait
+// contre le coin et on restait planté. Désormais, un accrochage léger fait
+// glisser latéralement dans l'ouverture ; un vrai mur bloque toujours.
+{
+  const W = 12
+  const tiles = new Uint8Array(W * W).fill(Tile.Wall)
+  for (let x = 1; x < 11; x++) tiles[2 * W + x] = Tile.Floor
+  for (let y = 2; y < 11; y++) tiles[y * W + 4] = Tile.Floor
+
+  const walk = (startX: number): number => {
+    let p = { x: startX, y: 2.5 }
+    for (let i = 0; i < 40; i++) p = moveWithCollision(tiles, W, W, p.x, p.y, 0, 0.14, ACTOR_RADIUS)
+    return p.y
+  }
+  check('un léger désalignement glisse dans le couloir', walk(4.2) > 5, `y=${walk(4.2).toFixed(2)}`)
+  check('un vrai mur bloque toujours', walk(6.5) < 3, `y=${walk(6.5).toFixed(2)}`)
+}
+
+// --- hitbox verticale --------------------------------------------------------
+// Le point (x, y) est le cercle au sol ; le sprite se dresse au-dessus. Les
+// projectiles testent la capsule entière : une flèche dans le torse touche.
+{
+  const r = ACTOR_RADIUS + PROJECTILE_RADIUS
+  check('la capsule couvre le torse', hitsBody(5, 5 - BODY_HEIGHT, 5, 5, r, BODY_HEIGHT))
+  check('l\'ancien cercle seul l\'aurait raté', BODY_HEIGHT > r)
+  check('au-dessus de la tête, on rate encore', !hitsBody(5, 5 - 1.3, 5, 5, r, BODY_HEIGHT))
+
+  const s = createGame(4242)
+  clearMonsters(s)
+  addPlayer(s, 'p_h', 'Archer')
+  // Une case au sol dont la voisine du haut l'est aussi : le tir « au torse »
+  // vole dans la tuile au-dessus des pieds, elle doit être traversable.
+  let cx = 0
+  let cy = 0
+  outer: for (let y = 5; y < MAP_H - 5; y++) {
+    for (let x = 5; x < MAP_W - 5; x++) {
+      if (isWalkable(s.tiles[y * MAP_W + x]!) && isWalkable(s.tiles[(y - 1) * MAP_W + x]!)) {
+        cx = x + 0.5
+        cy = y + 0.5
+        break outer
+      }
+    }
+  }
+  const m = putMonster(s, 'm_cible', 'skeleton', cx, cy)
+  s.projectiles.push({
+    id: 'pr_test', ownerId: 'p_h', ownerSpecies: 'hero', hostileToPlayers: false,
+    x: m.x, y: m.y - 0.5, vx: 0.5, vy: 0, damage: 3, knockback: 0, ttl: 10, color: 0xffffff,
+  })
+  step(s, { p_h: idle })
+  check('en jeu, le tir au torse blesse', m.hp < m.maxHp, `${m.hp}/${m.maxHp}`)
+}
+
+// --- bodyblock des couloirs --------------------------------------------------
+// Deux monstres se tolèrent plus près que le contact plein : le suiveur se
+// glisse derrière le meneur au lieu de le coincer contre l'embouchure.
+{
+  const W = 12
+  const open = new Uint8Array(W * W).fill(Tile.Floor)
+  const settle = (kindA: string, kindB: string): number => {
+    const a = { x: 5, y: 5, alive: true, kind: kindA }
+    const b = { x: 5.1, y: 5, alive: true, kind: kindB }
+    for (let i = 0; i < 30; i++) separateActors(open, W, W, [a, b], ACTOR_RADIUS)
+    return Math.hypot(b.x - a.x, b.y - a.y)
+  }
+  const mm = settle('monster', 'monster')
+  const pm = settle('player', 'monster')
+  check('deux monstres se chevauchent un peu', mm < 0.5, `${mm.toFixed(2)} tuile`)
+  check('le joueur garde ses distances pleines', pm > 0.6, `${pm.toFixed(2)} tuile`)
+}
+
+// --- le renvoi de projectile -------------------------------------------------
+// Un coup de mêlée qui balaie un projectile hostile le renvoie vers son tireur,
+// dégâts d'origine. La réponse au mage, sans toucher à ses chiffres.
+{
+  const s = createGame(4242)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_p', 'Parieur')
+  // Le mage est posé plein est, hors de portée de l'arc de mêlée.
+  const mage = putMonster(s, 'm_mage', 'skeleton_mage', hero.x + 6, hero.y)
+  s.projectiles.push({
+    id: 'pr_bolt', ownerId: 'm_mage', ownerSpecies: 'skeleton_mage', hostileToPlayers: true,
+    x: hero.x + 0.8, y: hero.y, vx: -6, vy: 0, damage: 5, knockback: 2, ttl: 60, color: 0x9b5cf0,
+  })
+  step(s, { p_p: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
+  const p = s.projectiles.find((pr) => pr.id === 'pr_bolt')
+  const parried = s.events.some((ev) => ev.t === 'parry')
+  check('le coup d\'épée renvoie le projectile', parried && p !== undefined && !p.hostileToPlayers)
+  check('il repart vers son tireur', p !== undefined && p.vx > 0, `vx=${p?.vx.toFixed(1)}`)
+  let hits = 0
+  for (let i = 0; i < 40 && mage.hp === mage.maxHp; i++) {
+    step(s, { p_p: idle })
+    hits = mage.maxHp - mage.hp
+  }
+  check('et il blesse le mage au retour', hits > 0, `${hits} dégâts`)
+}
+
+// --- le cancel de ruée -------------------------------------------------------
+// Frapper un chargeur en pleine ruée la coupe net : même sanction que le mur,
+// il s'arrête vulnérable. Vaut aussi pour le boss — c'est un coup au timing.
+{
+  const s = createGame(4242)
+  clearMonsters(s)
+  const hero = addPlayer(s, 'p_c', 'Contreur')
+  const dir = isWalkable(s.tiles[Math.floor(hero.y) * MAP_W + Math.floor(hero.x) + 1]!) ? 1 : -1
+  const orc = putMonster(s, 'm_rush', 'orc_warrior', hero.x + dir, hero.y)
+  orc.dashUntil = s.tick + 20
+  orc.dashVx = -dir
+  orc.dashVy = 0
+  step(s, { p_c: { mx: 0, my: 0, aim: dir > 0 ? 0 : Math.PI, attack: true, sprint: false } })
+  check('un coup au timing coupe la ruée',
+    orc.dashUntil === undefined && s.events.some((ev) => ev.t === 'dashbreak'))
+  check('le chargeur reste vulnérable un instant', orc.readyAt > s.tick, `readyAt=${orc.readyAt} tick=${s.tick}`)
 }
 
 // --- la difficulté monte avec l'étage ---------------------------------------

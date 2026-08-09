@@ -458,6 +458,30 @@ export class Renderer {
         break
       }
 
+      case 'parry': {
+        // L'étincelle du renvoi : brève, dorée, à l'endroit de l'impact.
+        const g = new Graphics()
+        g.circle(0, 0, TILE * 0.35)
+        g.stroke({ color: 0xf3d06a, width: 2, alpha: 0.95 })
+        g.x = ev.x * TILE
+        g.y = ev.y * TILE
+        this.fxLayer.addChild(g)
+        this.effects.push({ node: g, ttl: 0.2, life: 0.2, vy: 0, grow: 1.8 })
+        break
+      }
+
+      case 'dashbreak': {
+        this.spawnFloater('stoppé !', ev.x, ev.y, 0xf3d06a)
+        const g = new Graphics()
+        g.circle(0, 0, TILE * 0.5)
+        g.stroke({ color: 0xf3d06a, width: 2, alpha: 0.9 })
+        g.x = ev.x * TILE
+        g.y = ev.y * TILE
+        this.fxLayer.addChild(g)
+        this.effects.push({ node: g, ttl: 0.25, life: 0.25, vy: 0, grow: 1.4 })
+        break
+      }
+
       case 'downed':
         this.spawnFloater('à terre !', ev.x, ev.y, 0xffd166)
         break
