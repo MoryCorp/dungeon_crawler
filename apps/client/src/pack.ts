@@ -55,6 +55,12 @@ const MOBS = [
   'orc_mage',
   'orc_rogue',
   'bat',
+  // La garde royale du Château — même liste que CREWS dans pack-assets.py,
+  // qui reste la seule vérité sur la provenance des feuilles.
+  'soldat',
+  'archer_royal',
+  'pretre',
+  'chevalier',
 ]
 
 const DIRS: Dir[] = ['down', 'side', 'up']
@@ -84,7 +90,9 @@ export const WEAPON_ATTACK: Record<string, AttackKind> = {
 
 const sets = new Map<string, AnimSet>()
 const items = new Map<string, Texture>()
-let tileSheet: HTMLImageElement | null = null
+/** Une feuille de tuiles par biome — 'cachot' est la feuille historique. */
+const tileSheets = new Map<string, HTMLImageElement>()
+let npcMarchand: HTMLImageElement | null = null
 let ready = false
 
 /** Nombre de cadres par feuille, mesuré à la copie. */
@@ -130,7 +138,22 @@ export async function loadPack(): Promise<boolean> {
     if (!res.ok) throw new Error(`manifest ${res.status}`)
     manifest = (await res.json()) as Record<string, number>
 
-    tileSheet = await loadImage(`${BASE}tiles.png`)
+    tileSheets.set('cachot', await loadImage(`${BASE}tiles.png`))
+    // Les feuilles des autres biomes sont facultatives une à une : un biome
+    // absent retombe sur le thème cachot sans faire tomber tout le pack.
+    for (const biome of Object.keys(THEMES)) {
+      if (biome === 'cachot') continue
+      try {
+        tileSheets.set(biome, await loadImage(`${BASE}tiles_${biome}.png`))
+      } catch {
+        console.warn(`tuiles du biome ${biome} indisponibles, thème cachot utilisé`)
+      }
+    }
+    try {
+      npcMarchand = await loadImage(`${BASE}npc_marchand.png`)
+    } catch {
+      npcMarchand = null
+    }
     for (const sp of MOBS) {
       const [idle, run, death] = await Promise.all([
         sheet(`${sp}_idle`),
@@ -170,9 +193,15 @@ export async function loadPack(): Promise<boolean> {
     console.warn('pack de sprites indisponible, atlas procédural utilisé', err)
     sets.clear()
     items.clear()
-    tileSheet = null
+    tileSheets.clear()
+    npcMarchand = null
     return false
   }
+}
+
+/** Le pack est-il chargé ? Le rendu adapte ses replis procéduraux. */
+export function packReady(): boolean {
+  return ready
 }
 
 export function packAnim(species: string, isPlayer: boolean): AnimSet | null {
@@ -197,24 +226,52 @@ export function packItemTexture(weapon: string | undefined): Texture | null {
 
 // --- Tuiles du donjon ---------------------------------------------------------
 
-/** Coordonnées (col, ligne) dans la feuille Dungeon_Tiles, cases de 16 px. */
+/** Cases de 16 px dans toutes les feuilles de tuiles. */
 const T = 16
-/** Dalles de sol, au centre de la grande zone dallée de la feuille. */
-const FLOOR_TILES = [[5, 1], [6, 1], [7, 1], [5, 2], [6, 2], [4, 1]] as const
-/** Mêmes dalles, rangée du haut : ombrées, posées au contact d'un mur. */
-const FLOOR_SHADED = [[5, 0], [6, 0], [7, 0]] as const
-/** Tranches de brique du mur, trois variantes. */
-const WALL_FACES = [[0, 1], [1, 1], [2, 1]] as const
-/** Dessus des blocs : le noir bleuté du haut de la feuille. */
-const WALL_TOP = '#0b0d13'
 
 /**
- * Peint sols et murs depuis la feuille du pack. Contrairement au peintre
+ * Le thème d'un biome : où piocher, dans sa feuille, les dalles de sol, leurs
+ * variantes ombrées (posées au contact d'un mur), les tranches de brique des
+ * murs, et la couleur du dessus des blocs. `floorShaded` vide signifie que la
+ * feuille n'a pas de rangée ombrée dédiée : l'ombre de contact est alors un
+ * voile peint par-dessus la dalle normale — même relief, autre technique.
+ */
+interface TileTheme {
+  floor: readonly (readonly [number, number])[]
+  floorShaded: readonly (readonly [number, number])[]
+  wallFaces: readonly (readonly [number, number])[]
+  wallTop: string
+}
+
+const THEMES: Record<string, TileTheme> = {
+  // Dungeon_Tiles : dalles au centre de la grande zone dallée, rangée du haut
+  // ombrée, tranches de brique, noir bleuté du haut de la feuille.
+  cachot: {
+    floor: [[5, 1], [6, 1], [7, 1], [5, 2], [6, 2], [4, 1]],
+    floorShaded: [[5, 0], [6, 0], [7, 0]],
+    wallFaces: [[0, 1], [1, 1], [2, 1]],
+    wallTop: '#0b0d13',
+  },
+  // Tiles château : les grandes dalles claires du hall (bloc 4-6 × 11-12,
+  // la rangée 13 porte le liseré bas du bloc), briques de la rangée 1, et le
+  // prune sombre qui sert de fond à toute la feuille.
+  chateau: {
+    floor: [[5, 12], [4, 11], [5, 11], [6, 11], [4, 12], [6, 12]],
+    floorShaded: [],
+    wallFaces: [[5, 1], [6, 1], [7, 1]],
+    wallTop: '#352a34',
+  },
+}
+
+/**
+ * Peint sols et murs depuis la feuille du biome. Contrairement au peintre
  * procédural, celui-ci regarde les voisins : un mur montre sa tranche de
  * brique quand une case praticable le longe par le bas, un sol prend sa
  * variante ombrée sous un mur — c'est cette ombre de contact qui donne du
- * relief à la pièce. Portes et escaliers restent au peintre procédural.
- * Rend faux si la tuile n'est pas prise en charge (ou pack absent).
+ * relief à la pièce. Portes, escaliers et grilles reçoivent la dalle de sol
+ * du biome en fond, puis rendent faux : leur glyphe reste au peintre
+ * procédural (voir paintTile, mode overlay). Rend faux si la tuile n'est pas
+ * prise en charge (ou pack absent).
  */
 export function paintPackTile(
   ctx: CanvasRenderingContext2D,
@@ -223,29 +280,51 @@ export function paintPackTile(
   height: number,
   x: number,
   y: number,
+  biome = 'cachot',
 ): boolean {
-  if (!ready || !tileSheet) return false
+  const sheet = tileSheets.get(biome) ?? tileSheets.get('cachot')
+  const theme = (tileSheets.has(biome) ? THEMES[biome] : undefined) ?? THEMES.cachot!
+  if (!ready || !sheet) return false
   const tile = tiles[y * width + x]!
   const h = (x * 7 + y * 13 + ((x * 31) ^ (y * 17))) & 0x7fffffff
 
-  const blit = (src: readonly [number, number] | readonly number[]) =>
-    ctx.drawImage(tileSheet!, src[0]! * T, src[1]! * T, T, T, x * T, y * T, T, T)
+  const blit = (src: readonly [number, number]) =>
+    ctx.drawImage(sheet, src[0] * T, src[1] * T, T, T, x * T, y * T, T, T)
+
+  const paintFloor = () => {
+    const shaded = y > 0 && tiles[(y - 1) * width + x] === Tile.Wall
+    if (shaded && theme.floorShaded.length > 0) {
+      blit(theme.floorShaded[h % theme.floorShaded.length]!)
+      return
+    }
+    blit(theme.floor[h % theme.floor.length]!)
+    if (shaded) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
+      ctx.fillRect(x * T, y * T, T, T)
+    }
+  }
 
   if (tile === Tile.Floor) {
-    const shaded = y > 0 && tiles[(y - 1) * width + x] === Tile.Wall
-    const pool = shaded ? FLOOR_SHADED : FLOOR_TILES
-    blit(pool[h % pool.length]!)
+    paintFloor()
     return true
   }
   if (tile === Tile.Wall) {
     const below = y + 1 < height ? tiles[(y + 1) * width + x]! : Tile.Wall
     if (isWalkable(below)) {
-      blit(WALL_FACES[h % WALL_FACES.length]!)
+      blit(theme.wallFaces[h % theme.wallFaces.length]!)
     } else {
-      ctx.fillStyle = WALL_TOP
+      ctx.fillStyle = theme.wallTop
       ctx.fillRect(x * T, y * T, T, T)
     }
     return true
   }
+  // Porte, escalier, grille : le fond prend la dalle du biome pour que le
+  // glyphe procédural ne traîne plus les couleurs du cachot dans le Château.
+  paintFloor()
   return false
+}
+
+/** Le marchand du SAS, cuit dans la carte par le rendu. Null sans pack. */
+export function packNpcImage(): HTMLImageElement | null {
+  return ready ? npcMarchand : null
 }

@@ -36,7 +36,13 @@ MOBS = FREE / 'Entities' / 'Mobs'
 HUNTER = SRC / 'Cemetery' / 'Pixel Crawler - Cemetery' / 'Entities' / 'Characters' / 'A_Hunter'
 BAT = SRC / 'Small_Bat' / 'Small_Bat'
 
-# Espèce du jeu → dossier du mob dans le pack.
+CASTLE = SRC / 'Castle_Environment' / 'Pixel Crawler - Castle Environment 0.3'
+ROYAL = CASTLE / 'Enemies' / 'Royal Crew'
+
+# Espèce du jeu → dossier du mob dans le pack. Deux conventions cohabitent :
+# le Free Pack range chaque animation dans son sous-dossier (Idle/Idle-Sheet),
+# les packs d'environnement posent les feuilles à plat (Idle-Sheet direct) —
+# copy_crew() essaie les deux.
 CREWS = {
     'skeleton': MOBS / 'Skeleton Crew' / 'Skeleton - Base',
     'skeleton_warrior': MOBS / 'Skeleton Crew' / 'Skeleton - Warrior',
@@ -46,6 +52,22 @@ CREWS = {
     'orc_warrior': MOBS / 'Orc Crew' / 'Orc - Warrior',
     'orc_mage': MOBS / 'Orc Crew' / 'Orc - Shaman',
     'orc_rogue': MOBS / 'Orc Crew' / 'Orc - Rogue',
+    'soldat': ROYAL / 'Soldier',
+    'archer_royal': ROYAL / 'Archer',
+    'pretre': ROYAL / 'Priest',
+    'chevalier': ROYAL / 'Knight',
+}
+
+# Biome → feuille de tuiles. `tiles.png` reste le cachot historique ; les
+# autres deviennent `tiles_<biome>.png`, mêmes cases de 16 px.
+TILESETS = {
+    'chateau': CASTLE / 'Assets' / 'Tiles.png',
+}
+
+# PNJ statiques, cuits dans la carte par le client (jamais animés) : premier
+# cadre de leur feuille d'idle, produits en `npc_<nom>.png`.
+NPCS = {
+    'marchand': FREE / 'Entities' / "Npc's" / 'Citizen_F' / 'Tavern_A' / 'Idle' / 'Idle_Side-Sheet.png',
 }
 
 # Animation du héros → dossier chez le Chasseur. « Pierce_Top » est la seule
@@ -58,8 +80,6 @@ HERO = {
     'crush': ('Attack_03_Base', 'Crush'),
 }
 DIRS = {'down': 'Down', 'side': 'Side', 'up': 'Up'}
-
-CASTLE = SRC / 'Castle_Environment' / 'Pixel Crawler - Castle Environment 0.3'
 
 # Arme du jeu → case (colonne, ligne, largeur, hauteur) dans l'arsenal du pack
 # Castle, en cases de 16 px. C'est l'acier du Chasseur : l'objet au sol et
@@ -160,7 +180,7 @@ def write_manifest() -> None:
     counts = {
         path.stem: frame_count(Image.open(path).convert('RGBA'))
         for path in sorted(DST.glob('*.png'))
-        if path.stem != 'tiles' and not path.stem.startswith('weapon_')
+        if not path.stem.startswith(('tiles', 'weapon_', 'npc_'))
     }
     (DST / 'manifest.json').write_text(json.dumps(counts, indent=2, sort_keys=True) + '\n')
     odd = {n: c for n, c in counts.items() if c != Image.open(DST / f'{n}.png').width // Image.open(DST / f'{n}.png').height}
@@ -184,21 +204,38 @@ def cut_weapons() -> None:
         print(f'weapon_{weapon}.png : {icon.width}x{icon.height}')
 
 
+def cut_npcs() -> None:
+    """Premier cadre de l'idle de chaque PNJ : une image fixe à cuire dans la carte."""
+    for name, sheet_path in NPCS.items():
+        sheet = Image.open(sheet_path).convert('RGBA')
+        frame = sheet.crop((0, 0, sheet.height, sheet.height))
+        frame.save(DST / f'npc_{name}.png')
+        print(f'npc_{name}.png : {frame.width}x{frame.height}')
+
+
+def copy_crew(folder: Path, anim: str, name: str) -> None:
+    """Copie une feuille de mob, quelle que soit la convention du pack."""
+    nested = folder / anim / f'{anim}-Sheet.png'
+    copy(nested if nested.exists() else folder / f'{anim}-Sheet.png', name)
+
+
 def main() -> None:
     if DST.exists():
         shutil.rmtree(DST)
     DST.mkdir(parents=True)
 
     for species, folder in CREWS.items():
-        copy(folder / 'Idle' / 'Idle-Sheet.png', f'{species}_idle.png')
-        copy(folder / 'Run' / 'Run-Sheet.png', f'{species}_run.png')
-        copy(folder / 'Death' / 'Death-Sheet.png', f'{species}_death.png')
+        copy_crew(folder, 'Idle', f'{species}_idle.png')
+        copy_crew(folder, 'Run', f'{species}_run.png')
+        copy_crew(folder, 'Death', f'{species}_death.png')
 
     copy(BAT / 'Idle' / 'Idle_Side-Sheet.png', 'bat_idle.png')
     copy(BAT / 'Move' / 'Move_Side-Sheet.png', 'bat_run.png')
     copy(BAT / 'Death' / 'Death_Side-Sheet.png', 'bat_death.png')
 
     copy(FREE / 'Environment' / 'Tilesets' / 'Dungeon_Tiles.png', 'tiles.png')
+    for biome, sheet in TILESETS.items():
+        copy(sheet, f'tiles_{biome}.png')
 
     for anim, (folder, prefix) in HERO.items():
         for d, suffix in DIRS.items():
@@ -209,6 +246,7 @@ def main() -> None:
 
     align_walkers()
     cut_weapons()
+    cut_npcs()
     write_manifest()
 
 

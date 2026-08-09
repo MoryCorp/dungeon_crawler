@@ -208,7 +208,7 @@ async function main(): Promise<void> {
         debug.floors++
         mapSize = msg.width * msg.height
         tiles = fromBase64(msg.tiles)
-        renderer.setFloor(msg.width, msg.height, tiles, samefloor, msg.decor ?? [])
+        renderer.setFloor(msg.width, msg.height, tiles, samefloor, msg.decor ?? [], msg.floor)
         audio.setFloor(msg.floor)
         floorLabel.textContent = String(msg.floor)
         if (!samefloor) localReady = false

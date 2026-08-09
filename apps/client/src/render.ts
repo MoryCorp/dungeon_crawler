@@ -8,12 +8,15 @@
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { ActorView, Decor, GameEvent, ItemView, ProjectileView } from '@dc/engine'
 import {
-  MONSTERS, MONSTER_HALF_ARC, PICKUP_RANGE, ROLL_TICKS, TICK_RATE, WEAPONS, chestPrice,
+  MONSTERS, MONSTER_HALF_ARC, PICKUP_RANGE, ROLL_TICKS, TICK_RATE, WEAPONS, biomeOf, chestPrice,
 } from '@dc/engine'
+import { Tile } from '@dc/engine'
 import {
   WEAPON_ATTACK,
   packAnim,
   packItemTexture,
+  packNpcImage,
+  packReady,
   paintPackTile,
   type AnimSet,
   type AttackKind,
@@ -208,6 +211,7 @@ export class Renderer {
     tiles: Uint8Array,
     keepExplored = false,
     decor: readonly Decor[] = [],
+    floor = 1,
   ): void {
     this.width = width
     this.height = height
@@ -218,18 +222,33 @@ export class Renderer {
       this.explored = new Uint8Array(width * height)
     }
 
+    const biome = biomeOf(floor).tileset
     const canvas = makeCanvas(width * TILE, height * TILE)
     const ctx = canvas.getContext('2d')!
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        if (!paintPackTile(ctx, tiles, width, height, x, y)) {
-          paintTile(ctx, tiles[y * width + x]!, x * TILE, y * TILE)
+        // Le pack rend faux pour porte/escalier/grille après avoir posé la
+        // dalle du biome : le peintre procédural n'ajoute alors que le glyphe.
+        const packed = paintPackTile(ctx, tiles, width, height, x, y, biome)
+        if (!packed) {
+          const tile = tiles[y * width + x]!
+          const overlayOnly = tile !== Tile.Floor && tile !== Tile.Wall && packReady()
+          paintTile(ctx, tile, x * TILE, y * TILE, overlayOnly)
         }
       }
     }
     // Le décor est cuit dans la même image que le sol : rien à animer, rien à
     // trier en profondeur, et le brouillard le masque sans code en plus.
-    for (const d of decor) paintDecor(ctx, d.kind, d.x, d.y)
+    for (const d of decor) {
+      // Le marchand du SAS : le vrai PNJ du pack si on l'a, ancré pieds au bas
+      // de sa tuile — son cadre de 64 px déborde vers le haut, sur le mur.
+      const npc = d.kind === 'marchand' ? packNpcImage() : null
+      if (npc) {
+        ctx.drawImage(npc, d.x * TILE + TILE / 2 - npc.width / 2, (d.y + 1) * TILE - npc.height)
+      } else {
+        paintDecor(ctx, d.kind, d.x, d.y)
+      }
+    }
     this.mapSprite?.destroy()
     this.mapSprite = new Sprite(nearestTexture(canvas))
     this.mapLayer.removeChildren()

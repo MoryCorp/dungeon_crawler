@@ -1,7 +1,13 @@
 {
+  "archer_royal_death": 6,
+  "archer_royal_idle": 4,
+  "archer_royal_run": 6,
   "bat_death": 4,
   "bat_idle": 4,
   "bat_run": 8,
+  "chevalier_death": 6,
+  "chevalier_idle": 4,
+  "chevalier_run": 6,
   "hero_crush_down": 8,
   "hero_crush_side": 8,
   "hero_crush_up": 8,
@@ -29,6 +35,9 @@
   "orc_warrior_death": 6,
   "orc_warrior_idle": 4,
   "orc_warrior_run": 6,
+  "pretre_death": 6,
+  "pretre_idle": 4,
+  "pretre_run": 6,
   "skeleton_death": 8,
   "skeleton_idle": 4,
   "skeleton_mage_death": 6,
@@ -40,5 +49,8 @@
   "skeleton_run": 6,
   "skeleton_warrior_death": 6,
   "skeleton_warrior_idle": 4,
-  "skeleton_warrior_run": 6
+  "skeleton_warrior_run": 6,
+  "soldat_death": 6,
+  "soldat_idle": 4,
+  "soldat_run": 6
 }

@@ -476,6 +476,24 @@ export function paintDecor(
       ctx.fillRect(px + 7, py + 6, 1, 6)
       break
     }
+    case 'marchand': {
+      // Repli sans pack : une silhouette encapuchonnée derrière son comptoir.
+      // Le vrai PNJ du pack est cuit par le rendu quand les feuilles sont là.
+      ctx.fillStyle = shade
+      ctx.fillRect(px + 3, py + 13, 10, 2)
+      ctx.fillStyle = '#5a4a72'
+      ctx.fillRect(px + 5, py + 4, 6, 7)
+      ctx.fillRect(px + 6, py + 2, 4, 3)
+      ctx.fillStyle = '#3d3150'
+      ctx.fillRect(px + 6, py + 3, 4, 2)
+      ctx.fillStyle = '#e8c98a'
+      ctx.fillRect(px + 7, py + 5, 2, 1)
+      ctx.fillStyle = '#6b5334'
+      ctx.fillRect(px + 3, py + 11, 10, 3)
+      ctx.fillStyle = '#846741'
+      ctx.fillRect(px + 3, py + 11, 10, 1)
+      break
+    }
   }
 }
 
@@ -484,10 +502,20 @@ export function paintTile(
   tile: number,
   px: number,
   py: number,
+  overlayOnly = false,
 ): void {
   const tx = px / TILE
   const ty = py / TILE
   const h = (tx * 7 + ty * 13 + ((tx * 31) ^ (ty * 17))) % 5
+
+  // Mode overlay : le pack a déjà posé la dalle du biome en fond, on ne
+  // dessine que le glyphe (battant, barreaux, marches) — sinon le fond
+  // procéduralement gris traînerait les couleurs du cachot partout.
+  const ground = (style: string) => {
+    if (overlayOnly) return
+    ctx.fillStyle = style
+    ctx.fillRect(px, py, TILE, TILE)
+  }
 
   if (tile === Tile.Floor) {
     ctx.fillStyle = h === 4 ? FLOOR_DARK : FLOOR_BASE
@@ -527,8 +555,7 @@ export function paintTile(
     ctx.fillRect(px + shift, py + TILE - 4, 1, 2)
     ctx.fillRect(px + ((shift + 7) % TILE), py + TILE - 1, 1, 1)
   } else if (tile === Tile.Door) {
-    ctx.fillStyle = FLOOR_DARK
-    ctx.fillRect(px, py, TILE, TILE)
+    ground(FLOOR_DARK)
     // Cadre de pierre + planches.
     ctx.fillStyle = WALL_TOP
     ctx.fillRect(px, py, 2, TILE)
@@ -544,8 +571,7 @@ export function paintTile(
   } else if (tile === Tile.Gate) {
     // La grille de la salle piégée : des barreaux sur fond de sol — on voit
     // au travers, on ne passe pas.
-    ctx.fillStyle = FLOOR_DARK
-    ctx.fillRect(px, py, TILE, TILE)
+    ground(FLOOR_DARK)
     ctx.fillStyle = '#23252e'
     ctx.fillRect(px, py, TILE, 2)
     ctx.fillRect(px, py + TILE - 2, TILE, 2)
@@ -555,8 +581,7 @@ export function paintTile(
     for (let i = 0; i < 4; i++) ctx.fillRect(px + 2 + i * 4, py, 1, 1)
   } else if (tile === Tile.Stairs) {
     // Marches qui s'enfoncent dans le noir : la destination est l'obscurité.
-    ctx.fillStyle = FLOOR_BASE
-    ctx.fillRect(px, py, TILE, TILE)
+    ground(FLOOR_BASE)
     const shades = ['#767887', '#5c5e6d', '#454754', '#30323d', '#1d1f27', '#0e1015']
     for (let i = 0; i < 6; i++) {
       ctx.fillStyle = shades[i]!
