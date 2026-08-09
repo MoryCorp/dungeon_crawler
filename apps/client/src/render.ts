@@ -6,7 +6,7 @@
  * position prédite, sinon on sentirait un aller-retour à chaque paquet.
  */
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
-import type { ActorView, Decor, GameEvent, ItemView, ProjectileView } from '@dc/engine'
+import type { ActorView, Decor, GameEvent, ItemView, ProjectileView, Room } from '@dc/engine'
 import {
   MONSTERS, MONSTER_HALF_ARC, PICKUP_RANGE, ROLL_TICKS, TICK_RATE, WEAPONS, biomeOf, chestPrice,
 } from '@dc/engine'
@@ -18,6 +18,7 @@ import {
   packNpcImage,
   packReady,
   paintPackTile,
+  paintRoomFloors,
   type AnimSet,
   type AttackKind,
   type Dir,
@@ -212,6 +213,7 @@ export class Renderer {
     keepExplored = false,
     decor: readonly Decor[] = [],
     floor = 1,
+    rooms: readonly Room[] = [],
   ): void {
     this.width = width
     this.height = height
@@ -237,6 +239,10 @@ export class Renderer {
         }
       }
     }
+    // Chaque salle reçoit son matériau de sol (parquet, tapis…) par-dessus le
+    // sol commun — les couloirs restent en pierre, et c'est ce contraste qui
+    // fait lire les pièces comme des pièces.
+    paintRoomFloors(ctx, tiles, width, height, rooms, biome)
     // Le décor est cuit dans la même image que le sol : rien à animer, rien à
     // trier en profondeur, et le brouillard le masque sans code en plus.
     for (const d of decor) {

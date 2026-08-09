@@ -8,7 +8,7 @@
  * Corollaire assumé : la carte complète est envoyée au client, le brouillard
  * est donc cosmétique. Sans importance entre amis.
  */
-import type { Decor } from './mapgen.js'
+import type { Decor, Room } from './mapgen.js'
 import type { Actor, GameEvent, GameState, ItemKind, PlayerInput } from './types.js'
 import { xpForLevel } from './types.js'
 
@@ -129,6 +129,8 @@ export type ServerMsg =
       tiles: string
       /** Décor visuel de l'étage — envoyé une fois, peint dans la carte. */
       decor?: Decor[]
+      /** Les salles : le client habille chacune de son matériau de sol. */
+      rooms?: Room[]
     }
   /** Équipe au tapis : écran bref côté client, le serveur relance une descente
    *  neuve dans la même room quelques secondes plus tard. */

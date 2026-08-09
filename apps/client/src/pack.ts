@@ -241,6 +241,19 @@ interface TileTheme {
   floorShaded: readonly (readonly [number, number])[]
   wallFaces: readonly (readonly [number, number])[]
   wallTop: string
+  /**
+   * Matériaux de salle : des blocs répétables de la feuille (origine + période
+   * en cases), posés en coordonnées absolues pour que le motif continue d'une
+   * tuile à l'autre. Chaque salle en tire un au hasard de sa géométrie — les
+   * couloirs restent sur `floor`. Vide : les salles gardent le sol commun.
+   */
+  materials?: readonly { ox: number; oy: number; pw: number; ph: number }[]
+  /**
+   * Le tapis d'apparat des salles de repos et du SAS : même format qu'un
+   * matériau, plus un liseré peint par-dessus (la bordure dorée de la feuille
+   * n'est pas alignée sur la grille, on la redessine).
+   */
+  sanctuary?: { ox: number; oy: number; pw: number; ph: number; trim: string }
 }
 
 const THEMES: Record<string, TileTheme> = {
@@ -260,6 +273,14 @@ const THEMES: Record<string, TileTheme> = {
     floorShaded: [],
     wallFaces: [[5, 1], [6, 1], [7, 1]],
     wallTop: '#352a34',
+    // Le tapis gris de la feuille est écarté : posé sur une grande salle, il
+    // éteint tout — vu sur maquette, c'est lui qui rendait l'étage terne.
+    materials: [
+      { ox: 6, oy: 17, pw: 3, ph: 2 },   // parquet chaud
+      { ox: 12, oy: 17, pw: 3, ph: 3 },  // tapis à losanges bleu
+      { ox: 4, oy: 11, pw: 2, ph: 2 },   // dalles claires (le sol commun)
+    ],
+    sanctuary: { ox: 19, oy: 18, pw: 1, ph: 1, trim: '#d69000' },
   },
 }
 
@@ -327,4 +348,62 @@ export function paintPackTile(
 /** Le marchand du SAS, cuit dans la carte par le rendu. Null sans pack. */
 export function packNpcImage(): HTMLImageElement | null {
   return ready ? npcMarchand : null
+}
+
+/**
+ * Habille chaque salle de son matériau : parquet, tapis, ou le sol commun.
+ * Ce qui fait un château plutôt qu'une grotte, c'est que les pièces sont
+ * meublées — un donjon d'un seul sol se lit comme un labyrinthe de pierre.
+ * Le matériau se tire de la géométrie de la salle (stable d'une visite à
+ * l'autre), le motif se pose en coordonnées absolues pour rester continu.
+ * Les salles de repos et le SAS reçoivent le tapis d'apparat, liseré doré
+ * compris. Les couloirs ne sont pas touchés. Sans pack ni matériaux : no-op.
+ */
+export function paintRoomFloors(
+  ctx: CanvasRenderingContext2D,
+  tiles: Uint8Array,
+  width: number,
+  height: number,
+  rooms: readonly { x: number; y: number; w: number; h: number; kind: string }[],
+  biome: string,
+): void {
+  const sheet = tileSheets.get(biome)
+  const theme = THEMES[biome]
+  if (!ready || !sheet || !theme?.materials?.length) return
+
+  const blitPattern = (
+    mat: { ox: number; oy: number; pw: number; ph: number },
+    x: number,
+    y: number,
+  ) => {
+    const sx = (mat.ox + (x % mat.pw)) * T
+    const sy = (mat.oy + (y % mat.ph)) * T
+    ctx.drawImage(sheet, sx, sy, T, T, x * T, y * T, T, T)
+    // L'ombre de contact sous les murs vaut pour tous les matériaux : c'est
+    // elle qui donne le relief, pas la couleur du sol.
+    if (y > 0 && tiles[(y - 1) * width + x] === Tile.Wall) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
+      ctx.fillRect(x * T, y * T, T, T)
+    }
+  }
+
+  for (const room of rooms) {
+    const sanctuary = room.kind === 'repos' && theme.sanctuary
+    const h =
+      (Math.imul(room.x * 53 + room.y * 97, 2654435761) ^ (room.w * 31 + room.h * 7)) >>> 0
+    const mat = sanctuary ? theme.sanctuary! : theme.materials[h % theme.materials.length]!
+    for (let y = room.y; y < room.y + room.h; y++) {
+      for (let x = room.x; x < room.x + room.w; x++) {
+        if (tiles[y * width + x] !== Tile.Floor) continue
+        blitPattern(mat, x, y)
+      }
+    }
+    if (sanctuary) {
+      // Le liseré doré, redessiné : la bordure de la feuille n'est pas
+      // alignée sur la grille de 16. Deux pixels, en retrait d'un pixel.
+      ctx.strokeStyle = theme.sanctuary!.trim
+      ctx.lineWidth = 2
+      ctx.strokeRect(room.x * T + 2, room.y * T + 2, room.w * T - 4, room.h * T - 4)
+    }
+  }
 }
