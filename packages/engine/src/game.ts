@@ -410,10 +410,20 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
   if (rest) {
     const rx = rest.x + Math.floor(rest.w / 2) + 0.5
     const ry = rest.y + Math.floor(rest.h / 2) + 0.5
-    dropItem(state, { kind: 'cap', x: rx, y: ry, price: capPrice(state.capBought) })
-    dropItem(state, { kind: 'soin', x: rx - 1.4, y: ry, price: soinPrice(state.floor) })
-    dropItem(state, { kind: 'fiole_souffle', x: rx + 1.4, y: ry, price: FIOLE_PRICE })
-    dropItem(state, { kind: 'fiole_vitesse', x: rx + 1.4, y: ry + 1, price: FIOLE_PRICE })
+    // Chaque article est ramené sur une tuile praticable : dans une petite
+    // salle, un offset fixe depuis le centre peut tomber dans le mur — l'objet
+    // devient alors inachetable pour tout le monde (mesuré : des fioles à
+    // −1 de tout champ de distance, l'étal mort pour toute la descente).
+    const spots = [
+      { kind: 'cap' as const, x: rx, y: ry, price: capPrice(state.capBought) },
+      { kind: 'soin' as const, x: rx - 1.4, y: ry, price: soinPrice(state.floor) },
+      { kind: 'fiole_souffle' as const, x: rx + 1.4, y: ry, price: FIOLE_PRICE },
+      { kind: 'fiole_vitesse' as const, x: rx + 1.4, y: ry + 1, price: FIOLE_PRICE },
+    ]
+    for (const s of spots) {
+      const at = findFreeSpot(state, s.x, s.y)
+      dropItem(state, { kind: s.kind, x: at.x, y: at.y, price: s.price })
+    }
   }
 }
 

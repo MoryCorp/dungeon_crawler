@@ -141,6 +141,11 @@ export function runOne(job: Job): RunResult {
         }
       } else if (ev.t === 'descend') {
         lastEventTick = totalTicks
+      } else if (ev.t === 'revived' || ev.t === 'spend' || ev.t === 'drink') {
+        // Relever, acheter, boire : de l'activité réelle, pas du piétinement.
+        // Sans ça, une équipe qui se relève ou fait ses courses passe pour
+        // coincée et le run est tronqué à tort.
+        lastEventTick = totalTicks
       } else if (ev.t === 'horde') {
         result.hordes++
         hordeDistSum += ev.dist

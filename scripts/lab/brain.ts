@@ -182,6 +182,7 @@ function holdRange(weapon: string, kite: number): number {
 
 export class Brain {
   lastBranch = ''
+  private dodgeStreak = 0
   private rng: Rng
   private queue: PlayerInput[] = []
   private cached: PlayerInput = { ...NEUTRAL_INPUT }
@@ -292,8 +293,18 @@ export class Brain {
     const nearestDist = nearest ? Math.hypot(nearest.x - me.x, nearest.y - me.y) : Infinity
 
     // Relever un coéquipier passe avant tout, sauf si on est soi-même au bord.
+    // Mais un seul secouriste suffit : si un autre debout est plus proche du
+    // corps, on couvre en se battant au lieu de s'agglutiner — mesuré en
+    // quatuor, deux secouristes sous le feu de mages statiques font une boucle
+    // relevé/à terre infinie que personne ne casse jamais.
     const downedMate = this.nearestPlayer(state, me, (a) => a.alive && a.downed === true)
-    if (downedMate && hpRatio > g.fleeAt) {
+    const closerHelper = downedMate
+      ? this.nearestPlayer(state, downedMate, (a) =>
+          a.alive && !a.downed && a.id !== this.id &&
+          Math.hypot(a.x - downedMate.x, a.y - downedMate.y) <
+            Math.hypot(me.x - downedMate.x, me.y - downedMate.y))
+      : null
+    if (downedMate && !closerHelper && hpRatio > g.fleeAt) {
       const d = Math.hypot(downedMate.x - me.x, downedMate.y - me.y)
       const aim = nearest
         ? Math.atan2(nearest.y - me.y, nearest.x - me.x)
@@ -309,8 +320,13 @@ export class Brain {
     }
 
     // Esquive : la qualité du génome décide si on voit venir le coup.
+    // Plafonnée en rafale : face à un tireur statique, le vecteur d'esquive
+    // existe à chaque décision et le bot gèlerait sur place pour toujours —
+    // mesuré en quatuor dans la salle piégée. Un humain esquive en avançant :
+    // toutes les quelques esquives, on rend une décision aux autres branches.
     const dodge = this.dodgeVector(state, me)
-    if (dodge && this.rng.next() < g.dodge) {
+    if (dodge && this.dodgeStreak < 4 && this.rng.next() < g.dodge) {
+      this.dodgeStreak++
       this.lastBranch = 'dodge'
       const aim = nearest ? Math.atan2(nearest.y - me.y, nearest.x - me.x) : me.aim
       return {
@@ -319,6 +335,7 @@ export class Brain {
         sprint: false,
       }
     }
+    this.dodgeStreak = 0
 
     // Un cœur quand on saigne : petit détour seulement, pas une expédition.
     if (hpRatio < g.heartAt) {
@@ -366,8 +383,14 @@ export class Brain {
     // qui meurt riche fausserait la mesure du puits autant qu'un joueur.
     const stall = this.shopTarget(state, me, hpRatio)
     if (stall) {
-      this.lastBranch = 'shop'
       const d = distancesTo(state, Math.floor(stall.x), Math.floor(stall.y))
+      // Article inatteignable (posé hors du praticable, porte fermée…) : on
+      // passe son chemin plutôt que de camper dessus jusqu'au coincement.
+      if (d[Math.floor(me.y) * MAP_W + Math.floor(me.x)] === -1) {
+        this.lastBranch = 'travel'
+        return this.travel(state, me)
+      }
+      this.lastBranch = 'shop'
       const [mx, my] = stepToward(state, me, d)
       const g2 = this.genome
       return {
