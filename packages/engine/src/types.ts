@@ -1021,6 +1021,8 @@ export type GameEvent =
   | { t: 'drop'; kind: ItemKind; x: number; y: number }
   | { t: 'death'; id: string; kind: Actor['kind']; species: string; x: number; y: number }
   | { t: 'downed'; id: string; x: number; y: number }
+  /** Plus personne debout pour relever qui que ce soit : la partie est finie. */
+  | { t: 'wipe'; floor: number }
   | { t: 'revived'; id: string; x: number; y: number }
   | { t: 'respawn'; id: string; x: number; y: number }
   | { t: 'pickup'; id: string; kind: ItemKind; x: number; y: number; label?: string; amount?: number }

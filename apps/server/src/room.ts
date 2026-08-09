@@ -54,7 +54,7 @@ export const MAX_PLAYERS = 4
 export class Room {
   state: GameState
   clients = new Map<WebSocket, Client>()
-  readonly telemetry: RunTelemetry
+  telemetry: RunTelemetry
 
   private scratch = {
     visible: new Uint8Array(MAP_W * MAP_H),
@@ -63,6 +63,10 @@ export class Room {
   private floorDirty = true
   private lastSaveTick = 0
   private visCountdown = 0
+  /** Wipe en cours : instant (ms) où la descente neuve démarre. */
+  private resetAtMs: number | null = null
+  /** Descentes relancées dans cette room — décale la graine de chaque run. */
+  private resets = 0
 
   constructor(
     public readonly code: string,
@@ -113,6 +117,21 @@ export class Room {
     // retrouver son perso où il était, pas repartir du spawn.
   }
 
+  /**
+   * Descente neuve après un wipe : état recréé sur une graine décalée,
+   * personnages recréés au niveau 1, même room et même relevé — les étages
+   * des runs successives s'empilent dans la même télémétrie.
+   */
+  private restart(): void {
+    const record = this.telemetry.toRecord(this.state.seed, new Date().toISOString())
+    this.resets++
+    this.state = createGame(seedFromCode(this.code) + this.resets * 7919)
+    for (const c of this.clients.values()) addPlayer(this.state, c.playerId, c.name)
+    this.telemetry = new RunTelemetry(this.code, this.state, record)
+    this.resetAtMs = null
+    this.floorDirty = true
+  }
+
   /** Retire définitivement le personnage (quitter la partie, pas juste fermer l'onglet). */
   forget(ws: WebSocket): void {
     const client = this.clients.get(ws)
@@ -150,7 +169,15 @@ export class Room {
     // client repeint sa carte sur le prochain paquet `floor`.
     for (const ev of this.state.events) {
       if (ev.t === 'trapclose' || ev.t === 'trapclear') this.floorDirty = true
+      // Équipe au tapis : on annonce, on laisse l'écran s'afficher, puis on
+      // relance une descente neuve dans la même room — la télémétrie continue
+      // de s'empiler sur le même code, c'est voulu (chaîner des runs de test).
+      if (ev.t === 'wipe' && this.resetAtMs === null) {
+        this.broadcast({ t: 'gameover', floor: ev.floor })
+        this.resetAtMs = Date.now() + 2500
+      }
     }
+    if (this.resetAtMs !== null && Date.now() >= this.resetAtMs) this.restart()
 
     if (this.floorDirty) {
       this.broadcast(this.floorMsg())

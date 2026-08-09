@@ -119,6 +119,9 @@ export type ClientMsg =
 export type ServerMsg =
   | { t: 'welcome'; selfId: string; room: string; tickRate: number }
   | { t: 'floor'; floor: number; width: number; height: number; tiles: string }
+  /** Équipe au tapis : écran bref côté client, le serveur relance une descente
+   *  neuve dans la même room quelques secondes plus tard. */
+  | { t: 'gameover'; floor: number }
   | {
       t: 'state'
       tick: number

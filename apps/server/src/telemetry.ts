@@ -285,6 +285,8 @@ export interface RunRecord {
   /** Renseigné à l'écriture : l'engine n'a pas accès à l'heure. */
   updatedAt: string
   floors: FloorRecord[]
+  /** Descentes terminées par un wipe dans cette room (runs chaînées). */
+  wipes?: number
 }
 
 /** Sous ce seuil de PV, on considère que le joueur est en danger réel. */
@@ -346,11 +348,15 @@ export class RunTelemetry {
   private squadSize = new Map<string, number>()
   private squadArrived = new Set<string>()
 
+  /** Wipes cumulés sur cette room, repris d'une run précédente. */
+  wipes = 0
+
   constructor(
     readonly room: string,
     state: GameState,
     previous?: RunRecord | null,
   ) {
+    this.wipes = previous?.wipes ?? 0
     if (previous?.floors?.length) this.floors.push(...previous.floors)
     const resumed = this.floors.find((f) => f.floor === state.floor)
     this.current = resumed ?? emptyFloor(state.floor, this.levelOf(state))
@@ -568,6 +574,10 @@ export class RunTelemetry {
         bump((this.current.staggers ??= {}), ev.species)
         break
 
+      case 'wipe':
+        this.wipes += 1
+        break
+
       case 'revived':
         this.current.revives += 1
         break
@@ -643,7 +653,7 @@ export class RunTelemetry {
   }
 
   toRecord(seed: number, now: string): RunRecord {
-    return { room: this.room, seed, updatedAt: now, floors: this.floors }
+    return { room: this.room, seed, updatedAt: now, floors: this.floors, wipes: this.wipes }
   }
 }
 

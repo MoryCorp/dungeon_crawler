@@ -43,6 +43,31 @@ const potionLabel = $('potion')
 const xpFill = $('xp-fill')
 const staminaFill = $('stamina-fill')
 const objective = $('objective')
+
+/**
+ * Voile GAME OVER : bref, sans bouton — le serveur relance tout seul une
+ * descente neuve dans la même room deux secondes plus tard.
+ */
+function showGameOver(floor: number): void {
+  const veil = document.createElement('div')
+  veil.style.cssText =
+    'position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;' +
+    'align-items:center;justify-content:center;gap:.5rem;background:rgba(8,4,4,.82);' +
+    'color:#e8d8c8;font-family:monospace;opacity:0;transition:opacity .35s'
+  const title = document.createElement('div')
+  title.textContent = 'GAME OVER'
+  title.style.cssText = 'font-size:2.6rem;letter-spacing:.3em;color:#c86050'
+  const sub = document.createElement('div')
+  sub.textContent = `étage ${floor} — nouvelle descente…`
+  sub.style.cssText = 'font-size:.95rem;opacity:.75'
+  veil.append(title, sub)
+  document.body.append(veil)
+  requestAnimationFrame(() => { veil.style.opacity = '1' })
+  setTimeout(() => {
+    veil.style.opacity = '0'
+    setTimeout(() => veil.remove(), 400)
+  }, 2300)
+}
 const chase = $('chase')
 const downedBox = $('downed')
 const downedSub = $('downed-sub')
@@ -167,6 +192,16 @@ async function main(): Promise<void> {
         audio.setFloor(msg.floor)
         floorLabel.textContent = String(msg.floor)
         if (!samefloor) localReady = false
+        break
+      }
+
+      case 'gameover': {
+        // Écran bref, puis le serveur renvoie un étage 1 tout neuf. On oublie
+        // l'étage courant pour que ce prochain paquet `floor` soit traité
+        // comme une vraie descente (carte et brouillard remis à zéro), même
+        // si on meurt à l'étage 1.
+        showGameOver(msg.floor)
+        lastFloor = -1
         break
       }
 

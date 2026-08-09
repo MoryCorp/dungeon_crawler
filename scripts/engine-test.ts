@@ -377,6 +377,52 @@ console.log('\nTests engine\n')
   check('un monstre qui campe le corps n\'empêche pas de saigner', died)
 }
 
+// --- le wipe : plus personne debout = partie finie ---------------------------
+// En solo, une mise à terre est une agonie sans issue (aucun auto-relevage) :
+// mort sèche immédiate et événement `wipe`, sur lequel le serveur relance une
+// descente neuve dans la même room. En équipe, tant qu'un coéquipier tient
+// debout, la mise à terre classique garde tout son sens.
+{
+  const solo = createGame(7272)
+  clearMonsters(solo)
+  const hero = addPlayer(solo, 'p_solo', 'Seul')
+  hero.hp = 1
+  hero.invulnUntil = 0
+  putMonster(solo, 'm_solo', 'skeleton', hero.x + 0.7, hero.y)
+  let wiped = false
+  let downedThenDead = false
+  for (let i = 0; i < TICK_RATE * 5 && !wiped; i++) {
+    step(solo, noInputs)
+    if (solo.events.some((e) => e.t === 'wipe')) {
+      wiped = true
+      downedThenDead =
+        solo.events.some((e) => e.t === 'downed') && solo.events.some((e) => e.t === 'death' && e.kind === 'player')
+    }
+  }
+  check('seul, tomber c\'est mourir : le wipe part tout de suite', wiped)
+  check('le wipe emporte la mise à terre et la mort (télémétrie)', downedThenDead)
+  check('le héros est bien mort, pas à terre', !solo.actors['p_solo']!.alive)
+
+  const duo = createGame(7373)
+  clearMonsters(duo)
+  const a = addPlayer(duo, 'p_a', 'Premier')
+  const b = addPlayer(duo, 'p_b', 'Second')
+  b.x = a.x + 6
+  b.y = a.y
+  a.hp = 1
+  a.invulnUntil = 0
+  putMonster(duo, 'm_duo', 'skeleton', a.x + 0.7, a.y)
+  let aDown = false
+  let earlyWipe = false
+  for (let i = 0; i < TICK_RATE * 3 && !aDown; i++) {
+    step(duo, noInputs)
+    if (duo.events.some((e) => e.t === 'wipe')) earlyWipe = true
+    if (duo.actors['p_a']!.downed) aDown = true
+  }
+  check('en duo, tomber reste une mise à terre', aDown && duo.actors['p_a']!.alive)
+  check('pas de wipe tant qu\'un coéquipier tient debout', !earlyWipe)
+}
+
 // --- déterminisme ----------------------------------------------------------
 {
   const a = createGame(999)
@@ -500,9 +546,15 @@ console.log('\nTests engine\n')
 }
 
 // --- mise à terre, saignement, réapparition --------------------------------
+// Avec un coéquipier debout : depuis le wipe, un héros seul meurt sèchement
+// au lieu de tomber — la mise à terre n'existe que s'il reste quelqu'un pour
+// relever. Le coéquipier est parqué loin du corps pour ne pas le relever.
 {
   const s = createGame(2024)
   const hero = addPlayer(s, 'p_dead', 'Mort')
+  const mate = addPlayer(s, 'p_mate', 'Témoin')
+  mate.x = hero.x + 20
+  mate.y = hero.y
   hero.hp = 1
   hero.invulnUntil = 0
   const monster = Object.values(s.actors).find((a) => a.kind === 'monster')!
@@ -519,9 +571,9 @@ console.log('\nTests engine\n')
   check('il est encore en vie tant qu\'il saigne', s.actors['p_dead']!.alive)
 
   clearMonsters(s)
-  // Sans personne pour le relever, il finit par mourir pour de bon.
+  // Personne ne vient le relever : il finit par mourir pour de bon.
   for (let i = 0; i < BLEED_OUT_TICKS + 5; i++) step(s, noInputs)
-  check('sans coéquipier, il finit par mourir', !s.actors['p_dead']!.alive)
+  check('sans relevage, il finit par mourir', !s.actors['p_dead']!.alive)
 
   for (let i = 0; i < TICK_RATE * 12; i++) step(s, noInputs)
   check('le héros réapparaît tout seul', s.actors['p_dead']!.alive)

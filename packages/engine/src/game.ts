@@ -1323,6 +1323,31 @@ function killOrDown(state: GameState, victim: Actor, rng: Rng): void {
   if (!victim.alive || victim.downed) return
 
   if (victim.kind === 'player') {
+    // Personne d'autre debout : la mise à terre serait une agonie sans issue
+    // (aucune mécanique d'auto-relevage). Mort sèche, et l'événement `wipe`
+    // dit au serveur que la partie est finie — en solo comme en équipe.
+    const someoneStanding = Object.values(state.actors).some(
+      (a) => a.kind === 'player' && a.id !== victim.id && a.alive && !a.downed,
+    )
+    if (!someoneStanding) {
+      victim.hp = 0
+      victim.alive = false
+      victim.downed = false
+      victim.reviveProgress = 0
+      victim.kx = 0
+      victim.ky = 0
+      delete victim.windupUntil
+      delete victim.bleedOutAt
+      victim.respawnAt = state.tick + RESPAWN_TICKS
+      // La mise à terre est émise quand même : c'est elle qui porte le
+      // « qui t'a eu » dans la télémétrie, mort sèche ou pas.
+      state.wear.downs++
+      state.events.push({ t: 'downed', id: victim.id, x: victim.x, y: victim.y })
+      state.events.push({ t: 'death', id: victim.id, kind: 'player', species: victim.species, x: victim.x, y: victim.y })
+      state.events.push({ t: 'wipe', floor: state.floor })
+      return
+    }
+
     // Mise à terre plutôt que mort sèche : un coéquipier peut encore le sauver.
     victim.hp = 0
     victim.downed = true
