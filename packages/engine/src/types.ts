@@ -115,7 +115,12 @@ export const WEAPON_DPS = 15
 
 export const WEAPONS: Record<string, WeaponDef> = {
   sword:  { label: 'Épée',    reach: 1.45, halfArc: deg(55), cooldown: ticks(0.42), swing: ticks(0.18), movePenalty: 0.45, damage: 6.50,  knockback: 5,   color: 0xd8dde8 },
-  dagger: { label: 'Dague',   reach: 1.00, halfArc: deg(40), cooldown: ticks(0.18), swing: ticks(0.08), movePenalty: 0.72, damage: 2.50,  knockback: 1.5, color: 0xbfe8d8 },
+  // Portée 1.25 : la dague était la seule arme du jeu à portée inférieure à
+  // celle du trash de mêlée (squelette 1.0, orc 1.05, guerrier 1.1) — le seul
+  // porteur pour qui « sortir de la portée pendant le windup » n'existait pas.
+  // Mesuré au labo : downs par squelette 26 %→12 %, par orc 28 %→19 %, +1
+  // étage sur la moitié des profils. Elle reste de loin la plus courte.
+  dagger: { label: 'Dague',   reach: 1.25, halfArc: deg(40), cooldown: ticks(0.18), swing: ticks(0.08), movePenalty: 0.72, damage: 2.50,  knockback: 1.5, color: 0xbfe8d8 },
   axe:    { label: 'Hache',   reach: 1.60, halfArc: deg(85), cooldown: ticks(0.78), swing: ticks(0.40), movePenalty: 0.12, damage: 11.50, knockback: 9,   color: 0xe8b48a },
   spear:  { label: 'Lance',   reach: 2.40, halfArc: deg(22), cooldown: ticks(0.55), swing: ticks(0.26), movePenalty: 0.35, damage: 8.50,  knockback: 3.5, color: 0xc9d8f0 },
   bow:    { label: 'Arc',     reach: 0.9,  halfArc: deg(30), cooldown: ticks(0.50), swing: ticks(0.16), movePenalty: 0.55, damage: 7.50,  knockback: 2,
