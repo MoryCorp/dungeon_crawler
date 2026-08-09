@@ -107,6 +107,10 @@ async function run(): Promise<void> {
   const monsters = alice.actors.filter((a) => a.kind === 'monster')
   check('des monstres sont visibles ou hors de vue', monsters.length >= 0, `${monsters.length} visibles`)
 
+  // Le brouillard n'accompagne qu'un paquet d'état sur cinq : sur une room
+  // déjà en mémoire, le premier paquet reçu peut ne pas le porter. On lui
+  // laisse le temps d'un cycle complet avant de juger.
+  for (let i = 0; i < 10 && alice.visibleCount === 0; i++) await wait(100)
   check(
     'le brouillard découvre une zone plausible',
     alice.visibleCount > 10 && alice.visibleCount < 64 * 64,

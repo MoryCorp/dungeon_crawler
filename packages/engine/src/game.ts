@@ -732,8 +732,12 @@ export function slowStrain(state: GameState): number {
     best = Math.max(best, a.hp / a.maxHp)
   }
   if (players === 0) return 0
-  const cap = healCapOf(state)
-  const hpGap = cap > 0 ? Math.max(0, 1 - best / cap) : 0
+  // Les PV non regagnés se mesurent à la barre PLEINE, pas au plafond : le
+  // plafond est précisément ce qui rend cet écart irrécupérable — le mesurer
+  // relativement au plafond faisait qu'un joueur remonté pile au plafond
+  // comptait pour frais, même à 75 % de sa barre. (Vu sur la partie TEST11 :
+  // usure réelle 100 → 77 %, signal lent figé à zéro, aucun repos proposé.)
+  const hpGap = Math.max(0, 1 - best)
   const low = state.wear.lowTicks / Math.max(1, state.wear.ticks)
   const downs = Math.min(1, state.wear.downs / (3 * players))
   return Math.min(1, 0.45 * hpGap + 0.35 * low + 0.2 * downs)
