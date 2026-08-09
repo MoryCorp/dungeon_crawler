@@ -154,6 +154,7 @@ export class Room {
       tiles: toBase64(this.state.tiles),
       decor: this.state.decor ?? [],
       rooms: this.state.rooms ?? [],
+      scene: this.state.scene,
     }
   }
 
@@ -161,9 +162,14 @@ export class Room {
     const inputs: Record<string, PlayerInput | null> = {}
     for (const c of this.clients.values()) inputs[c.playerId] = c.input
 
+    // La scène compte autant que le numéro : SAS → arène garde le même étage,
+    // mais la carte change entièrement.
     const floorBefore = this.state.floor
+    const sceneBefore = this.state.scene
     const { visible } = step(this.state, inputs, this.scratch)
-    if (this.state.floor !== floorBefore) this.floorDirty = true
+    if (this.state.floor !== floorBefore || this.state.scene !== sceneBefore) {
+      this.floorDirty = true
+    }
 
     this.telemetry.observe(this.state, this.state.events)
 

@@ -200,6 +200,17 @@ export function decideMonsterAction(
       break
     }
 
+    case 'colosse': {
+      // Deux distances, deux réponses : au contact il martèle (l'arc plus la
+      // couronne d'éclats), à distance il se fige puis charge en ligne droite.
+      // Entre les deux, il marche — lentement, c'est son poids qui l'annonce.
+      if (ready && dist <= 1.7) return { type: 'windup', aim }
+      if (ready && seesDirectly && dist > 3 && dist <= def.reach) {
+        return { type: 'windup', aim }
+      }
+      break
+    }
+
     case 'bomber': {
       // Ne cherche que le contact, et s'amorce longuement une fois collé : le
       // tuer pendant l'amorçage désamorce l'explosion. C'est la récompense.

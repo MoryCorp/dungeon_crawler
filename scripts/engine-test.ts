@@ -1394,13 +1394,8 @@ console.log('\nTests engine\n')
   check('l\'étage suivant est de nouveau verrouillé', s.stairsLocked)
 }
 
-// --- un boss tous les BOSS_EVERY étages -------------------------------------
-{
-  const s = createGame(2323, 5)
-  const boss = Object.values(s.actors).find((a) => a.boss)
-  check('l\'étage 5 a un boss', boss !== undefined, boss?.name)
-  check('le boss est vraiment gros', (boss?.maxHp ?? 0) > 200, `${boss?.maxHp} PV`)
-}
+// Le boss tous les BOSS_EVERY étages : couvert en détail par la section
+// « Le palier de boss » en fin de fichier — SAS, arène, Gardien, patterns.
 
 // --- poursuite : ce qu'on n'a pas tué descend derrière nous -----------------
 {
@@ -2462,85 +2457,199 @@ console.log('\nTests engine\n')
   })
   check("le gardien d'élite est toujours un vétéran de l'acte", keepersOk)
 
-  const g5 = createGame(31415, 5)
-  const boss5 = Object.values(g5.actors).find((a) => a.boss)
+  // Le Gardien de pierre : un boss qui n'existe nulle part ailleurs, mais dont
+  // les chiffres d'équilibrage restent ceux du chevalier lourd validé.
   check(
-    "l'étage 5 est gardé par le Chevalier colossal",
-    boss5?.species === 'chevalier' && boss5.name === 'Chevalier colossal',
+    'le Gardien de pierre garde le palier des deux biomes',
+    biomeOf(1).boss === 'gardien' && biomeOf(6).boss === 'gardien',
   )
-  const g10 = createGame(31415, 10)
-  const boss10 = Object.values(g10.actors).find((a) => a.boss)
-  check("l'étage 10 garde son boss du cachot", boss10?.species === 'orc_warrior')
+  const gard = MONSTERS.gardien!
+  const ow = MONSTERS.orc_warrior!
+  check(
+    'le Gardien porte les chiffres du chevalier lourd — TTK/K intouchables',
+    gard.maxHp === ow.maxHp && gard.atk === ow.atk && gard.xp === ow.xp,
+  )
+  check(
+    'le colosse ne sert dans aucune troupe',
+    biomeOf(1).ladder.every((sp) => MONSTERS[sp]!.behavior !== 'colosse') &&
+      biomeOf(6).ladder.every((sp) => MONSTERS[sp]!.behavior !== 'colosse') &&
+      biomeOf(1).swarm !== 'gardien' && biomeOf(6).swarm !== 'gardien',
+  )
 }
 
 {
-  console.log('\nSAS marchand')
+  console.log('\nLe palier de boss — SAS puis arène')
 
   const inRoom = (r: { x: number; y: number; w: number; h: number }, x: number, y: number) =>
     x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
 
-  const s = createGame(2718, 5)
-  const survivors = Object.values(s.actors).filter((a) => a.kind === 'monster' && a.alive)
-  check("il reste des monstres vivants à l'étage 5 avant la descente", survivors.length > 0)
+  const s = createGame(2718, 4)
+  const survivorsBefore = Object.values(s.actors).filter((a) => a.kind === 'monster' && a.alive)
+  check("il reste des monstres vivants à l'étage 4 avant la descente", survivorsBefore.length > 0)
+  const hero = addPlayer(s, 'p_palier', 'Descendeur')
+  hero.hp = hero.maxHp = 999
   descend(s)
 
+  // -- Le SAS : le sanctuaire marchand ---------------------------------------
+  check("l'escalier de l'étage 4 ouvre le SAS de l'étage 5", s.floor === 5 && s.scene === 'sas')
   const sasRoom = s.rooms[0]!
-  check("l'étage 6 s'ouvre sur un SAS — la salle d'arrivée est un repos", sasRoom.kind === 'repos')
-  check('la porte de l\'acte purge les poursuivants', s.pursuers.length === 0)
+  check('le SAS est une salle de repos', sasRoom.kind === 'repos')
+  check('personne ne poursuit une équipe dans le sanctuaire', s.pursuers.length === 0)
   check(
-    'une seule salle de repos : le SAS remplace le repos organique',
-    s.rooms.filter((r) => r.kind === 'repos').length === 1,
+    'aucun monstre, aucune réserve — impossible de se faire attaquer',
+    s.reserveCount === 0 && !Object.values(s.actors).some((a) => a.kind === 'monster'),
   )
+  check("l'escalier du SAS ne se verrouille pas : continuer est un choix", !s.stairsLocked)
+  check('le SAS compte comme repos pour le repos organique', s.lastRestFloor === 5)
 
-  const sasItems = s.items.filter((i) => inRoom(sasRoom, i.x, i.y))
-  const kinds = new Set(sasItems.map((i) => i.kind))
+  const kinds = new Set(s.items.map((i) => i.kind))
   check(
     "l'étal complet et un coffre attendent dans le SAS",
     kinds.has('cap') && kinds.has('soin') && kinds.has('fiole_souffle') &&
       kinds.has('fiole_vitesse') && kinds.has('chest'),
   )
+  check('pas de fontaine de vie : rien n\'y est gratuit', s.items.every((i) => i.kind === 'chest' || (i.price ?? 0) > 0))
   const sx = s.spawn.x + 0.5
   const sy = s.spawn.y + 0.5
-  const nearest = Math.min(...sasItems.map((i) => Math.hypot(i.x - sx, i.y - sy)))
+  const nearest = Math.min(...s.items.map((i) => Math.hypot(i.x - sx, i.y - sy)))
   check(
     "rien ne s'achète en arrivant — aucun article à portée du spawn",
     nearest > 0.75 + 0.2,
     `plus proche à ${nearest.toFixed(2)} tuile(s)`,
-  )
-
-  check(
-    'aucun monstre dans le SAS',
-    !Object.values(s.actors).some(
-      (a) => a.kind === 'monster' && a.alive && inRoom(sasRoom, a.x, a.y),
-    ),
-  )
-  const keeper = Object.values(s.actors).find((a) => a.elite || a.boss)
-  check(
-    "l'étage reste un étage : gardien vivant ailleurs, escalier verrouillé",
-    keeper !== undefined && keeper.alive && !inRoom(sasRoom, keeper.x, keeper.y) && s.stairsLocked,
   )
   check(
     'le marchand tient son étal dans le SAS',
     s.decor.some((d) => d.kind === 'marchand' && inRoom(sasRoom, d.x, d.y)),
   )
 
+  // -- L'arène : une seule grande salle, le Gardien seul ---------------------
+  descend(s)
+  check("l'escalier du SAS mène à l'arène — même étage", s.floor === 5 && s.scene === 'boss')
+  check("l'arène se verrouille : on ne sort qu'avec la clé", s.stairsLocked)
+  const boss = Object.values(s.actors).find((a) => a.boss)
+  check(
+    "le Gardien de pierre attend, colossal et seul",
+    boss?.species === 'gardien' &&
+      boss.name === 'Gardien de pierre colossal' &&
+      s.reserveCount === 0 &&
+      Object.values(s.actors).filter((a) => a.kind === 'monster').length === 1,
+  )
+  check('le Gardien est vraiment gros', (boss?.maxHp ?? 0) > 200, `${boss?.maxHp} PV`)
+
+  // -- Les patterns du colosse : nulle part ailleurs -------------------------
+  if (boss) {
+    // À distance : la charge sismique — même contre en plein vol que le
+    // chargeur, c'est un verbe que le joueur connaît déjà.
+    hero.x = boss.x - 5
+    hero.y = boss.y
+    hero.invulnUntil = 0
+    let dashed = false
+    for (let i = 0; i < TICK_RATE * 4 && !dashed; i++) {
+      step(s, { p_palier: idle })
+      dashed = boss.dashUntil !== undefined
+    }
+    check('à distance, le Gardien charge', dashed)
+    // On laisse la ruée se finir avant de tester le contact.
+    for (let i = 0; i < TICK_RATE * 2 && boss.dashUntil !== undefined; i++) {
+      step(s, { p_palier: idle })
+    }
+
+    // Au contact : le martèlement, puis la couronne de huit éclats.
+    hero.x = boss.x - 1.2
+    hero.y = boss.y
+    boss.readyAt = s.tick
+    let crowned = false
+    for (let i = 0; i < TICK_RATE * 4 && !crowned; i++) {
+      step(s, { p_palier: idle })
+      crowned = s.projectiles.filter((p) => p.ownerId === boss.id).length === 8
+    }
+    check('au contact, la couronne de huit éclats', crowned)
+
+    // Les seuils de vie : à 50 % puis 25 %, il appelle la garde. Des renforts
+    // normaux, jamais d'élite — la clé de l'arène, c'est lui et lui seul.
+    boss.hp = Math.floor(boss.maxHp * 0.45)
+    step(s, { p_palier: idle })
+    const wave1 = Object.values(s.actors).filter((a) => a.kind === 'monster' && !a.boss)
+    check(
+      'à mi-vie, deux soldats répondent à l\'appel',
+      wave1.length === 2 && wave1.every((a) => a.species === 'soldat' && !a.elite),
+      wave1.map((a) => a.species).join(', '),
+    )
+    boss.hp = Math.floor(boss.maxHp * 0.2)
+    step(s, { p_palier: idle })
+    const wave2 = Object.values(s.actors).filter(
+      (a) => a.kind === 'monster' && !a.boss && a.species === 'archer_royal',
+    )
+    check('au quart, deux archers royaux', wave2.length === 2 && wave2.every((a) => !a.elite))
+    check(
+      "l'appel de la garde s'annonce",
+      s.events.some((e) => e.t === 'bossphase') || boss.bossPhase === 2,
+    )
+
+    // -- La sortie : tuer le Gardien, et lui seul ----------------------------
+    hero.x = s.spawn.x + 0.5
+    hero.y = s.spawn.y + 0.5
+    boss.x = hero.x + 0.6
+    boss.y = hero.y
+    boss.hp = 1
+    delete boss.dashUntil
+    hero.weapon = 'axe'
+    hero.readyAt = s.tick
+    for (let i = 0; i < TICK_RATE * 2 && boss.alive; i++) {
+      step(s, { p_palier: { mx: 0, my: 0, aim: 0, attack: true, sprint: false } })
+      hero.hp = 999
+    }
+    check('le Gardien tombe', !boss.alive)
+    // Le recul du combat a pu éloigner le héros : on va chercher la clé.
+    const key = s.items.find((i) => i.kind === 'key')
+    if (key) {
+      hero.x = key.x
+      hero.y = key.y
+    }
+    for (let i = 0; i < TICK_RATE && s.stairsLocked; i++) {
+      step(s, { p_palier: idle })
+      hero.hp = 999
+    }
+    check("ramasser la clé ouvre l'acte suivant", !s.stairsLocked)
+    check('le Gardien lâche une arme', s.items.some((i) => i.kind === 'weapon'))
+
+    hero.x = s.stairs.x + 0.5
+    hero.y = s.stairs.y + 0.5
+    step(s, noInputs)
+    check(
+      "après l'arène, l'étage 6 — un étage normal de l'acte suivant",
+      s.floor === 6 && s.scene === undefined && s.stairsLocked,
+    )
+    check(
+      'les gardes appelés meurent avec leur arène : personne ne suit',
+      s.pursuers.length === 0,
+    )
+    check(
+      "des monstres repeuplent l'étage 6",
+      Object.values(s.actors).some((a) => a.kind === 'monster' && a.alive),
+    )
+  }
+
   // Étage ordinaire : la dette suit toujours.
   const t = createGame(2718, 6)
   descend(t)
-  check('hors SAS, ce qu\'on n\'a pas tué nous suit encore', t.pursuers.length > 0)
-  check("l'étage 7 n'a pas de SAS", t.rooms[0]!.kind !== 'repos')
+  check("hors palier, ce qu'on n'a pas tué nous suit encore", t.pursuers.length > 0)
+  check("l'étage 7 n'a ni SAS ni arène", t.scene === undefined && t.rooms[0]!.kind !== 'repos')
 
-  // Même graine, même SAS : la descente reste déterministe.
-  const a = createGame(2718, 5)
-  const b = createGame(2718, 5)
+  // Même graine, même palier : la descente reste déterministe.
+  const a = createGame(2718, 4)
+  const b = createGame(2718, 4)
+  descend(a)
+  descend(b)
   descend(a)
   descend(b)
   const fingerprint = (g: GameState) =>
     JSON.stringify([
+      g.scene,
       g.items.map((i) => [i.kind, i.x, i.y]),
       Object.values(g.actors).filter((x) => x.kind === 'monster').map((m) => [m.species, m.x, m.y]),
     ])
-  check('même graine, même SAS — déterminisme intact', fingerprint(a) === fingerprint(b))
+  check('même graine, même palier — déterminisme intact', fingerprint(a) === fingerprint(b))
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)

@@ -113,6 +113,7 @@ async function main(): Promise<void> {
   let mapW = 0
   let mapH = 0
   let lastFloor = 0
+  let lastScene: 'sas' | 'boss' | undefined
   let alive = true
   let downed = false
   let hasted = false
@@ -203,16 +204,22 @@ async function main(): Promise<void> {
       case 'floor': {
         // Même étage : c'est une mise à jour de tuiles (la grille du piège),
         // pas une descente — on garde l'exploration et la position prédite.
-        const samefloor = msg.floor === lastFloor && mapSize === msg.width * msg.height
+        // La scène compte : SAS → arène partagent le numéro mais pas la carte.
+        const samefloor =
+          msg.floor === lastFloor && msg.scene === lastScene && mapSize === msg.width * msg.height
         lastFloor = msg.floor
+        lastScene = msg.scene
         mapW = msg.width
         mapH = msg.height
         debug.floors++
         mapSize = msg.width * msg.height
         tiles = fromBase64(msg.tiles)
-        renderer.setFloor(msg.width, msg.height, tiles, samefloor, msg.decor ?? [], msg.floor, msg.rooms ?? [])
-        audio.setFloor(msg.floor)
-        floorLabel.textContent = String(msg.floor)
+        renderer.setFloor(msg.width, msg.height, tiles, samefloor, msg.decor ?? [], msg.floor, msg.rooms ?? [], msg.scene)
+        audio.setFloor(msg.floor, msg.scene)
+        floorLabel.textContent =
+          msg.scene === 'sas' ? `${msg.floor} · Sanctuaire`
+          : msg.scene === 'boss' ? `${msg.floor} · Gardien`
+          : String(msg.floor)
         if (!samefloor) localReady = false
         break
       }

@@ -266,6 +266,96 @@ export function generateFloor(rng: Rng, floor: number): FloorLayout {
 }
 
 /**
+ * Le SAS : le sanctuaire marchand qui précède chaque arène de boss. Une seule
+ * salle, un couloir, l'escalier — rien à explorer, rien à craindre. La carte
+ * est taillée à la main : un sanctuaire généré serait un étage comme un autre,
+ * et c'est précisément ce qu'il ne doit pas être. Le canevas garde les
+ * dimensions standard : tout ce qui raisonne en MAP_W×MAP_H (champ de flux,
+ * minicarte, bots) continue de marcher sans cas particulier.
+ */
+export function generateSasFloor(): FloorLayout {
+  const width = MAP_W
+  const height = MAP_H
+  const tiles = new Uint8Array(width * height).fill(Tile.Wall)
+
+  // La salle, centrée : assez large pour l'étal, le coffre et le marchand.
+  const room: Room = { x: 24, y: 27, w: 16, h: 10, kind: 'repos' }
+  carveRect(tiles, width, room)
+  // Le couloir de sortie, vers l'est — continuer est un choix, pas un piège.
+  for (let x = room.x + room.w; x < room.x + room.w + 5; x++) {
+    tiles[(room.y + Math.floor(room.h / 2)) * width + x] = Tile.Floor
+  }
+  const stx = room.x + room.w + 4
+  const sty = room.y + Math.floor(room.h / 2)
+  tiles[sty * width + stx] = Tile.Stairs
+
+  const sx = room.x + 3
+  const sy = room.y + Math.floor(room.h / 2)
+
+  const decor: Decor[] = [
+    { x: room.x + Math.floor(room.w / 2), y: room.y + 1, kind: 'marchand' },
+    // Un peu de verdure et de vaisselle : le sanctuaire se reconnaît au
+    // premier regard, avant même de lire quoi que ce soit.
+    { x: room.x + 1, y: room.y + 1, kind: 'champignon' },
+    { x: room.x + room.w - 2, y: room.y + 1, kind: 'pot' },
+    { x: room.x + 1, y: room.y + room.h - 2, kind: 'pot' },
+    { x: room.x + room.w - 2, y: room.y + room.h - 2, kind: 'champignon' },
+  ]
+
+  return {
+    width, height, tiles,
+    rooms: [room],
+    decor,
+    spawn: { x: sx, y: sy },
+    stairs: { x: stx, y: sty },
+  }
+}
+
+/**
+ * L'arène : une seule grande salle pour le Gardien. Quatre piliers en carré —
+ * de quoi couper une charge ou bloquer un éclat, jamais de quoi camper : le
+ * centre reste ouvert, c'est là que le combat se joue. L'escalier attend
+ * derrière le boss, verrouillé tant qu'il tient debout.
+ */
+export function generateBossFloor(): FloorLayout {
+  const width = MAP_W
+  const height = MAP_H
+  const tiles = new Uint8Array(width * height).fill(Tile.Wall)
+
+  const room: Room = { x: 18, y: 22, w: 26, h: 17, kind: 'arene' }
+  carveRect(tiles, width, room)
+
+  // L'alcôve d'entrée à l'ouest : on voit l'arène avant d'y mettre les pieds.
+  for (let x = room.x - 5; x < room.x; x++) {
+    tiles[(room.y + Math.floor(room.h / 2)) * width + x] = Tile.Floor
+  }
+  const sx = room.x - 4
+  const sy = room.y + Math.floor(room.h / 2)
+
+  // Les piliers, 2×2 aux quarts de la salle.
+  for (const [px, py] of [
+    [room.x + 6, room.y + 4], [room.x + room.w - 8, room.y + 4],
+    [room.x + 6, room.y + room.h - 6], [room.x + room.w - 8, room.y + room.h - 6],
+  ] as const) {
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) tiles[(py + dy) * width + (px + dx)] = Tile.Wall
+    }
+  }
+
+  const stx = room.x + room.w - 2
+  const sty = room.y + Math.floor(room.h / 2)
+  tiles[sty * width + stx] = Tile.Stairs
+
+  return {
+    width, height, tiles,
+    rooms: [room],
+    decor: [],
+    spawn: { x: sx, y: sy },
+    stairs: { x: stx, y: sty },
+  }
+}
+
+/**
  * Sème la signature de chaque salle. Une salle = un motif dominant en
  * plusieurs exemplaires : c'est la répétition qui fait le repère, pas la
  * variété. Les bords sont évités (on longe les murs en combat) ainsi que le

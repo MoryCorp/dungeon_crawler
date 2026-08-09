@@ -136,6 +136,8 @@ export type ServerMsg =
       decor?: Decor[]
       /** Les salles : le client habille chacune de son matériau de sol. */
       rooms?: Room[]
+      /** Palier de boss : sanctuaire marchand ou arène du Gardien. */
+      scene?: 'sas' | 'boss'
     }
   /** Équipe au tapis : écran bref côté client, le serveur relance une descente
    *  neuve dans la même room quelques secondes plus tard. */

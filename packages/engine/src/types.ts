@@ -794,6 +794,12 @@ export type Behavior =
   | 'bomber'
   /** Rapide et fragile, en nombre : il faut de l'arc large. */
   | 'swarm'
+  /**
+   * Le boss d'arène, et lui seul : charge sismique à distance, martèlement
+   * assorti d'une couronne d'éclats au contact, et il appelle la garde aux
+   * paliers de vie. Jamais dans un pool d'étage.
+   */
+  | 'colosse'
 
 export interface SpeciesDef {
   label: string
@@ -858,6 +864,14 @@ export const MONSTERS: Record<string, SpeciesDef> = {
                       projectileSpeed: 7.0,  keepAway: 5.5 },
   chevalier:        { label: 'Chevalier',          behavior: 'charger', maxHp: 34, atk: 9, speed: 2.0, reach: 6.0,  windup: ticks(0.70), cooldown: ticks(1.9),  knockback: 11,  weight: 2.2, xp: 18, color: 0xd6b45a,
                       dashSpeed: 11, dashTicks: ticks(0.55) },
+
+  // Le Gardien : le boss d'arène, unique — il n'apparaît jamais dans un pool
+  // d'étage, seulement au bout du SAS, en rang boss. Ses chiffres de base sont
+  // ceux de l'orc guerrier (l'ancien boss) : même TTK de boss, seuls les
+  // patterns changent — c'est le comportement qui fait le combat, pas la barre
+  // de vie.
+  gardien:          { label: 'Gardien de pierre',  behavior: 'colosse', maxHp: 34, atk: 9, speed: 1.8, reach: 6.5,  windup: ticks(0.80), cooldown: ticks(1.7),  knockback: 12,  weight: 3.0, xp: 18, color: 0xd2694a,
+                      dashSpeed: 12, dashTicks: ticks(0.60), projectileSpeed: 6.5 },
 }
 
 /** Le porteur de clé : plus gros, plus coriace, il verrouille l'escalier. */
@@ -865,7 +879,8 @@ export const ELITE_HP_MULT = 3.2
 export const ELITE_ATK_MULT = 1.5
 export const ELITE_XP_MULT = 4
 
-export const BOSS_SPECIES = 'orc_warrior'
+/** L'espèce du boss d'arène. Un seul Gardien pour tous les actes, pour l'instant. */
+export const BOSS_SPECIES = 'gardien'
 export const BOSS_HP_MULT = 9
 export const BOSS_ATK_MULT = 1.8
 export const BOSS_XP_MULT = 12
@@ -906,7 +921,7 @@ export const BIOMES: BiomeDef[] = [
     id: 'chateau',
     label: 'Le Château',
     tileset: 'chateau',
-    boss: 'chevalier',
+    boss: 'gardien',
     swarm: 'bat',
     // Le prêtre ferme la marche : c'est un mage lourd (clone d'orc_mage, que
     // le cachot n'introduisait qu'à l'étage 6), et son élite en gardien d'un
@@ -1006,6 +1021,8 @@ export interface Actor {
   /** Monstres. */
   elite?: boolean
   boss?: boolean
+  /** Colosse : paliers de vie déjà franchis (appels de la garde). */
+  bossPhase?: number
   /** Avant ce tick, l'attaque en préparation ne peut plus être interrompue. */
   staggerReadyAt?: number
   /** Escouade de livraison : les membres d'un même groupe s'attendent. */
@@ -1187,10 +1204,19 @@ export type GameEvent =
   /** Salle nettoyée : la grille se relève. */
   | { t: 'trapclear'; x: number; y: number }
   | { t: 'descend'; floor: number }
+  /** Le Gardien franchit un seuil de vie et appelle la garde. */
+  | { t: 'bossphase'; id: string; phase: number; x: number; y: number }
 
 export interface GameState {
   tick: number
   floor: number
+  /**
+   * Où l'on est dans le palier de boss. Tous les BOSS_EVERY étages, la
+   * descente marque un temps : le SAS (sanctuaire marchand, aucune menace),
+   * puis l'arène (le Gardien seul, une grande salle). Les deux portent le
+   * numéro de l'étage de boss ; absent = étage ordinaire.
+   */
+  scene?: 'sas' | 'boss'
   seed: number
   rng: number
   width: number

@@ -218,6 +218,7 @@ export class Renderer {
     decor: readonly Decor[] = [],
     floor = 1,
     rooms: readonly Room[] = [],
+    scene?: 'sas' | 'boss',
   ): void {
     this.width = width
     this.height = height
@@ -228,7 +229,10 @@ export class Renderer {
       this.explored = new Uint8Array(width * height)
     }
 
-    const biome = biomeOf(floor).tileset
+    // Le SAS est verdoyant quel que soit l'acte : c'est un jardin suspendu
+    // entre deux biomes, pas un étage du biome courant. L'arène, elle, garde
+    // les tuiles de l'acte qu'elle conclut.
+    const biome = scene === 'sas' ? 'jardin' : biomeOf(floor).tileset
     const canvas = makeCanvas(width * TILE, height * TILE)
     const ctx = canvas.getContext('2d')!
     for (let y = 0; y < height; y++) {

@@ -19,6 +19,9 @@
 const MODE = [0, 2, 3, 5, 7, 8, 10]
 /** Notes de mélodie : pentatonique mineure, clairsemée et sans fausse note. */
 const PENTA = [0, 3, 5, 7, 10, 12, 15]
+/** Le jardin du SAS passe en majeur : mêmes instruments, autre lumière. */
+const PENTA_MAJOR = [0, 2, 4, 7, 9, 12, 14]
+const MODE_MAJOR = [0, 2, 4, 5, 7, 9, 11]
 /** Toniques par étage, en demi-tons — un cycle qui évite de retomber pareil. */
 const ROOTS = [0, -4, 3, -2, 5, -7, 1, -5]
 
@@ -38,6 +41,7 @@ export class GameAudio {
 
   private root = 110 // La tonique courante, en Hz.
   private floor = 1
+  private scene?: 'sas' | 'boss'
   private intensity = 0
   private shownIntensity = 0
   private beat = 0
@@ -97,9 +101,10 @@ export class GameAudio {
     this.intensity = Math.max(0, Math.min(1, x))
   }
 
-  setFloor(floor: number): void {
-    if (floor === this.floor && this.ctx) return
+  setFloor(floor: number, scene?: 'sas' | 'boss'): void {
+    if (floor === this.floor && scene === this.scene && this.ctx) return
     this.floor = floor
+    this.scene = scene
     // La tonique cycle, et l'ensemble baisse d'un demi-ton tous les deux
     // étages : la profondeur s'entend.
     const semis = ROOTS[(floor - 1) % ROOTS.length]! - Math.floor((floor - 1) / 2)
@@ -166,7 +171,9 @@ export class GameAudio {
     const ctx = this.ctx!
     // Lissage : la musique réagit en une seconde ou deux, jamais d'à-coup.
     this.shownIntensity += (this.intensity - this.shownIntensity) * 0.12
-    const heat = this.shownIntensity
+    // Le sanctuaire ne chauffe jamais : quoi que dise la Directrice, la
+    // musique y reste au calme absolu.
+    const heat = this.scene === 'sas' ? 0 : this.shownIntensity
 
     this.droneFilter.frequency.setTargetAtTime(300 + heat * 1900, ctx.currentTime, 0.4)
     this.tensionGain.gain.setTargetAtTime(heat * heat * 0.05, ctx.currentTime, 0.4)
@@ -183,8 +190,14 @@ export class GameAudio {
   }
 
   private playBeat(t: number, beatLen: number, heat: number): void {
+    // Le jardin du SAS : pas de pouls, pas de souffle — des plumes de
+    // mélodie en majeur, plus fréquentes qu'en descente, et la tierce
+    // d'écho devient majeure aussi. Même instruments, autre lumière.
+    const sas = this.scene === 'sas'
+    const penta = sas ? PENTA_MAJOR : PENTA
+    const mode = sas ? MODE_MAJOR : MODE
     // Pulsation sourde : un cœur qui bat, discret au calme, insistant au pic.
-    if (heat > 0.12 || this.beat % 2 === 0) {
+    if (!sas && (heat > 0.12 || this.beat % 2 === 0)) {
       this.kick(t, 0.02 + heat * 0.09)
     }
     // Souffle sur les contretemps quand ça chauffe.
@@ -192,19 +205,19 @@ export class GameAudio {
       this.hat(t + beatLen / 2, (heat - 0.45) * 0.055)
     }
     // Mélodie clairsemée, surtout dans le calme : c'est la respiration.
-    const chance = 0.34 - heat * 0.26
+    const chance = sas ? 0.5 : 0.34 - heat * 0.26
     if (this.rand() < chance) {
-      const degree = PENTA[Math.floor(this.rand() * PENTA.length)]!
+      const degree = penta[Math.floor(this.rand() * penta.length)]!
       const freq = this.root * 2 * st(degree)
       this.pluck(t, freq, 0.035, 1.6)
       // Parfois une tierce en écho, comme une réponse.
       if (this.rand() < 0.3) {
-        this.pluck(t + beatLen * 0.75, freq * st(3), 0.022, 1.2)
+        this.pluck(t + beatLen * 0.75, freq * st(sas ? 4 : 3), 0.022, 1.2)
       }
     }
     // Une nappe qui s'ouvre de temps en temps, accordée sur le mode.
     if (this.beat % 16 === 0) {
-      const degree = MODE[Math.floor(this.rand() * MODE.length)]!
+      const degree = mode[Math.floor(this.rand() * mode.length)]!
       this.swell(t, this.root * st(degree), 0.03, beatLen * 12)
     }
   }

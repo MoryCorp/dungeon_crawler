@@ -56,12 +56,17 @@ CREWS = {
     'archer_royal': ROYAL / 'Archer',
     'pretre': ROYAL / 'Priest',
     'chevalier': ROYAL / 'Knight',
+    # Le boss d'arène : roche sombre aux veines de lave, jamais croisé dans un
+    # pool d'étage — le pack Forge ne sert qu'à lui.
+    'gardien': SRC / 'Forge' / 'Pixel Crawler - Forge' / 'Enemy' / 'Stone - Golem',
 }
 
 # Biome → feuille de tuiles. `tiles.png` reste le cachot historique ; les
 # autres deviennent `tiles_<biome>.png`, mêmes cases de 16 px.
 TILESETS = {
     'chateau': CASTLE / 'Assets' / 'Tiles.png',
+    # Le SAS marchand : verdure et couleur, la respiration entre deux actes.
+    'jardin': SRC / 'Garden_Environment' / 'Pixel Crawler - Garden Environment' / 'Assets' / 'Tiles.png',
 }
 
 # PNJ statiques, cuits dans la carte par le client (jamais animés) : premier

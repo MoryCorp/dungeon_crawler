@@ -12,7 +12,13 @@ import { profileOf } from './profile.js'
 import { pickRecipe, recordReward, warmStart } from './bandit.js'
 import { planWave, recipesFor, type Placement } from './recipes.js'
 import { computeFov } from './fov.js'
-import { generateFloor, type Rect, type Room } from './mapgen.js'
+import {
+  generateBossFloor,
+  generateFloor,
+  generateSasFloor,
+  type Rect,
+  type Room,
+} from './mapgen.js'
 import { hitsBody, inAttackArc, moveWithCollision, separateActors, solidAt, unstick } from './physics.js'
 import { Rng } from './rng.js'
 import type {
@@ -460,7 +466,6 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
   // Le porteur de clé : une cible désignée, dans la salle la plus lointaine.
   // Jamais une espèce d'essaim — un rat géant en gardien de donjon ne fait pas
   // un combat, juste un sac de points de vie qui vole.
-  const isBossFloor = state.floor % BOSS_EVERY === 0
   // Dans un biome à échelle, le gardien vient des rangs déjà connus :
   // l'archétype qui débute à cet étage sert dans la troupe avant de mériter
   // l'élite. Sinon l'élite du nouveau venu fait un pic que rien n'annonce —
@@ -476,10 +481,10 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
   spawnMonster(
     state,
     `keeper${state.floor}`,
-    isBossFloor ? biomeOf(state.floor).boss : rng.pick(keeperPool.length ? keeperPool : pool),
+    rng.pick(keeperPool.length ? keeperPool : pool),
     kx,
     ky,
-    isBossFloor ? 'boss' : 'elite',
+    'elite',
     rng,
   )
 
@@ -506,9 +511,13 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
     state.trap = { room: treasure, phase: 'armed', gates: [] }
   }
 
-  // L'étal de la salle de repos : quatre objets posés au sol, prix affichés,
-  // achat en marchant dessus. La Directrice muette et l'absence de monstres
-  // font le reste — la salle EST le répit, l'étal n'est que la dépense.
+  placeStall(state, rooms)
+}
+
+// L'étal de la salle de repos : quatre objets posés au sol, prix affichés,
+// achat en marchant dessus. La Directrice muette et l'absence de monstres
+// font le reste — la salle EST le répit, l'étal n'est que la dépense.
+function placeStall(state: GameState, rooms: Room[]): void {
   const rest = rooms.find((r) => r.kind === 'repos')
   if (rest) {
     // Dans le SAS (la salle repos EST celle du spawn), le centre est le point
@@ -548,6 +557,24 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
       dropItem(state, { kind: 'chest', x: at.x, y: at.y })
     }
   }
+}
+
+// Le SAS : aucun monstre, aucune réserve — la Directrice n'a rien à livrer.
+// L'étal et le coffre suffisent ; le sanctuaire est une pause, pas un étage.
+function populateSas(state: GameState, rooms: Room[]): void {
+  state.reserveCount = 0
+  placeStall(state, rooms)
+}
+
+// L'arène : le Gardien seul, au fond, face à l'entrée. Pas de réserve non
+// plus — ses renforts sont les siens, appelés par ses propres seuils de vie,
+// pas par la Directrice.
+function populateBoss(state: GameState, rooms: Room[], rng: Rng): void {
+  state.reserveCount = 0
+  const arena = rooms[0]!
+  const bx = arena.x + arena.w - 5.5
+  const by = arena.y + Math.floor(arena.h / 2) + 0.5
+  spawnMonster(state, `keeper${state.floor}`, biomeOf(state.floor).boss, bx, by, 'boss', rng)
 }
 
 function isWalkableAt(state: GameState, x: number, y: number): boolean {
@@ -649,37 +676,52 @@ export function descend(state: GameState): void {
   // levier avec ce qu'elle a produit jusqu'ici.
   settleBandit(state)
 
-  state.floor += 1
-  const layout = generateFloor(rng, state.floor)
-
-  // L'entrée d'un acte est un SAS : la salle d'arrivée devient un sanctuaire
-  // marchand — jamais peuplée, Directrice muette, étal et coffre. On souffle,
-  // on s'équipe, et le reste de l'étage reprend ses droits passé la porte.
-  const sas = floorInAct(state.floor) === 1 && state.floor > 1
-  if (sas) {
-    layout.rooms[0]!.kind = 'repos'
-    // Le SAS est un repos : l'écart minimal du repos organique repart d'ici,
-    // ce qui garantit qu'ils ne tombent jamais sur le même étage.
-    state.lastRestFloor = state.floor
-    layout.decor.push({ x: layout.spawn.x, y: layout.rooms[0]!.y + 1, kind: 'marchand' })
+  // Le palier de boss, tous les BOSS_EVERY étages : l'escalier de l'étage 4
+  // de l'acte mène au SAS (le sanctuaire marchand), celui du SAS mène à
+  // l'arène, celui de l'arène ouvre l'acte suivant. SAS et arène partagent le
+  // numéro de l'étage de boss — on « passe de 4 à 6 », avec un temps au milieu.
+  const from = state.scene
+  let scene: GameState['scene']
+  if (state.scene === 'sas') {
+    scene = 'boss'
+  } else if (state.scene === 'boss') {
+    scene = undefined
+    state.floor += 1
+  } else if (floorInAct(state.floor + 1) === BOSS_EVERY) {
+    scene = 'sas'
+    state.floor += 1
+  } else {
+    scene = undefined
+    state.floor += 1
   }
+  const layout =
+    scene === 'sas' ? generateSasFloor()
+    : scene === 'boss' ? generateBossFloor()
+    : generateFloor(rng, state.floor)
+  if (scene) state.scene = scene
+  else delete state.scene
 
   state.tiles = layout.tiles
   state.width = layout.width
   state.height = layout.height
   state.stairs = layout.stairs
   state.spawn = layout.spawn
-  state.stairsLocked = true
+  // Le SAS ne se verrouille pas : continuer est un choix, pas une quête.
+  state.stairsLocked = scene !== 'sas'
   state.projectiles = []
   state.items = []
   state.rooms = layout.rooms
   state.decor = layout.decor
   delete state.trap
   delete state.restAnnounced
+  if (scene === 'sas') {
+    // Le SAS est un repos : l'écart minimal du repos organique repart d'ici.
+    state.lastRestFloor = state.floor
+  }
 
   // La salle de repos : la plus proche du spawn parmi les convenables — un
   // repos qu'on découvre à la fin de l'étage n'aurait servi à rien.
-  if (restDue && !sas) {
+  if (restDue && !scene) {
     const candidates = layout.rooms.filter(
       (r) =>
         r.kind !== 'tresor' &&
@@ -705,11 +747,10 @@ export function descend(state: GameState): void {
   // Ce qu'on n'a pas tué nous suit. On garde en priorité les plus proches de
   // l'escalier : ce sont ceux qui nous collaient réellement, et ça laisse au
   // joueur un moyen de choisir sa dette — décrocher avant de descendre.
-  // Franchir la porte d'un acte purge la dette : personne ne poursuit une
-  // équipe jusque dans le SAS, sinon le sanctuaire n'en serait pas un.
-  const survivors = sas
-    ? []
-    : Object.values(state.actors)
+  // Le palier de boss solde tout : personne ne poursuit une équipe dans le
+  // sanctuaire, et les gardes appelés par le Gardien meurent avec leur arène.
+  const survivors = scene === undefined && from === undefined
+    ? Object.values(state.actors)
         .filter((a) => a.kind === 'monster' && a.alive)
         .sort(
           (a, b) =>
@@ -717,6 +758,7 @@ export function descend(state: GameState): void {
             Math.hypot(b.x - state.stairs.x, b.y - state.stairs.y),
         )
         .slice(0, PURSUE_MAX)
+    : []
 
   state.pursuers = survivors.map((actor) => {
     actor.kx = 0
@@ -758,7 +800,9 @@ export function descend(state: GameState): void {
     a.invulnUntil = state.tick + RESPAWN_GRACE
   }
 
-  populate(state, layout.rooms, rng)
+  if (scene === 'sas') populateSas(state, layout.rooms)
+  else if (scene === 'boss') populateBoss(state, layout.rooms, rng)
+  else populate(state, layout.rooms, rng)
   state.rng = rng.s
   state.events.push({ t: 'descend', floor: state.floor })
   if (state.pursuers.length > 0) {
@@ -1747,6 +1791,26 @@ function monsterCooldown(state: GameState, def: SpeciesDef): number {
   return Math.max(4, Math.round(def.cooldown * tighten))
 }
 
+/**
+ * Les seuils de vie du Gardien : à 50 % puis 25 %, il appelle la garde — deux
+ * soldats de l'échelle du biome, puis deux du rang suivant. Des renforts de
+ * rang normal, jamais d'élite : la clé de l'arène, c'est lui et lui seul.
+ * Un seul appel par seuil, même si un coup massif fait sauter les deux d'un
+ * coup — le pattern doit rester lisible, pas s'empiler.
+ */
+function stepBossPhase(state: GameState, m: Actor, rng: Rng): void {
+  const phase = m.hp <= m.maxHp * 0.25 ? 2 : m.hp <= m.maxHp * 0.5 ? 1 : 0
+  if (phase <= (m.bossPhase ?? 0)) return
+  m.bossPhase = phase
+  const ladder = biomeOf(state.floor).ladder
+  const species = (phase === 1 ? ladder[0] : ladder[1]) ?? monsterPool(state.floor)[0]!
+  for (let k = 0; k < 2; k++) {
+    const at = findFreeSpot(state, m.x + (k === 0 ? -2.5 : 2.5), m.y)
+    spawnMonster(state, `garde${state.floor}_${phase}_${k}`, species, at.x, at.y, 'normal', rng)
+  }
+  state.events.push({ t: 'bossphase', id: m.id, phase, x: m.x, y: m.y })
+}
+
 function monsterStrike(state: GameState, m: Actor, rng: Rng): void {
   const def = MONSTERS[m.species]!
   m.readyAt = state.tick + monsterCooldown(state, def)
@@ -1775,6 +1839,52 @@ function monsterStrike(state: GameState, m: Actor, rng: Rng): void {
 
     case 'bomber': {
       explode(state, m, rng)
+      return
+    }
+
+    case 'colosse': {
+      // Le pattern se choisit au moment de frapper, sur la distance réelle :
+      // loin, la charge sismique — même verbe que le chargeur, même contre
+      // possible en plein vol. Près, le martèlement : l'arc de mêlée, puis une
+      // couronne de huit éclats de pierre qui punit de rester collé sans
+      // regarder — chacun se pare ou s'esquive comme une flèche.
+      let nearest = Infinity
+      for (const target of Object.values(state.actors)) {
+        if (target.kind !== 'player' || !target.alive || target.downed) continue
+        nearest = Math.min(nearest, Math.hypot(target.x - m.x, target.y - m.y))
+      }
+      if (nearest > 3) {
+        m.dashUntil = state.tick + (def.dashTicks ?? 12)
+        m.dashVx = Math.cos(m.aim)
+        m.dashVy = Math.sin(m.aim)
+        return
+      }
+      state.events.push({
+        t: 'swing', id: m.id, x: m.x, y: m.y, aim: m.aim, reach: 1.7, halfArc: MONSTER_HALF_ARC,
+      })
+      for (const target of Object.values(state.actors)) {
+        if (!target.alive || target.kind !== 'player') continue
+        if (
+          !inAttackArc(
+            m.x, m.y, m.aim,
+            MONSTER_HALF_ARC, 1.7,
+            target.x, target.y, ACTOR_RADIUS,
+          )
+        ) {
+          continue
+        }
+        damage(state, m, target, m.atk, def.knockback, m.x, m.y)
+        if (target.hp <= 0) killOrDown(state, target, rng)
+      }
+      const shardDmg = Math.max(1, Math.round(m.atk * 0.4))
+      const shardSpeed = def.projectileSpeed ?? 6.5
+      for (let k = 0; k < 8; k++) {
+        spawnProjectile(
+          state, m, (k * Math.PI) / 4,
+          shardSpeed, shardDmg, def.knockback, Math.round((5 / shardSpeed) * TICK_RATE) + 10,
+          def.color,
+        )
+      }
       return
     }
 
@@ -2192,6 +2302,8 @@ export function step(
   for (const m of Object.values(state.actors)) {
     if (m.kind !== 'monster' || !m.alive) continue
     const def = MONSTERS[m.species]!
+
+    if (m.boss && def.behavior === 'colosse') stepBossPhase(state, m, rng)
 
     // Ruée en cours : trajectoire droite, dégâts au contact, stoppée par un mur.
     if (m.dashUntil !== undefined && state.tick < m.dashUntil) {

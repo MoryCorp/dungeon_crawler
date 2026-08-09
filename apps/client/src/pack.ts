@@ -61,6 +61,9 @@ const MOBS = [
   'archer_royal',
   'pretre',
   'chevalier',
+  // Le Gardien de pierre, boss d'arène — le golem du pack Forge, nulle part
+  // ailleurs dans le donjon.
+  'gardien',
 ]
 
 const DIRS: Dir[] = ['down', 'side', 'up']
@@ -298,6 +301,19 @@ const THEMES: Record<string, TileTheme> = {
       { ox: 15, oy: 17, pw: 3, ph: 3 },  // le sol commun — continuité avec le couloir
     ],
     sanctuary: { ox: 19, oy: 18, pw: 1, ph: 1, trim: '#d69000' },
+  },
+  // Tiles jardin (Garden Environment), calé sur Social/MockUp_01 : herbe
+  // sombre en sol, murs = haies vert clair (la tranche vive coiffée du bord
+  // supérieur, comme la corniche du château), et le tapis de fleurs roses de
+  // la feuille en sol de sanctuaire — le SAS est la seule salle du biome,
+  // c'est lui qui doit être chatoyant.
+  jardin: {
+    floor: [[2, 2], [3, 2], [4, 2], [2, 3], [3, 3], [4, 3]],
+    floorShaded: [],
+    wallFaces: [[4, 13], [5, 13], [6, 13]],
+    cornice: [[4, 12], [5, 12], [6, 12]],
+    wallTop: '#141a0e',
+    sanctuary: { ox: 0, oy: 25, pw: 3, ph: 3, trim: '#e8dcc0' },
   },
 }
 

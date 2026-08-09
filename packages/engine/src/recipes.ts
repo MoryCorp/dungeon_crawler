@@ -106,6 +106,9 @@ const FALLBACKS: Record<Behavior, Behavior[]> = {
   charger: ['charger', 'melee', 'swarm'],
   swarm: ['swarm', 'melee'],
   bomber: ['bomber', 'melee', 'swarm'],
+  // Jamais demandé par une recette — le colosse n'existe que dans son arène.
+  // La chaîne n'est là que pour l'exhaustivité du type.
+  colosse: ['melee', 'swarm'],
 }
 
 export function resolveBehavior(wanted: Behavior, available: Set<Behavior>): Behavior {
