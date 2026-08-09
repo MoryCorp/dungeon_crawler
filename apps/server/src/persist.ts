@@ -45,7 +45,10 @@ const RUNS_DIR = join(DATA_DIR, 'runs')
  * reconstituer plus bas. On ne casse une sauvegarde que quand la relire donne
  * un état faux, jamais quand elle est seulement incomplète.
  */
-const SAVE_VERSION = 6
+// v7 : les actes et leurs biomes — un étage sauvegardé en v6 rejouerait le
+// mauvais peuplement (garnison du Château absente, SAS d'entrée d'acte
+// manquant) sur un décor qui ne correspond plus.
+const SAVE_VERSION = 7
 
 let ready: Promise<void> | null = null
 function ensureDir(): Promise<void> {

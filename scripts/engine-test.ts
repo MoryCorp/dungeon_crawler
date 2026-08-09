@@ -72,9 +72,11 @@ import {
   STAGGER_RECOVER,
   WEAPONS,
   addPlayer,
+  biomeOf,
   computeFov,
   createGame,
   descend,
+  floorInAct,
   effectiveHp,
   floorScale,
   generateFloor,
@@ -2385,6 +2387,149 @@ console.log('\nTests engine\n')
   // Le coin d'une grande salle reste une grande salle : c'est la largeur
   // disponible qui compte, pas la distance au mur le plus proche.
   check('et son coin aussi', terrainAt(hall, 6.5, 6.5) === 'grande')
+}
+
+{
+  console.log('\nActes et biomes')
+
+  // Les clones portent l'équilibrage de leur original : si un seul chiffre
+  // diverge, le TTK/K du biome n'est plus celui qu'on a validé.
+  const pairs: [string, string][] = [
+    ['soldat', 'orc'],
+    ['archer_royal', 'skeleton_mage'],
+    ['pretre', 'orc_mage'],
+    ['chevalier', 'orc_warrior'],
+  ]
+  const statKeys = [
+    'behavior', 'maxHp', 'atk', 'speed', 'reach', 'windup', 'cooldown',
+    'knockback', 'weight', 'xp', 'projectileSpeed', 'keepAway',
+    'dashSpeed', 'dashTicks', 'blastRadius',
+  ] as const
+  for (const [clone, base] of pairs) {
+    const c = MONSTERS[clone]! as unknown as Record<string, unknown>
+    const b = MONSTERS[base]! as unknown as Record<string, unknown>
+    const same = statKeys.every((k) => c[k] === b[k])
+    check(`${clone} est un clone strict de ${base}`, same)
+  }
+
+  check(
+    'les étages 1-5 sont le Château, le 6 retombe au cachot',
+    biomeOf(1).id === 'chateau' && biomeOf(5).id === 'chateau' && biomeOf(6).id === 'cachot',
+  )
+  check(
+    "floorInAct compte de 1 à 5 dans l'acte",
+    floorInAct(1) === 1 && floorInAct(5) === 5 && floorInAct(6) === 1 && floorInAct(11) === 1,
+  )
+
+  // La garnison monte d'un archétype par étage : ce qui apparaît à l'étage n
+  // doit venir du pool de l'étage n, rien d'autre.
+  const garnison = (floor: number, allowed: string[]): boolean => {
+    const s = createGame(31415, floor)
+    return Object.values(s.actors)
+      .filter((a) => a.kind === 'monster')
+      .every((a) => allowed.includes(a.species))
+  }
+  check('étages 1-2 : soldats et chauves-souris seulement', garnison(1, ['bat', 'soldat']) && garnison(2, ['bat', 'soldat']))
+  check('étage 3 : les archers royaux rejoignent', garnison(3, ['bat', 'soldat', 'archer_royal']))
+  check(
+    'étage 4 : les chevaliers, mais pas encore les prêtres',
+    garnison(4, ['bat', 'soldat', 'archer_royal', 'chevalier']),
+  )
+  check(
+    'étage 5 : la garnison complète',
+    garnison(5, ['bat', 'soldat', 'archer_royal', 'chevalier', 'pretre']),
+  )
+
+  // L'élite vient des rangs déjà connus : le nouveau venu d'un étage sert dans
+  // la troupe avant de porter la clé — pas de pic que rien n'annonce.
+  const keeperOf = (floor: number, seed: number) =>
+    Object.values(createGame(seed, floor).actors).find((a) => a.elite)?.species
+  const keepersOk = [111, 222, 333, 444, 555].every((seed) => {
+    const k3 = keeperOf(3, seed)
+    const k4 = keeperOf(4, seed)
+    return k3 === 'soldat' && (k4 === 'soldat' || k4 === 'archer_royal')
+  })
+  check("le gardien d'élite est toujours un vétéran de l'acte", keepersOk)
+
+  const g5 = createGame(31415, 5)
+  const boss5 = Object.values(g5.actors).find((a) => a.boss)
+  check(
+    "l'étage 5 est gardé par le Chevalier colossal",
+    boss5?.species === 'chevalier' && boss5.name === 'Chevalier colossal',
+  )
+  const g10 = createGame(31415, 10)
+  const boss10 = Object.values(g10.actors).find((a) => a.boss)
+  check("l'étage 10 garde son boss du cachot", boss10?.species === 'orc_warrior')
+}
+
+{
+  console.log('\nSAS marchand')
+
+  const inRoom = (r: { x: number; y: number; w: number; h: number }, x: number, y: number) =>
+    x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
+
+  const s = createGame(2718, 5)
+  const survivors = Object.values(s.actors).filter((a) => a.kind === 'monster' && a.alive)
+  check("il reste des monstres vivants à l'étage 5 avant la descente", survivors.length > 0)
+  descend(s)
+
+  const sasRoom = s.rooms[0]!
+  check("l'étage 6 s'ouvre sur un SAS — la salle d'arrivée est un repos", sasRoom.kind === 'repos')
+  check('la porte de l\'acte purge les poursuivants', s.pursuers.length === 0)
+  check(
+    'une seule salle de repos : le SAS remplace le repos organique',
+    s.rooms.filter((r) => r.kind === 'repos').length === 1,
+  )
+
+  const sasItems = s.items.filter((i) => inRoom(sasRoom, i.x, i.y))
+  const kinds = new Set(sasItems.map((i) => i.kind))
+  check(
+    "l'étal complet et un coffre attendent dans le SAS",
+    kinds.has('cap') && kinds.has('soin') && kinds.has('fiole_souffle') &&
+      kinds.has('fiole_vitesse') && kinds.has('chest'),
+  )
+  const sx = s.spawn.x + 0.5
+  const sy = s.spawn.y + 0.5
+  const nearest = Math.min(...sasItems.map((i) => Math.hypot(i.x - sx, i.y - sy)))
+  check(
+    "rien ne s'achète en arrivant — aucun article à portée du spawn",
+    nearest > 0.75 + 0.2,
+    `plus proche à ${nearest.toFixed(2)} tuile(s)`,
+  )
+
+  check(
+    'aucun monstre dans le SAS',
+    !Object.values(s.actors).some(
+      (a) => a.kind === 'monster' && a.alive && inRoom(sasRoom, a.x, a.y),
+    ),
+  )
+  const keeper = Object.values(s.actors).find((a) => a.elite || a.boss)
+  check(
+    "l'étage reste un étage : gardien vivant ailleurs, escalier verrouillé",
+    keeper !== undefined && keeper.alive && !inRoom(sasRoom, keeper.x, keeper.y) && s.stairsLocked,
+  )
+  check(
+    'le marchand tient son étal dans le SAS',
+    s.decor.some((d) => d.kind === 'marchand' && inRoom(sasRoom, d.x, d.y)),
+  )
+
+  // Étage ordinaire : la dette suit toujours.
+  const t = createGame(2718, 6)
+  descend(t)
+  check('hors SAS, ce qu\'on n\'a pas tué nous suit encore', t.pursuers.length > 0)
+  check("l'étage 7 n'a pas de SAS", t.rooms[0]!.kind !== 'repos')
+
+  // Même graine, même SAS : la descente reste déterministe.
+  const a = createGame(2718, 5)
+  const b = createGame(2718, 5)
+  descend(a)
+  descend(b)
+  const fingerprint = (g: GameState) =>
+    JSON.stringify([
+      g.items.map((i) => [i.kind, i.x, i.y]),
+      Object.values(g.actors).filter((x) => x.kind === 'monster').map((m) => [m.species, m.x, m.y]),
+    ])
+  check('même graine, même SAS — déterminisme intact', fingerprint(a) === fingerprint(b))
 }
 
 console.log(`\n${failures === 0 ? 'Tout est vert.' : `${failures} test(s) en échec.`}\n`)

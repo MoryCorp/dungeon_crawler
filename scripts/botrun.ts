@@ -177,6 +177,18 @@ while (state.floor < startFloor + floorsToRun && deaths < MAX_DEATHS && !stalled
   }
 }
 
+if (process.env.BOTRUN_DEBUG && stalled) {
+  console.log('DEBUG survivants :')
+  for (const a of Object.values(state.actors)) {
+    if (a.kind === 'monster' && a.alive)
+      console.log(' ', a.species, a.name, 'à', a.x.toFixed(1), a.y.toFixed(1), 'hp', a.hp)
+  }
+  const me = state.actors[BOT_ID]!
+  console.log('  bot à', me.x.toFixed(1), me.y.toFixed(1), 'hp', me.hp, 'arme', me.weapon)
+  console.log('  stairsLocked', state.stairsLocked, 'stairs', JSON.stringify(state.stairs), 'reserve', state.reserveCount)
+  console.log('  items clés :', state.items.filter((i) => i.kind === 'key').length)
+}
+
 startFloor = state.floor
 
 console.log('── Ce que ça a donné ──────────────────────────────────────────')

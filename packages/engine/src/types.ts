@@ -847,6 +847,17 @@ export const MONSTERS: Record<string, SpeciesDef> = {
   // que du décor.
   bat:              { label: 'Chauve-souris',      behavior: 'swarm',   maxHp: 10, atk: 2, speed: 3.6, reach: 0.85, windup: ticks(0.22), cooldown: ticks(0.6),  knockback: 1.5, weight: 0.5, xp: 3,  color: 0x8a7bb0 },
   orc_rogue:        { label: 'Orc rôdeur',         behavior: 'swarm',   maxHp: 15, atk: 3, speed: 3.3, reach: 0.9,  windup: ticks(0.26), cooldown: ticks(0.65), knockback: 2.5, weight: 0.6, xp: 5,  color: 0x8fb36a },
+
+  // La garde royale du Château (acte I). Clones stricts d'archétypes éprouvés :
+  // seuls le nom et la couleur changent, les chiffres portent l'équilibrage
+  // (TTK/K) et ne se re-négocient pas à chaque biome.
+  soldat:           { label: 'Soldat',             behavior: 'melee',   maxHp: 18, atk: 4, speed: 2.4, reach: 1.05, windup: ticks(0.45), cooldown: ticks(1.0),  knockback: 4.5, weight: 1.2, xp: 6,  color: 0xb8c4d6 },
+  archer_royal:     { label: 'Archer royal',       behavior: 'archer',  maxHp: 10, atk: 5, speed: 1.9, reach: 7.5,  windup: ticks(0.75), cooldown: ticks(1.6),  knockback: 3.0, weight: 0.8, xp: 11, color: 0x6f9fd8,
+                      projectileSpeed: 8.5,  keepAway: 4.5 },
+  pretre:           { label: 'Prêtre',             behavior: 'archer',  maxHp: 14, atk: 7, speed: 1.7, reach: 8.5,  windup: ticks(0.90), cooldown: ticks(1.9),  knockback: 4.0, weight: 0.9, xp: 14, color: 0xe8d9a8,
+                      projectileSpeed: 7.0,  keepAway: 5.5 },
+  chevalier:        { label: 'Chevalier',          behavior: 'charger', maxHp: 34, atk: 9, speed: 2.0, reach: 6.0,  windup: ticks(0.70), cooldown: ticks(1.9),  knockback: 11,  weight: 2.2, xp: 18, color: 0xd6b45a,
+                      dashSpeed: 11, dashTicks: ticks(0.55) },
 }
 
 /** Le porteur de clé : plus gros, plus coriace, il verrouille l'escalier. */
@@ -860,6 +871,74 @@ export const BOSS_ATK_MULT = 1.8
 export const BOSS_XP_MULT = 12
 /** Un boss remplace l'élite tous les N étages. */
 export const BOSS_EVERY = 5
+
+// --- Biomes -----------------------------------------------------------------
+
+/**
+ * La descente est structurée en actes de BOSS_EVERY étages. Chaque acte a son
+ * biome : un décor, une garnison qui monte en archétypes d'étage en étage, et
+ * un boss qui ferme l'acte. Le premier étage d'un acte (hors acte I) s'ouvre
+ * sur un SAS marchand — voir descend().
+ */
+export interface BiomeDef {
+  id: string
+  label: string
+  /** Suffixe de la feuille de tuiles côté client : 'chateau' → tiles_chateau.png. */
+  tileset: string
+  /** Le gardien colossal du dernier étage de l'acte. */
+  boss: string
+  /** L'essaim, présent dès le premier étage de l'acte. */
+  swarm: string
+  /**
+   * Les archétypes, dans l'ordre où ils rejoignent la garnison : l'étage n de
+   * l'acte dispose des n premiers. L'étage du boss garde le pool complet.
+   */
+  ladder: string[]
+}
+
+/**
+ * Un acte = une entrée, dans l'ordre de la descente. Au-delà de la table, on
+ * retombe sur le cachot historique — l'état transitoire assumé tant que les
+ * biomes suivants n'existent pas.
+ */
+export const BIOMES: BiomeDef[] = [
+  {
+    id: 'chateau',
+    label: 'Le Château',
+    tileset: 'chateau',
+    boss: 'chevalier',
+    swarm: 'bat',
+    // Le prêtre ferme la marche : c'est un mage lourd (clone d'orc_mage, que
+    // le cachot n'introduisait qu'à l'étage 6), et son élite en gardien d'un
+    // étage précoce ferait un pic de difficulté que rien n'annonce — mesuré au
+    // botrun, bot bloqué à l'étage 3. Le chevalier passe avant : une charge se
+    // lit, s'esquive, et s'annule d'un coup bien placé.
+    ladder: ['soldat', 'archer_royal', 'chevalier', 'pretre'],
+  },
+]
+
+/**
+ * Le cachot : le donjon d'origine, sans échelle d'archétypes propre — son pool
+ * reste celui de monsterPool() historique (voir game.ts).
+ */
+export const CACHOT_BIOME: BiomeDef = {
+  id: 'cachot',
+  label: 'Le Cachot',
+  tileset: 'cachot',
+  boss: BOSS_SPECIES,
+  swarm: 'bat',
+  ladder: [],
+}
+
+export function biomeOf(floor: number): BiomeDef {
+  const act = Math.ceil(floor / BOSS_EVERY)
+  return BIOMES[act - 1] ?? CACHOT_BIOME
+}
+
+/** Position de l'étage dans son acte, de 1 (entrée) à BOSS_EVERY (boss). */
+export function floorInAct(floor: number): number {
+  return ((floor - 1) % BOSS_EVERY) + 1
+}
 
 // --- Acteurs ----------------------------------------------------------------
 

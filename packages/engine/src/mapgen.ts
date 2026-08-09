@@ -41,8 +41,12 @@ export interface Room extends Rect {
  * exemplaires, tiré de la graine de l'étage. « La salle aux champignons »
  * devient un lieu, et non un rectangle de plus.
  */
-export type DecorKind = 'pot' | 'caillou' | 'os' | 'champignon' | 'colonne' | 'caisse'
+export type DecorKind = 'pot' | 'caillou' | 'os' | 'champignon' | 'colonne' | 'caisse' | 'marchand'
 
+/**
+ * Les motifs que le scatter tire au sort. Le marchand n'y figure pas : il est
+ * posé explicitement par descend() dans le SAS d'entrée d'acte, jamais tiré.
+ */
 export const DECOR_KINDS: readonly DecorKind[] = [
   'pot', 'caillou', 'os', 'champignon', 'colonne', 'caisse',
 ]

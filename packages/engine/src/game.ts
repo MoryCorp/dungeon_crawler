@@ -35,7 +35,6 @@ import {
   BOSS_ATK_MULT,
   BOSS_EVERY,
   BOSS_HP_MULT,
-  BOSS_SPECIES,
   BOSS_WEIGHT_MULT,
   BOSS_XP_MULT,
   CORRIDOR_SPAWN_SHARE,
@@ -136,6 +135,8 @@ import {
   isWalkable,
   XP_MAGNET_RANGE,
   XP_MAGNET_SPEED,
+  biomeOf,
+  floorInAct,
   floorScale,
   mitigation,
   playerAttackMult,
@@ -307,13 +308,32 @@ export function weaponOf(id: string | undefined): WeaponDef {
 
 // ---------------------------------------------------------------- peuplement
 
+/** Rang atteint par l'échelle du biome à cet étage (voir monsterPool). */
+function garrisonDepth(floor: number, ladderLength: number): number {
+  return Math.min(Math.max(floorInAct(floor) - 1, 1), ladderLength)
+}
+
 function monsterPool(floor: number): string[] {
-  const pool = ['skeleton', 'bat']
-  if (floor >= 2) pool.push('orc', 'orc_rogue')
-  if (floor >= 3) pool.push('skeleton_mage', 'skeleton_rogue')
-  if (floor >= 4) pool.push('skeleton_warrior', 'orc_bomber')
-  if (floor >= 6) pool.push('orc_warrior', 'orc_mage')
-  return pool
+  const biome = biomeOf(floor)
+  if (biome.ladder.length === 0) {
+    // Le cachot historique, seul biome sans échelle propre.
+    const pool = ['skeleton', 'bat']
+    if (floor >= 2) pool.push('orc', 'orc_rogue')
+    if (floor >= 3) pool.push('skeleton_mage', 'skeleton_rogue')
+    if (floor >= 4) pool.push('skeleton_warrior', 'orc_bomber')
+    if (floor >= 6) pool.push('orc_warrior', 'orc_mage')
+    return pool
+  }
+  // La garnison monte d'un archétype par étage, en retard d'un cran : les deux
+  // premiers étages de l'acte n'ont que la troupe de base — le rythme du
+  // cachot, où les mages n'arrivaient qu'à l'étage 3. Le socle est doublé dans
+  // le tirage : quatre espèces au lieu de six rendraient sinon les tireurs
+  // deux fois plus denses qu'au cachot, et c'est la densité de tir qui tue
+  // (mesuré en vraie partie : 72 % des dégâts subis). Aux premiers étages, les
+  // recettes qui exigent un archétype absent dégradent en mêlée via planWave —
+  // c'est la douceur voulue à l'entrée d'un acte, pas un accident.
+  const depth = garrisonDepth(floor, biome.ladder.length)
+  return [biome.swarm, biome.ladder[0]!, ...biome.ladder.slice(0, depth)]
 }
 
 function spawnMonster(
@@ -441,14 +461,22 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
   // Jamais une espèce d'essaim — un rat géant en gardien de donjon ne fait pas
   // un combat, juste un sac de points de vie qui vole.
   const isBossFloor = state.floor % BOSS_EVERY === 0
-  const keeperPool = pool.filter((s) => MONSTERS[s]!.behavior !== 'swarm')
+  // Dans un biome à échelle, le gardien vient des rangs déjà connus :
+  // l'archétype qui débute à cet étage sert dans la troupe avant de mériter
+  // l'élite. Sinon l'élite du nouveau venu fait un pic que rien n'annonce —
+  // mesuré au botrun, un chevalier d'élite à l'étage 3 bloquait la descente.
+  const biome = biomeOf(state.floor)
+  const veterans = biome.ladder.length
+    ? biome.ladder.slice(0, Math.max(1, garrisonDepth(state.floor, biome.ladder.length) - 1))
+    : pool
+  const keeperPool = veterans.filter((s) => MONSTERS[s]!.behavior !== 'swarm')
   const keeperRoom = spawnable[spawnable.length - 1]!
   const kx = keeperRoom.x + Math.floor(keeperRoom.w / 2) + 0.5
   const ky = keeperRoom.y + Math.floor(keeperRoom.h / 2) + 0.5
   spawnMonster(
     state,
     `keeper${state.floor}`,
-    isBossFloor ? BOSS_SPECIES : rng.pick(keeperPool.length ? keeperPool : pool),
+    isBossFloor ? biomeOf(state.floor).boss : rng.pick(keeperPool.length ? keeperPool : pool),
     kx,
     ky,
     isBossFloor ? 'boss' : 'elite',
@@ -483,21 +511,41 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
   // font le reste — la salle EST le répit, l'étal n'est que la dépense.
   const rest = rooms.find((r) => r.kind === 'repos')
   if (rest) {
+    // Dans le SAS (la salle repos EST celle du spawn), le centre est le point
+    // d'arrivée de toute l'équipe : un étal posé là se ferait acheter avant le
+    // premier input. Les articles s'alignent donc contre le mur haut, sous le
+    // marchand — hors du chemin, mais visibles d'un coup d'œil en arrivant.
+    const sasStall = rest === rooms[0]
     const rx = rest.x + Math.floor(rest.w / 2) + 0.5
-    const ry = rest.y + Math.floor(rest.h / 2) + 0.5
+    const ry = sasStall ? rest.y + 1.5 : rest.y + Math.floor(rest.h / 2) + 0.5
     // Chaque article est ramené sur une tuile praticable : dans une petite
     // salle, un offset fixe depuis le centre peut tomber dans le mur — l'objet
     // devient alors inachetable pour tout le monde (mesuré : des fioles à
     // −1 de tout champ de distance, l'étal mort pour toute la descente).
-    const spots = [
-      { kind: 'cap' as const, x: rx, y: ry, price: capPrice(state.capBought) },
-      { kind: 'soin' as const, x: rx - 1.4, y: ry, price: soinPrice(state.floor) },
-      { kind: 'fiole_souffle' as const, x: rx + 1.4, y: ry, price: FIOLE_PRICE },
-      { kind: 'fiole_vitesse' as const, x: rx + 1.4, y: ry + 1, price: FIOLE_PRICE },
-    ]
+    const spots = sasStall
+      ? [
+          { kind: 'cap' as const, x: rx - 1.5, y: ry, price: capPrice(state.capBought) },
+          { kind: 'soin' as const, x: rx - 0.5, y: ry, price: soinPrice(state.floor) },
+          { kind: 'fiole_souffle' as const, x: rx + 0.5, y: ry, price: FIOLE_PRICE },
+          { kind: 'fiole_vitesse' as const, x: rx + 1.5, y: ry, price: FIOLE_PRICE },
+        ]
+      : [
+          { kind: 'cap' as const, x: rx, y: ry, price: capPrice(state.capBought) },
+          { kind: 'soin' as const, x: rx - 1.4, y: ry, price: soinPrice(state.floor) },
+          { kind: 'fiole_souffle' as const, x: rx + 1.4, y: ry, price: FIOLE_PRICE },
+          { kind: 'fiole_vitesse' as const, x: rx + 1.4, y: ry + 1, price: FIOLE_PRICE },
+        ]
     for (const s of spots) {
       const at = findFreeSpot(state, s.x, s.y)
       dropItem(state, { kind: s.kind, x: at.x, y: at.y, price: s.price })
+    }
+    // Le coffre du SAS : une arme à prix d'étage, pour repartir équipé dans
+    // l'acte qui s'ouvre. Payant comme tous les coffres. Ancré au coin de la
+    // salle : à droite de l'étal, il déborderait d'un petit SAS et se
+    // retrouverait sans protection dans le couloir.
+    if (sasStall) {
+      const at = findFreeSpot(state, rest.x + 0.5, rest.y + 1.5)
+      dropItem(state, { kind: 'chest', x: at.x, y: at.y })
     }
   }
 }
@@ -604,6 +652,18 @@ export function descend(state: GameState): void {
   state.floor += 1
   const layout = generateFloor(rng, state.floor)
 
+  // L'entrée d'un acte est un SAS : la salle d'arrivée devient un sanctuaire
+  // marchand — jamais peuplée, Directrice muette, étal et coffre. On souffle,
+  // on s'équipe, et le reste de l'étage reprend ses droits passé la porte.
+  const sas = floorInAct(state.floor) === 1 && state.floor > 1
+  if (sas) {
+    layout.rooms[0]!.kind = 'repos'
+    // Le SAS est un repos : l'écart minimal du repos organique repart d'ici,
+    // ce qui garantit qu'ils ne tombent jamais sur le même étage.
+    state.lastRestFloor = state.floor
+    layout.decor.push({ x: layout.spawn.x, y: layout.rooms[0]!.y + 1, kind: 'marchand' })
+  }
+
   state.tiles = layout.tiles
   state.width = layout.width
   state.height = layout.height
@@ -619,7 +679,7 @@ export function descend(state: GameState): void {
 
   // La salle de repos : la plus proche du spawn parmi les convenables — un
   // repos qu'on découvre à la fin de l'étage n'aurait servi à rien.
-  if (restDue) {
+  if (restDue && !sas) {
     const candidates = layout.rooms.filter(
       (r) =>
         r.kind !== 'tresor' &&
@@ -645,14 +705,18 @@ export function descend(state: GameState): void {
   // Ce qu'on n'a pas tué nous suit. On garde en priorité les plus proches de
   // l'escalier : ce sont ceux qui nous collaient réellement, et ça laisse au
   // joueur un moyen de choisir sa dette — décrocher avant de descendre.
-  const survivors = Object.values(state.actors)
-    .filter((a) => a.kind === 'monster' && a.alive)
-    .sort(
-      (a, b) =>
-        Math.hypot(a.x - state.stairs.x, a.y - state.stairs.y) -
-        Math.hypot(b.x - state.stairs.x, b.y - state.stairs.y),
-    )
-    .slice(0, PURSUE_MAX)
+  // Franchir la porte d'un acte purge la dette : personne ne poursuit une
+  // équipe jusque dans le SAS, sinon le sanctuaire n'en serait pas un.
+  const survivors = sas
+    ? []
+    : Object.values(state.actors)
+        .filter((a) => a.kind === 'monster' && a.alive)
+        .sort(
+          (a, b) =>
+            Math.hypot(a.x - state.stairs.x, a.y - state.stairs.y) -
+            Math.hypot(b.x - state.stairs.x, b.y - state.stairs.y),
+        )
+        .slice(0, PURSUE_MAX)
 
   state.pursuers = survivors.map((actor) => {
     actor.kx = 0
