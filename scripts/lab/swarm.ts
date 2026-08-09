@@ -22,19 +22,19 @@ export const WEAPONS_ALL = [STARTING_WEAPON, ...LOOT_WEAPONS]
 /** Les quatre styles de la baseline. L'arme est injectée ensuite. */
 export const STYLES: Record<string, Omit<Genome, 'weapon'>> = {
   bourrin: {
-    objective: 'clear', kite: 0, dodge: 0.15, heartAt: 0.75,
+    objective: 'clear', kite: 0, dodge: 0.15, roll: 0.1, heartAt: 0.75,
     sprint: 'never', fleeAt: 0.08, engageCap: 99, patience: 1,
   },
   prudent: {
-    objective: 'clear', kite: 1.3, dodge: 0.8, heartAt: 0.6,
+    objective: 'clear', kite: 1.3, dodge: 0.8, roll: 0.35, heartAt: 0.6,
     sprint: 'both', fleeAt: 0.35, engageCap: 3, patience: 0.8,
   },
   kite: {
-    objective: 'balanced', kite: 2.4, dodge: 0.7, heartAt: 0.65,
+    objective: 'balanced', kite: 2.4, dodge: 0.7, roll: 0.25, heartAt: 0.65,
     sprint: 'both', fleeAt: 0.3, engageCap: 4, patience: 0.5,
   },
   presse: {
-    objective: 'rush', kite: 0.8, dodge: 0.5, heartAt: 0.5,
+    objective: 'rush', kite: 0.8, dodge: 0.5, roll: 0.4, heartAt: 0.5,
     sprint: 'travel', fleeAt: 0.2, engageCap: 2, patience: 0.1,
   },
 }

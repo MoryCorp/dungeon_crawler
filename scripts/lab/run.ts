@@ -185,7 +185,7 @@ async function main(): Promise<void> {
 
   if (argv.includes('--demo')) {
     const genome: Genome = {
-      weapon: 'sword', objective: 'clear', kite: 1.2, dodge: 0.8,
+      weapon: 'sword', objective: 'clear', kite: 1.2, dodge: 0.8, roll: 0.3,
       heartAt: 0.6, sprint: 'both', fleeAt: 0.35, engageCap: 3, patience: 0.8,
     }
     for (const human of [null, HUMAN]) {

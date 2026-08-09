@@ -72,6 +72,26 @@ export const SPRINT_REGEN = 0.22
 export const SPRINT_REFILL_DELAY = ticks(1)
 export const SPRINT_MIN_START = 0.5
 
+/**
+ * La roulade est le deuxième verbe défensif — celui qui manquait contre tout
+ * ce qui ignore la vitesse de marche (projectiles, ruées). Courte, chère,
+ * invulnérable seulement au départ : on esquive un coup précis, on ne
+ * traverse pas un étage en roulant.
+ *
+ * Les chiffres se lisent ensemble : 8 ticks à 9 t/s ≈ 2,3 tuiles — calqué sur
+ * la ruée des monstres (dashSpeed 10) pour que l'esquive et la charge jouent
+ * dans le même tempo. Le coût (45 % de jauge) partage la ressource avec le
+ * sprint : rouler, c'est renoncer à courir, et inversement.
+ */
+export const ROLL_TICKS = 8
+/** Fenêtre d'invulnérabilité : les 5 premiers ticks seulement (~0,15 s). */
+export const ROLL_IFRAMES = 5
+export const ROLL_SPEED = 9
+export const ROLL_COST = 0.45
+export const ROLL_MIN_STAMINA = 0.4
+/** Temps mort après une roulade avant la suivante — même sous fiole de souffle. */
+export const ROLL_COOLDOWN = ticks(0.4)
+
 // --- Armes ------------------------------------------------------------------
 
 export interface WeaponDef {
@@ -885,6 +905,12 @@ export interface Actor {
   hasteUntil?: number
   /** Fiole de souffle bue : la jauge de sprint ne se vide pas jusqu'à ce tick. */
   freshUntil?: number
+  /** Roulade en cours : trajectoire droite jusqu'à ce tick, stoppée par un mur. */
+  rollUntil?: number
+  rollVx?: number
+  rollVy?: number
+  /** Tick de départ de la dernière roulade — impose le temps mort entre deux. */
+  rolledAt?: number
 
   /** Monstres. */
   elite?: boolean
@@ -975,6 +1001,8 @@ export interface PlayerInput {
   sprint: boolean
   /** Boire la fiole portée. Optionnel : les vieux clients n'envoient rien. */
   drink?: boolean
+  /** Roulade. Impulsion, pas un état — même contrat que `drink`. */
+  roll?: boolean
 }
 
 export const NEUTRAL_INPUT: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }
@@ -1032,6 +1060,7 @@ export type GameEvent =
   | { t: 'rest'; x: number; y: number }
   /** Une fiole vient d'être bue. */
   | { t: 'drink'; id: string; potion: string; x: number; y: number }
+  | { t: 'roll'; id: string; x: number; y: number }
   | { t: 'levelup'; id: string; level: number; x: number; y: number }
   | { t: 'keydrop'; x: number; y: number }
   /** Attaque en préparation avortée par un coup encaissé. */

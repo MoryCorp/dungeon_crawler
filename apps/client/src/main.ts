@@ -2,6 +2,7 @@ import { Application } from 'pixi.js'
 import {
   BLEED_OUT_TICKS,
   DT,
+  ROLL_SPEED,
   SPRINT_MIN_START,
   STARTING_WEAPON,
   TICK_RATE,
@@ -9,6 +10,7 @@ import {
   fromBase64,
   movePhysical,
   playerSpeed,
+  stepRoll,
   stepSprint,
   unpackBits,
   xpForLevel,
@@ -128,8 +130,26 @@ async function main(): Promise<void> {
    * recalée sur celle du serveur à chaque paquet ; entre deux paquets elle
    * descend ici, sinon la barre avancerait par à-coups de 30 Hz.
    */
-  const localSprint = { stamina: 1, sprinting: false, sprintedAt: -999, downed: false }
+  const localSprint: {
+    stamina: number
+    sprinting: boolean
+    sprintedAt: number
+    downed: boolean
+    rollUntil?: number
+    rollVx?: number
+    rollVy?: number
+    rolledAt?: number
+    freshUntil?: number
+    invulnUntil?: number
+  } = { stamina: 1, sprinting: false, sprintedAt: -999, downed: false }
   let predictTick = 0
+  /**
+   * Impulsion de roulade en attente d'un pas de prédiction. L'échantillon
+   * d'entrée la consomme à la frame, mais la simulation avance par pas fixes :
+   * sans cette réserve, une impulsion tombée entre deux pas serait perdue
+   * localement — et le serveur, lui, roulerait quand même. Caoutchouc garanti.
+   */
+  let pendingRoll = false
   let localReady = false
   let lastInput: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }
   let accumulator = 0
@@ -369,16 +389,39 @@ async function main(): Promise<void> {
       const penalty = swinging ? weapon.movePenalty : 1
       const moving = current.mx !== 0 || current.my !== 0
       localSprint.downed = downed
+      if (current.roll) pendingRoll = true
 
       accumulator += dt
       let steps = 0
       while (accumulator >= DT && steps < 5) {
-        const sprinting = stepSprint(localSprint, predictTick, current.sprint, moving, swinging)
-        movePhysical(
-          tiles, mapW, mapH, local,
-          current.mx, current.my,
-          playerSpeed({ downed }, penalty, sprinting, hasted),
+        const rolled = stepRoll(
+          localSprint, predictTick, pendingRoll,
+          current.mx, current.my, current.aim, swinging,
         )
+        if (rolled !== null) {
+          const bx = local.x
+          const by = local.y
+          local.kx = 0
+          local.ky = 0
+          movePhysical(
+            tiles, mapW, mapH, local,
+            localSprint.rollVx ?? 0, localSprint.rollVy ?? 0, ROLL_SPEED,
+          )
+          // Mur pris de plein fouet : la roulade s'arrête, comme côté serveur.
+          if (Math.hypot(local.x - bx, local.y - by) < ROLL_SPEED * DT * 0.4) {
+            localSprint.rollUntil = predictTick
+          }
+        } else {
+          const sprinting = stepSprint(localSprint, predictTick, current.sprint, moving, swinging)
+          movePhysical(
+            tiles, mapW, mapH, local,
+            current.mx, current.my,
+            playerSpeed({ downed }, penalty, sprinting, hasted),
+          )
+        }
+        // Consommée ou refusée (jauge, temps mort, lame sortie) : dans les
+        // deux cas on ne la garde pas en réserve — le serveur tranche pareil.
+        pendingRoll = false
         predictTick++
         accumulator -= DT
         steps++

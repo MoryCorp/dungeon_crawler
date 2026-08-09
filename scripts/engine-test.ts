@@ -55,6 +55,9 @@ import {
   type Behavior,
   type RecipeName,
   REVIVE_TICKS,
+  ROLL_COOLDOWN,
+  ROLL_COST,
+  ROLL_TICKS,
   Rng,
   TARGET_TTK,
   TICK_RATE,
@@ -333,6 +336,90 @@ console.log('\nTests engine\n')
     `${free.toFixed(2)} libre vs ${sword.toFixed(2)} en frappant`)
   check('la hache engage plus que l\'épée', axe < sword, `hache ${axe.toFixed(2)} < épée ${sword.toFixed(2)}`)
   check('la dague n\'engage presque pas', dagger > sword, `dague ${dagger.toFixed(2)}`)
+}
+
+// --- la roulade --------------------------------------------------------------
+// Le deuxième verbe défensif : courte, chère, invulnérable au départ. On
+// vérifie le contrat entier — distance, i-frames, coût, seuil, temps mort,
+// interdits (lame sortie, mur) et la gratuité sous fiole de souffle.
+{
+  const fresh = (): { s: GameState; hero: Actor; dir: number } => {
+    const s = createGame(4242)
+    clearMonsters(s)
+    const hero = addPlayer(s, 'p_r', 'Rouleur')
+    const dir = isWalkable(s.tiles[Math.floor(hero.y) * MAP_W + Math.floor(hero.x) + 1]!) ? 1 : -1
+    return { s, hero, dir }
+  }
+  const rollInput = (dir: number): PlayerInput =>
+    ({ mx: dir, my: 0, aim: dir > 0 ? 0 : Math.PI, attack: false, sprint: false, roll: true })
+
+  {
+    const { s, hero, dir } = fresh()
+    const start = hero.x
+    step(s, { p_r: rollInput(dir) })
+    check('la roulade s\'engage et donne des i-frames',
+      hero.rollUntil !== undefined && (hero.invulnUntil ?? 0) > s.tick,
+      `rollUntil=${hero.rollUntil} invuln=${hero.invulnUntil} tick=${s.tick}`)
+    check('la roulade coûte sa part de jauge',
+      Math.abs((hero.stamina ?? 1) - (1 - ROLL_COST)) < 0.01, `jauge ${hero.stamina?.toFixed(2)}`)
+    // roll:true traîne dans l'entrée comme un paquet réseau rejoué : le temps
+    // mort doit empêcher la roulade de repartir en boucle.
+    for (let i = 0; i < ROLL_TICKS; i++) step(s, { p_r: rollInput(dir) })
+    const dist = Math.abs(hero.x - start)
+    check('elle couvre ~2,3 tuiles puis s\'arrête', dist > 1.8 && dist < 2.8, `${dist.toFixed(2)} tuiles`)
+    check('pas de seconde roulade pendant le temps mort',
+      hero.rollUntil === undefined && Math.abs((hero.stamina ?? 1) - (1 - ROLL_COST)) < 0.03,
+      `jauge ${hero.stamina?.toFixed(2)}`)
+    for (let i = 0; i < ROLL_COOLDOWN + 2; i++) step(s, { p_r: idle })
+    step(s, { p_r: rollInput(dir) })
+    check('le temps mort passé, on peut re-rouler', hero.rollUntil !== undefined)
+  }
+
+  {
+    const { s, hero, dir } = fresh()
+    hero.stamina = 0.3
+    step(s, { p_r: rollInput(dir) })
+    check('sous le seuil de jauge, pas de roulade', hero.rollUntil === undefined,
+      `jauge ${hero.stamina?.toFixed(2)}`)
+  }
+
+  {
+    const { s, hero, dir } = fresh()
+    hero.swingUntil = s.tick + 10
+    step(s, { p_r: rollInput(dir) })
+    check('lame sortie, pas de roulade', hero.rollUntil === undefined)
+  }
+
+  {
+    const { s, hero, dir } = fresh()
+    hero.stamina = 0.2
+    hero.freshUntil = s.tick + 300
+    step(s, { p_r: rollInput(dir) })
+    check('sous fiole de souffle, la roulade est gratuite',
+      hero.rollUntil !== undefined && Math.abs((hero.stamina ?? 1) - 0.2) < 0.01,
+      `jauge ${hero.stamina?.toFixed(2)}`)
+  }
+
+  {
+    // Face à un mur : la roulade se coupe net au lieu de gratter la paroi.
+    const { s, hero } = fresh()
+    let placed = false
+    for (let y = 2; y < MAP_H - 2 && !placed; y++) {
+      for (let x = 2; x < MAP_W - 2 && !placed; x++) {
+        if (isWalkable(s.tiles[y * MAP_W + x]!) && !isWalkable(s.tiles[y * MAP_W + x + 1]!)) {
+          hero.x = x + 0.5
+          hero.y = y + 0.5
+          placed = true
+        }
+      }
+    }
+    const start = hero.x
+    step(s, { p_r: rollInput(1) })
+    step(s, { p_r: idle })
+    check('un mur coupe la roulade',
+      placed && hero.rollUntil === undefined && Math.abs(hero.x - start) < 0.4,
+      `parcouru ${Math.abs(hero.x - start).toFixed(2)}`)
+  }
 }
 
 // --- la difficulté monte avec l'étage ---------------------------------------

@@ -21,6 +21,9 @@ import {
   healCapOf,
   NEUTRAL_INPUT,
   REVIVE_RANGE,
+  ROLL_COOLDOWN,
+  ROLL_MIN_STAMINA,
+  ROLL_TICKS,
   Rng,
   WEAPONS,
   hasLineOfSight,
@@ -43,6 +46,11 @@ export interface Genome {
   kite: number
   /** 0..1 : qualité d'esquive des télégraphes, charges et projectiles. */
   dodge: number
+  /** 0..1 : propension à rouler plutôt qu'à s'écarter quand l'esquive se
+   * déclenche. Gène séparé de `dodge` exprès : le critère pré-enregistré de la
+   * roulade est que les deux coexistent après évolution — si `roll` écrase
+   * `dodge` partout, la roulade est devenue le nouveau kite universel. */
+  roll: number
   /** On ramasse un cœur sous ce ratio de PV. */
   heartAt: number
   sprint: SprintPolicy
@@ -329,6 +337,21 @@ export class Brain {
       this.dodgeStreak++
       this.lastBranch = 'dodge'
       const aim = nearest ? Math.atan2(nearest.y - me.y, nearest.x - me.x) : me.aim
+      // Rouler plutôt que s'écarter : même direction, mais avec les i-frames.
+      // Les conditions rejouent celles de l'engine — jauge, temps mort — pour
+      // ne pas gaspiller la décision sur une impulsion qui sera refusée.
+      const rollReady =
+        state.tick - (me.rolledAt ?? -ROLL_TICKS - ROLL_COOLDOWN) >= ROLL_TICKS + ROLL_COOLDOWN &&
+        ((me.freshUntil ?? 0) > state.tick || (me.stamina ?? 1) >= ROLL_MIN_STAMINA)
+      if (rollReady && this.rng.next() < g.roll) {
+        this.lastBranch = 'roll'
+        return {
+          mx: dodge[0], my: dodge[1], aim,
+          attack: false,
+          sprint: false,
+          roll: true,
+        }
+      }
       return {
         mx: dodge[0], my: dodge[1], aim,
         attack: this.shouldAttack(state, me, nearest, nearestDist),

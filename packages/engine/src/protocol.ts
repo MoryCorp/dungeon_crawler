@@ -87,6 +87,8 @@ export interface ActorView {
   potion?: string
   /** Fiole de vitesse active : le client prédit le déplacement accéléré. */
   hasted?: boolean
+  /** Roulade en cours : le rendu incline le sprite et laisse une traînée. */
+  rolling?: boolean
 
   /** Monstres uniquement. */
   rank?: 'elite' | 'boss'
@@ -196,6 +198,7 @@ export function buildActorViews(state: GameState, visible: Uint8Array): ActorVie
       if (a.downed) view.revive = round2(a.reviveProgress ?? 0)
       if (a.potion !== undefined) view.potion = a.potion
       if ((a.hasteUntil ?? 0) > state.tick) view.hasted = true
+      if (a.rollUntil !== undefined && a.rollUntil > state.tick) view.rolling = true
     } else {
       if (a.boss) view.rank = 'boss'
       else if (a.elite) view.rank = 'elite'

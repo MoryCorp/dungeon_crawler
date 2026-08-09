@@ -40,6 +40,7 @@ function mutate(g: Genome, rng: Rng): Genome {
     objective: rng.chance(0.15) ? OBJECTIVES[rng.int(OBJECTIVES.length)]! : g.objective,
     kite: jitter(g.kite, 0.6, 0, 3.5),
     dodge: jitter(g.dodge, 0.15, 0, 1),
+    roll: jitter(g.roll, 0.15, 0, 1),
     heartAt: jitter(g.heartAt, 0.12, 0.2, 0.95),
     sprint: rng.chance(0.15) ? SPRINTS[rng.int(SPRINTS.length)]! : g.sprint,
     fleeAt: jitter(g.fleeAt, 0.08, 0, 0.6),
@@ -115,7 +116,7 @@ if (isMain) {
   for (const c of champions) {
     console.log(
       `  ${c.weapon.padEnd(7)} étage moyen ${c.fitness.toFixed(2)} · ` +
-        `${c.genome.objective} kite=${c.genome.kite.toFixed(1)} dodge=${c.genome.dodge.toFixed(2)} ` +
+        `${c.genome.objective} kite=${c.genome.kite.toFixed(1)} dodge=${c.genome.dodge.toFixed(2)} roll=${c.genome.roll.toFixed(2)} ` +
         `fuite@${c.genome.fleeAt.toFixed(2)} cap=${c.genome.engageCap} sprint=${c.genome.sprint}`,
     )
   }

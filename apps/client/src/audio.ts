@@ -441,6 +441,13 @@ export class GameAudio {
         }
         break
 
+      case 'roll':
+        // Un souffle bref qui descend : le corps qui fend l'air, pas une arme.
+        if (this.gate('roll', 120)) {
+          this.burst({ dur: 0.12, gain: ev.id === selfId ? 0.16 : 0.08, from: 1800, to: 350 })
+        }
+        break
+
       case 'drink':
         this.burst({ dur: 0.2, gain: 0.12, from: 900, to: 2200 })
         this.tone({ freq: 523, to: 784, type: 'sine', dur: 0.25, gain: 0.1 })

@@ -99,6 +99,12 @@ import {
   PLACED_PER_FLOOR,
   PLAYER_BASE_HP,
   PLAYER_SPEED,
+  ROLL_COOLDOWN,
+  ROLL_COST,
+  ROLL_IFRAMES,
+  ROLL_MIN_STAMINA,
+  ROLL_SPEED,
+  ROLL_TICKS,
   SPRINT_DRAIN,
   SPRINT_MIN_START,
   SPRINT_MULT,
@@ -223,6 +229,64 @@ export function stepSprint(
   }
   actor.sprinting = sprinting
   return sprinting
+}
+
+/**
+ * Démarre ou poursuit une roulade. Pure et sans RNG, comme `stepSprint`, et
+ * pour la même raison : le client prédit sa propre roulade avec exactement ce
+ * code — la divergence ne peut venir que de la latence, jamais des règles.
+ *
+ * Le déplacement lui-même reste à la charge de l'appelant (il faut la carte
+ * pour l'arrêt au mur). Retourne `'start'` au tick de départ — c'est là que le
+ * serveur émet l'événement — `'roll'` tant que ça roule, `null` sinon.
+ *
+ * La direction est celle du déplacement demandé, la visée en secours : on
+ * roule où l'on va, pas où l'on regarde. Le coût passe par la jauge de sprint
+ * — rouler, c'est renoncer à courir — et la fiole de souffle rend la roulade
+ * gratuite comme elle rend le sprint inépuisable. Le temps mort, lui, tient
+ * même sous fiole : sinon elle transformerait la roulade en téléportation
+ * continue.
+ */
+export function stepRoll(
+  actor: Pick<
+    Actor,
+    | 'downed' | 'stamina' | 'freshUntil' | 'invulnUntil'
+    | 'rollUntil' | 'rollVx' | 'rollVy' | 'rolledAt' | 'sprintedAt'
+  >,
+  tick: number,
+  wants: boolean,
+  mx: number,
+  my: number,
+  aim: number,
+  swinging: boolean,
+): 'start' | 'roll' | null {
+  if (actor.rollUntil !== undefined) {
+    if (tick < actor.rollUntil && !actor.downed) return 'roll'
+    delete actor.rollUntil
+  }
+  if (!wants || swinging || actor.downed) return null
+  if (tick - (actor.rolledAt ?? -ROLL_TICKS - ROLL_COOLDOWN) < ROLL_TICKS + ROLL_COOLDOWN) return null
+
+  const stamina = actor.stamina ?? 1
+  const fresh = (actor.freshUntil ?? 0) > tick
+  if (!fresh && stamina < ROLL_MIN_STAMINA) return null
+
+  let dx = mx
+  let dy = my
+  if (dx === 0 && dy === 0) {
+    dx = Math.cos(aim)
+    dy = Math.sin(aim)
+  }
+  const len = Math.hypot(dx, dy)
+  actor.rollVx = dx / len
+  actor.rollVy = dy / len
+  actor.rollUntil = tick + ROLL_TICKS
+  actor.rolledAt = tick
+  actor.invulnUntil = Math.max(actor.invulnUntil ?? 0, tick + ROLL_IFRAMES)
+  if (!fresh) actor.stamina = Math.max(0, stamina - ROLL_COST)
+  // La jauge ne remonte qu'après le même temps mort que le sprint.
+  actor.sprintedAt = tick
+  return 'start'
 }
 
 /** Arme portée, avec repli sur celle de départ si l'identifiant est inconnu. */
@@ -1896,6 +1960,34 @@ export function step(
     }
 
     actor.aim = input.aim
+
+    // Roulade : elle consomme le tick entier — ni coup, ni fiole, ni sprint
+    // tant qu'on roule. Le recul est écrasé (le verbe reprend le contrôle du
+    // corps), et un mur pris de plein fouet la coupe net, comme la ruée des
+    // monstres.
+    const rolled = stepRoll(
+      actor, state.tick, input.roll === true,
+      input.mx, input.my, input.aim,
+      state.tick < actor.swingUntil,
+    )
+    if (rolled !== null) {
+      if (rolled === 'start') {
+        state.events.push({ t: 'roll', id: actor.id, x: actor.x, y: actor.y })
+      }
+      const beforeX = actor.x
+      const beforeY = actor.y
+      actor.kx = 0
+      actor.ky = 0
+      movePhysical(
+        state.tiles, state.width, state.height, actor,
+        actor.rollVx ?? 0, actor.rollVy ?? 0, ROLL_SPEED,
+      )
+      const travelled = Math.hypot(actor.x - beforeX, actor.y - beforeY)
+      if (travelled < ROLL_SPEED * DT * 0.4) delete actor.rollUntil
+      profileMovement(state, actor, threats, actor.x - beforeX, actor.y - beforeY)
+      continue
+    }
+
     // On frappe d'abord, puis on bouge : le coup engage donc dès ce tick-ci.
     // Frapper et fuir dans le même souffle n'est plus possible.
     if (input.attack && !actor.downed && state.tick >= actor.readyAt) {

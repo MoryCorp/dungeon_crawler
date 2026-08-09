@@ -23,8 +23,8 @@ const KEY_VECTORS: Record<string, readonly [number, number]> = {
   ArrowRight: [1, 0],
 }
 
-/** Attaque au clavier, en secours du clic gauche. */
-const ATTACK_KEYS = new Set(['Space'])
+/** Roulade — la barre d'espace, sous le pouce. L'attaque reste au clic gauche. */
+const ROLL_KEYS = new Set(['Space'])
 
 /** Sprint : les deux Maj, sous les deux mains selon qu'on joue ZQSD ou flèches. */
 const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight'])
@@ -45,6 +45,8 @@ const AIM_DEADZONE = 0.35
 export class InputManager {
   private held = new Set<string>()
   private drinkQueued = false
+  private rollQueued = false
+  private padRollHeld = false
   private mouseDown = false
   private mouseX = 0
   private mouseY = 0
@@ -55,15 +57,19 @@ export class InputManager {
     window.addEventListener('keydown', (e) => {
       if (SWALLOWED.has(e.code)) e.preventDefault()
       if (e.repeat) return
-      if (KEY_VECTORS[e.code] || ATTACK_KEYS.has(e.code) || SPRINT_KEYS.has(e.code)) {
+      if (KEY_VECTORS[e.code] || SPRINT_KEYS.has(e.code)) {
         e.preventDefault()
         this.held.add(e.code)
       }
-      // Boire est une impulsion, pas un état : on la consomme au prochain
-      // échantillon, une seule fois.
+      // Boire et rouler sont des impulsions, pas des états : on les consomme
+      // au prochain échantillon, une seule fois.
       if (DRINK_KEYS.has(e.code)) {
         e.preventDefault()
         this.drinkQueued = true
+      }
+      if (ROLL_KEYS.has(e.code)) {
+        e.preventDefault()
+        this.rollQueued = true
       }
     })
     window.addEventListener('keyup', (e) => this.held.delete(e.code))
@@ -132,6 +138,10 @@ export class InputManager {
     )
     // Gâchette gauche : sous l'index, libre pendant qu'on vise et qu'on frappe.
     const sprint = Boolean(pad.buttons[6]?.pressed || pad.buttons[4]?.pressed)
+    // B (bouton 1) : roulade. Front montant seulement — c'est une impulsion.
+    const rollHeld = Boolean(pad.buttons[1]?.pressed)
+    if (rollHeld && !this.padRollHeld) this.rollQueued = true
+    this.padRollHeld = rollHeld
     return { mx, my, aim, attack, sprint }
   }
 
@@ -151,7 +161,6 @@ export class InputManager {
         mx += vec[0]
         my += vec[1]
       }
-      if (ATTACK_KEYS.has(code)) attack = true
       if (SPRINT_KEYS.has(code)) sprint = true
     }
 
@@ -173,7 +182,9 @@ export class InputManager {
 
     const drink = this.drinkQueued
     this.drinkQueued = false
-    return { mx, my, aim: this.aim, attack, sprint, drink }
+    const roll = this.rollQueued
+    this.rollQueued = false
+    return { mx, my, aim: this.aim, attack, sprint, drink, roll }
   }
 }
 
@@ -185,6 +196,7 @@ export function sameInput(a: PlayerInput, b: PlayerInput): boolean {
     a.attack === b.attack &&
     a.sprint === b.sprint &&
     a.drink === b.drink &&
+    a.roll === b.roll &&
     Math.abs(a.aim - b.aim) < 0.02
   )
 }

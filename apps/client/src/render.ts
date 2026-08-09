@@ -7,7 +7,7 @@
  */
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { ActorView, GameEvent, ItemView, ProjectileView } from '@dc/engine'
-import { MONSTERS, MONSTER_HALF_ARC, TICK_RATE, WEAPONS, chestPrice } from '@dc/engine'
+import { MONSTERS, MONSTER_HALF_ARC, ROLL_TICKS, TICK_RATE, WEAPONS, chestPrice } from '@dc/engine'
 import {
   WEAPON_ATTACK,
   packAnim,
@@ -62,6 +62,10 @@ interface Entity {
   aimHold: number
   /** Miroir retenu, pour ne pas basculer sur un mouvement quasi vertical. */
   flip: 1 | -1
+  /** Temps écoulé dans la roulade en cours — pilote le tour complet du sprite. */
+  rollT: number
+  /** Horloge du dernier fantôme déposé derrière une roulade. */
+  ghostAt: number
 }
 
 /** Cadavre : l'animation de mort du pack, jouée une fois puis retirée. */
@@ -78,6 +82,8 @@ interface Effect {
   vy: number
   /** Grossissement appliqué sur la durée de vie (explosions). */
   grow?: number
+  /** Opacité de départ : les fantômes de roulade naissent déjà translucides. */
+  fade?: number
 }
 
 interface Mover {
@@ -91,6 +97,7 @@ const FOG_EXPLORED = 165
 const FOG_VISIBLE = 0
 
 const SWING_SECONDS = 0.22
+const ROLL_SECONDS = ROLL_TICKS / TICK_RATE
 
 /** Un élite se repère à sa taille avant même de lire son nom. */
 const RANK_SCALE: Record<string, number> = { elite: 1.35, boss: 1.9 }
@@ -363,6 +370,7 @@ export class Renderer {
       speed: 0, moving: false, mvx: 1, mvy: 0,
       attackT: Infinity, attackDur: 1, attackKind: null,
       facing: view.aim, aimHold: 0, flip: 1,
+      rollT: 0, ghostAt: 0,
     }
   }
 
@@ -694,8 +702,33 @@ export class Renderer {
       if (Math.abs(cos) > FLIP_DEADZONE) entity.flip = cos < 0 ? -1 : 1
       entity.sprite.scale.x = entity.flip * scale
       entity.sprite.scale.y = scale
-      // Un joueur à terre est couché : lisible d'un coup d'œil à travers la pièce.
-      entity.sprite.rotation = view.downed ? Math.PI / 2 : 0
+      // Roulade : un tour complet dans le sens du regard, sprite légèrement
+      // tassé, et des images rémanentes déposées derrière — c'est ce qui rend
+      // l'i-frame lisible pour les autres joueurs comme pour soi.
+      if (view.rolling === true && view.alive) {
+        entity.rollT += dt
+        const spin = Math.min(1, entity.rollT / ROLL_SECONDS)
+        entity.sprite.rotation = spin * Math.PI * 2 * entity.flip
+        entity.sprite.scale.y = scale * 0.88
+        if (this.clock - entity.ghostAt > 0.055) {
+          entity.ghostAt = this.clock
+          const ghost = new Sprite(entity.sprite.texture)
+          ghost.anchor.set(0.5, entity.anim?.grounded ? 1 : 0.5)
+          ghost.x = entity.sprite.x
+          ghost.y = entity.sprite.y
+          ghost.rotation = entity.sprite.rotation
+          ghost.scale.set(entity.sprite.scale.x, entity.sprite.scale.y)
+          ghost.alpha = 0.5
+          ghost.tint = 0x9aa8c0
+          ghost.zIndex = entity.ry - 0.01
+          this.entityLayer.addChild(ghost)
+          this.effects.push({ node: ghost, ttl: 0.22, life: 0.22, vy: 0, fade: 0.5 })
+        }
+      } else {
+        entity.rollT = 0
+        // Un joueur à terre est couché : lisible d'un coup d'œil à travers la pièce.
+        entity.sprite.rotation = view.downed ? Math.PI / 2 : 0
+      }
 
       const dimmed = !view.visible && !isSelf
       entity.sprite.alpha = !view.alive ? 0.3 : dimmed ? 0.4 : 1
@@ -746,7 +779,7 @@ export class Renderer {
       fx.ttl -= dt
       fx.node.y += fx.vy * dt
       const t = Math.max(0, Math.min(1, fx.ttl / fx.life))
-      fx.node.alpha = t
+      fx.node.alpha = t * (fx.fade ?? 1)
       // L'explosion s'ouvre jusqu'à son rayon réel pendant qu'elle s'efface.
       if (fx.grow) fx.node.scale.set(0.4 + (1 - t) * 0.6 * fx.grow)
       if (fx.ttl <= 0) {
