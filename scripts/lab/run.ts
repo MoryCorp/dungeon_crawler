@@ -56,6 +56,10 @@ export interface RunResult {
   downTerrain: Record<string, number>
   /** Monstres tués. */
   kills: number
+  /** Vagues livrées par la Directrice. */
+  hordes: number
+  /** Distance moyenne de livraison (ancre → cible), en tuiles. */
+  hordeDist: number
   /** Durée simulée, en secondes. */
   seconds: number
   ended: 'deaths' | 'cap' | 'stalled'
@@ -100,12 +104,15 @@ export function runOne(job: Job): RunResult {
     downedBy: {},
     downTerrain: {},
     kills: 0,
+    hordes: 0,
+    hordeDist: 0,
     seconds: 0,
     ended: 'cap',
   }
 
   let lastEventTick = 0
   let totalTicks = 0
+  let hordeDistSum = 0
 
   while (totalTicks < MAX_TICKS_TOTAL) {
     const inputs: Record<string, PlayerInput> = {}
@@ -134,6 +141,9 @@ export function runOne(job: Job): RunResult {
         }
       } else if (ev.t === 'descend') {
         lastEventTick = totalTicks
+      } else if (ev.t === 'horde') {
+        result.hordes++
+        hordeDistSum += ev.dist
       }
     }
 
@@ -154,6 +164,7 @@ export function runOne(job: Job): RunResult {
   }
 
   result.seconds = Math.round(totalTicks / TICK_RATE)
+  result.hordeDist = result.hordes > 0 ? Math.round((hordeDistSum / result.hordes) * 10) / 10 : 0
   return result
 }
 

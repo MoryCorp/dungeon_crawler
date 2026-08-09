@@ -987,6 +987,9 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   let placed = 0
   let groupsPlaced = 0
   let groupsDegraded = 0
+  // Distance de livraison réalisée : sans elle, impossible de savoir si un
+  // réglage du placement a réellement changé où tombent les vagues.
+  let distSum = 0
   let eventAnchor: { x: number; y: number } | null = null
   // Une escouade par groupe, pas par vague : les deux mâchoires d'une tenaille
   // arrivent de deux côtés opposés et n'ont aucune raison de s'attendre l'une
@@ -1003,6 +1006,7 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
     if (!anchor) continue
     groupsPlaced++
     if (anchor.degraded) groupsDegraded++
+    distSum += Math.hypot(anchor.x - target.x, anchor.y - target.y)
     eventAnchor ??= anchor
 
     const groupSize = group.fromDebt + group.fromReserve
@@ -1063,6 +1067,7 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
       groups: plan.length,
       placed: groupsPlaced,
       degraded: groupsDegraded,
+      dist: Math.round((distSum / groupsPlaced) * 10) / 10,
     })
     // La fenêtre s'ouvre : ce que cette vague produit s'inscrira à son levier.
     state.banditPending = {

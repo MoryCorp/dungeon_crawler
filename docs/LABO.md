@@ -111,9 +111,10 @@ Mesures de santé des chantiers, relevées sur les runs :
 ## Recommandations d'équilibrage — chiffrées, non appliquées
 
 1. **skeleton_mage** : ramener sa part de mises à terre sous 40 % (aujourd'hui
-   ~70 % en médiane). Leviers au choix : dégâts de projectile 6 → 5 (−17 %),
-   ou +20 % d'intervalle entre salves, ou portée effective −1 case. Un seul
-   levier à la fois, re-mesurer.
+   ~70 % en médiane). Leviers au choix : `atk` 5 → 4 (−20 %, soit 6 → ~4,8 de
+   dégâts effectifs à l'étage 4 avec la croissance par étage), ou `cooldown`
+   1,6 → 2,0 s (−20 % de cadence), ou portée effective −1 case. Un seul levier
+   à la fois, re-mesurer.
 2. **Composition des vagues de piège** : plafonner la part d'espèces à
    distance à 50 % de la vague (aujourd'hui 7 mages sur 7 possibles dès
    l'étage 4 dans une salle de 8×6 fermée). C'est le seul endroit du jeu où

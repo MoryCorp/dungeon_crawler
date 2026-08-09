@@ -1006,7 +1006,7 @@ export type GameEvent =
    * exigeant que demandé — c'est la mesure de ce que la carte refuse aux
    * recettes, celle que les salles typées doivent faire baisser.
    */
-  | { t: 'horde'; count: number; x: number; y: number; recipe: string; groups: number; placed: number; degraded: number }
+  | { t: 'horde'; count: number; x: number; y: number; recipe: string; groups: number; placed: number; degraded: number; dist: number }
   /**
    * Un objet vient d'apparaître au sol. Sans cet événement on ne peut pas
    * distinguer « aucun cœur n'est tombé » de « ils sont tous encore par terre »,
