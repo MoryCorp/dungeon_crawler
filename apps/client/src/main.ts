@@ -43,30 +43,22 @@ const potionLabel = $('potion')
 const xpFill = $('xp-fill')
 const staminaFill = $('stamina-fill')
 const objective = $('objective')
+const hpFill = $('hp-fill')
+const weaponGlyph = $('weapon-glyph')
+const vitalsBox = $('vitals')
+const goVeil = $('gameover')
+const goSub = $('gameover-sub')
 
 /**
  * Voile GAME OVER : bref, sans bouton — le serveur relance tout seul une
  * descente neuve dans la même room deux secondes plus tard.
  */
+let goTimer = 0
 function showGameOver(floor: number): void {
-  const veil = document.createElement('div')
-  veil.style.cssText =
-    'position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;' +
-    'align-items:center;justify-content:center;gap:.5rem;background:rgba(8,4,4,.82);' +
-    'color:#e8d8c8;font-family:monospace;opacity:0;transition:opacity .35s'
-  const title = document.createElement('div')
-  title.textContent = 'GAME OVER'
-  title.style.cssText = 'font-size:2.6rem;letter-spacing:.3em;color:#c86050'
-  const sub = document.createElement('div')
-  sub.textContent = `étage ${floor} — nouvelle descente…`
-  sub.style.cssText = 'font-size:.95rem;opacity:.75'
-  veil.append(title, sub)
-  document.body.append(veil)
-  requestAnimationFrame(() => { veil.style.opacity = '1' })
-  setTimeout(() => {
-    veil.style.opacity = '0'
-    setTimeout(() => veil.remove(), 400)
-  }, 2300)
+  goSub.textContent = `Étage ${floor} — nouvelle descente…`
+  goVeil.classList.add('visible')
+  clearTimeout(goTimer)
+  goTimer = window.setTimeout(() => goVeil.classList.remove('visible'), 2300)
 }
 const chase = $('chase')
 const downedBox = $('downed')
@@ -283,10 +275,16 @@ async function main(): Promise<void> {
     const self = actors.find((a) => a.id === selfId)
     if (self?.weapon) weaponId = self.weapon
     hpLabel.textContent = self ? `${self.hp}/${self.maxHp}` : '—'
+    const hpRatio = self ? Math.max(0, Math.min(1, self.hp / Math.max(1, self.maxHp))) : 0
+    hpFill.style.width = `${hpRatio * 100}%`
+    hpFill.classList.toggle('warn', hpRatio > 0.25 && hpRatio <= 0.5)
+    hpFill.classList.toggle('crit', hpRatio > 0 && hpRatio <= 0.25)
     weaponLabel.textContent = WEAPONS[self?.weapon ?? '']?.label ?? '—'
+    weaponGlyph.textContent = (WEAPONS[self?.weapon ?? '']?.label ?? '—').charAt(0).toUpperCase()
     levelLabel.textContent = String(self?.level ?? 1)
-    potionRow.classList.toggle('hidden', !self?.potion)
+    potionRow.classList.toggle('empty', !self?.potion)
     if (self?.potion) potionLabel.textContent = self.potion
+    else potionLabel.textContent = '—'
 
     // La barre d'XP est relative au palier courant, pas au total cumulé :
     // sinon elle n'avance visiblement plus passé quelques niveaux.
@@ -312,6 +310,7 @@ async function main(): Promise<void> {
     downed = self?.downed === true
     if (downed && !wasDowned) downedSince = serverTick
     downedBox.classList.toggle('hidden', !downed)
+    vitalsBox.classList.toggle('downed', downed)
     if (downed) {
       const left = Math.max(0, BLEED_OUT_TICKS - (serverTick - downedSince)) / TICK_RATE
       const helper = actors.some(
@@ -325,11 +324,15 @@ async function main(): Promise<void> {
     const party = actors.filter((a) => a.kind === 'player')
     partyBox.innerHTML = party
       .map((p) => {
+        const cls =
+          (!p.alive ? 'dead' : p.downed ? 'down' : '') + (p.id === selfId ? ' self' : '')
         const state = !p.alive ? 'mort' : p.downed ? 'à terre !' : `${p.hp}/${p.maxHp}`
-        const color = !p.alive || p.downed ? '#e2686d' : p.id === selfId ? '#d9a441' : '#8a90a2'
         const escaped = p.name.replace(/[<>&]/g, '')
-        const lvl = p.level ? ` <span style="opacity:.6">n${p.level}</span>` : ''
-        return `<div style="color:${color}">${escaped}${lvl} · ${state}</div>`
+        const pct = p.alive ? Math.round((100 * p.hp) / Math.max(1, p.maxHp)) : 0
+        return `<div class="pcard ${cls}">
+          <div class="prow"><span class="pname">${escaped}</span><span class="plvl">N${p.level ?? 1}</span><span class="pstate">${state}</span></div>
+          <div class="pbar"><div class="pbar-fill" style="width:${pct}%"></div></div>
+        </div>`
       })
       .join('')
   }

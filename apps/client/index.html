@@ -7,156 +7,299 @@
     <style>
       :root {
         color-scheme: dark;
+        /* fonds */
         --bg: #0b0c10;
-        --panel: #16181f;
+        --panel-hi: rgba(26, 24, 36, .92);
+        --panel-lo: rgba(15, 14, 21, .92);
+        --panel-solid: #16181f;
+        --well: #0a0910;                 /* creux des jauges */
+        /* liserés */
+        --ink: #06050a;
+        --rim: #4d4660;                  /* métal froid */
+        --rim-gold: #8a6d2f;             /* réservé : vitals, lobby, soi-même */
         --line: #2a2e3a;
-        --text: #e6e8ef;
+        /* texte */
+        --text: #e8e4da;                 /* blanc os */
         --muted: #8a90a2;
+        --faint: #565b6b;
         --accent: #d9a441;
+        /* sémantique */
+        --hp: #4fae5c; --hp-warn: #d9a441; --hp-crit: #d24545;
+        --stamina: #d8c07f; --stamina-spent: #57492c;
+        --xp: #7fd8ff;
+        --danger: #e2686d; --danger-line: #a83a40;
+        --ok: #8ee6a0;
+        /* échelles */
+        --chamfer: 6px;
+        --edge: 14px;
+        --ink-shadow: 0 1px 2px #000, 0 0 10px rgba(0,0,0,.55);
+        --shadow-bitmap: 2px 2px 0 var(--ink);
+        /* typo */
+        --font-display: Verdana, Geneva, "DejaVu Sans", "Liberation Sans", sans-serif;
+        --font-num: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
       }
       * { box-sizing: border-box; }
       html, body {
-        margin: 0;
-        height: 100%;
-        background: var(--bg);
-        color: var(--text);
-        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        margin: 0; height: 100%;
+        background: var(--bg); color: var(--text);
+        font-family: var(--font-display);
         overflow: hidden;
       }
       canvas { display: block; cursor: crosshair; }
+      .hidden { display: none !important; }
+      .num, kbd { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 
-      #lobby {
-        position: fixed;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        background: radial-gradient(circle at 50% 40%, #191c26 0%, var(--bg) 70%);
-        z-index: 10;
+      /* ── La plaque : chanfrein + double liseré + tramage. Tout le HUD en dérive. */
+      .panel {
+        position: relative;
+        background: linear-gradient(var(--panel-hi), var(--panel-lo));
+        clip-path: polygon(var(--chamfer) 0, calc(100% - var(--chamfer)) 0,
+          100% var(--chamfer), 100% calc(100% - var(--chamfer)),
+          calc(100% - var(--chamfer)) 100%, var(--chamfer) 100%,
+          0 calc(100% - var(--chamfer)), 0 var(--chamfer));
+        box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim);
       }
-      #lobby form {
-        background: var(--panel);
+      .panel::before {
+        content: ""; position: absolute; inset: 3px; pointer-events: none;
+        background: repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0 1px, transparent 1px 4px);
+        clip-path: inherit;
+      }
+      .panel--gold  { box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim-gold); }
+      .panel--danger{ box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--danger-line);
+                      animation: rim-pulse 1.1s ease-in-out infinite; }
+      @keyframes rim-pulse { 50% { opacity: .6; } }
+
+      /* ── Jauge générique */
+      .gauge {
+        position: relative; overflow: hidden;
+        background: var(--well);
         border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 28px 32px;
-        width: min(90vw, 380px);
-        display: grid;
-        gap: 14px;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,.7);
+      }
+      .gauge > div { height: 100%; }
+      .gauge > div::after {           /* effet tube, sans image */
+        content: ""; position: absolute; inset: 0;
+        background: linear-gradient(rgba(255,255,255,.16), transparent 55%);
+      }
+
+      .keycap {
+        display: inline-grid; place-items: center;
+        min-width: 20px; padding: 2px 6px;
+        background: #1c1929;
+        box-shadow: inset 0 0 0 1px var(--rim), inset 0 -3px 0 rgba(0,0,0,.5);
+        font-size: 11px; font-weight: 700; color: var(--accent);
+        font-style: normal;
+      }
+
+      /* ── HUD wrapper */
+      #hud { display: contents; }
+
+      /* ── Capsule run (haut-gauche) */
+      #run-pill {
+        position: fixed; left: var(--edge); top: var(--edge);
+        display: inline-flex; align-items: center;
+        padding: 8px 16px; pointer-events: none;
+        font-size: 13px; color: var(--muted);
+        text-transform: uppercase; letter-spacing: .08em;
+      }
+      #run-pill .run-floor { font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: .1em; }
+      #run-pill b { color: var(--text); }
+      #run-pill .run-floor b { color: var(--accent); }
+      .sep { width: 1px; height: 14px; background: var(--line); margin: 0 10px; }
+      .bone-ico {
+        display: inline-block; width: 9px; height: 9px; margin-right: 6px;
+        background: var(--muted);
+        clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+        image-rendering: pixelated;
+      }
+
+      /* ── Objectif + poursuite (haut-centre, capsules empilées) */
+      #objective {
+        position: fixed; left: 50%; top: var(--edge); transform: translateX(-50%);
+        padding: 8px 18px; pointer-events: none;
+        font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+        color: var(--accent); text-shadow: var(--ink-shadow);
+        max-width: 52vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        background: linear-gradient(var(--panel-hi), var(--panel-lo));
+        box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim);
+        clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px),
+          calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+      }
+      #objective.done { color: var(--ok); }
+      #chase {
+        position: fixed; left: 50%; top: 58px; transform: translateX(-50%);
+        padding: 6px 16px; pointer-events: none;
+        font-size: 13px; font-weight: 700; letter-spacing: .04em;
+        color: var(--danger); text-shadow: var(--ink-shadow); white-space: nowrap;
+        background: rgba(120, 25, 30, .4);
+        box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--danger-line);
+        animation: rim-pulse 1.1s ease-in-out infinite;
+      }
+
+      /* ── Socle vitals (bas-centre) */
+      #vitals {
+        position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+        width: clamp(480px, 44vw, 680px);
+        display: grid; grid-template-columns: 72px 1fr 72px; gap: 14px;
+        align-items: end; pointer-events: none;
+      }
+      .slot { width: 72px; }
+      .slot-face {
+        height: 72px; display: grid; place-items: center;
+        font-size: 24px; font-weight: 700; color: var(--text);
+        text-shadow: var(--shadow-bitmap);
+      }
+      .slot-label {
+        margin-top: 4px; text-align: center;
+        font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+        color: var(--muted); text-shadow: var(--ink-shadow);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      #potion-row.empty { opacity: .35; }
+      #potion-row.empty .slot-face { box-shadow: none; border: 2px dashed var(--line); background: rgba(15,14,21,.5); clip-path: none; }
+
+      .bars { display: grid; gap: 6px; }
+      .hp-row { display: flex; align-items: center; gap: 10px; }
+      .level-badge {
+        width: 34px; height: 34px; flex: none;
+        display: grid; place-items: center; grid-auto-flow: column;
+        font-size: 12px; font-weight: 700; color: var(--accent);
+      }
+      #hp-track { flex: 1; height: 26px; }
+      #hp-fill { width: 100%; background: var(--hp); transition: width 120ms linear; }
+      #hp-fill.warn { background: var(--hp-warn); }
+      #hp-fill.crit { background: var(--hp-crit); animation: hp-pulse 1s ease-in-out infinite; }
+      @keyframes hp-pulse { 50% { filter: brightness(1.4); } }
+      #hp {
+        position: absolute; inset: 0; display: grid; place-items: center;
+        font-size: 16px; font-weight: 700;
+        text-shadow: 0 1px 2px #000, 0 0 4px #000;
+      }
+      #stamina-track { height: 10px; }
+      #stamina-track::after {           /* seuil de relance : SPRINT_MIN_START = 0.5 */
+        content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px;
+        width: 2px; background: var(--faint);
+      }
+      /* Souffle : AUCUNE transition — une jauge qui traîne derrière la course
+         ne dit plus quand on peut relancer. */
+      #stamina-fill { width: 100%; background: var(--stamina); }
+      #stamina-fill.spent {
+        background: var(--stamina-spent);
+        background-image: repeating-linear-gradient(45deg, transparent 0 4px, rgba(0,0,0,.35) 4px 8px);
+      }
+      #xp-track { height: 4px; }
+      #xp-fill { width: 0%; background: var(--xp); transition: width 120ms linear; }
+      #vitals.downed #hp-fill { background: #5a4444; animation: none; }
+
+      /* ── Équipe (haut-droite) */
+      #party {
+        position: fixed; right: var(--edge); top: var(--edge);
+        width: 210px; display: grid; gap: 6px; pointer-events: none;
+      }
+      .pcard {
+        padding: 6px 10px;
+        background: linear-gradient(var(--panel-hi), var(--panel-lo));
+        box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim);
+      }
+      .pcard.self { box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim-gold); }
+      .pcard.down { box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--danger-line);
+                    animation: rim-pulse 1.1s ease-in-out infinite; }
+      .pcard.dead { opacity: .5; }
+      .prow { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+      .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+               text-transform: uppercase; letter-spacing: .04em; }
+      .pcard.self .pname { color: var(--accent); }
+      .pcard.dead .pname { text-decoration: line-through; color: var(--faint); }
+      .plvl { font-size: 10px; color: var(--faint); }
+      .pstate { font-size: 11px; color: var(--muted); font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+      .pcard.down .pstate { color: var(--danger); font-weight: 700; }
+      .pbar { height: 5px; margin-top: 4px; background: var(--well);
+              border: 1px solid var(--line); overflow: hidden; }
+      .pbar-fill { height: 100%; background: var(--hp); }
+      .pcard.down .pbar-fill { background: var(--hp-crit); }
+
+      /* ── À terre */
+      #downed {
+        position: fixed; left: 50%; bottom: 30%; transform: translateX(-50%);
+        text-align: center; pointer-events: none;
+      }
+      #downed .big {
+        font-size: 40px; font-weight: 700; letter-spacing: .18em; padding-left: .18em;
+        color: var(--danger);
+        text-shadow: 3px 3px 0 var(--ink), 0 0 24px rgba(210,60,60,.55);
+      }
+      #downed .sub { margin-top: 8px; font-size: 14px; color: var(--text); text-shadow: var(--ink-shadow); }
+
+      /* ── Contrôles (bas-gauche) */
+      #hint {
+        position: fixed; left: var(--edge); bottom: 12px; pointer-events: none;
+        max-width: 34vw; font-size: 11px; line-height: 2.1;
+        color: var(--muted); text-shadow: var(--ink-shadow);
+      }
+
+      /* ── Lobby (z 10) */
+      #lobby {
+        position: fixed; inset: 0; z-index: 10; display: grid; place-items: center;
+        background: radial-gradient(circle at 50% 40%, #191c26 0%, var(--bg) 70%);
+      }
+      #lobby::before { content: ""; position: absolute; inset: 0;
+        box-shadow: inset 0 0 180px #000; pointer-events: none; }
+      #lobby form {
+        position: relative; width: min(90vw, 420px); padding: 28px 32px;
+        display: grid; gap: 16px;
+        background: var(--panel-solid);
+        clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px),
+          calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+        box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim-gold);
       }
       #lobby h1 {
-        margin: 0 0 6px;
-        font-size: 20px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--accent);
+        margin: 0; padding-bottom: 14px; text-align: center;
+        font-size: 24px; letter-spacing: .18em; padding-left: .18em;
+        text-transform: uppercase; color: var(--accent);
+        text-shadow: var(--shadow-bitmap);
+        background: linear-gradient(90deg, transparent, var(--rim-gold), transparent)
+                    bottom / 100% 2px no-repeat;
       }
-      #lobby p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-      label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+      #lobby p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+      label { display: grid; gap: 6px; font-size: 11px; color: var(--muted);
+              text-transform: uppercase; letter-spacing: .1em; }
       input {
-        background: #0e1017;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        color: var(--text);
-        padding: 10px 12px;
-        font: inherit;
-        font-size: 14px;
+        height: 46px; padding: 0 14px;
+        background: var(--well); color: var(--text);
+        border: 0; border-radius: 0;
+        box-shadow: inset 0 0 0 1px var(--rim), inset 0 2px 0 rgba(0,0,0,.5);
+        font-family: var(--font-num); font-size: 16px;
       }
-      input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+      input:focus { outline: none;
+        box-shadow: inset 0 0 0 2px var(--accent), inset 0 2px 0 rgba(0,0,0,.5); }
+      #room { text-transform: uppercase; letter-spacing: .3em; text-align: center; font-size: 18px; }
       button {
-        background: var(--accent);
-        color: #17130a;
-        border: 0;
-        border-radius: 6px;
-        padding: 11px;
-        font: inherit;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        cursor: pointer;
+        height: 48px; border: 0; border-radius: 0; cursor: pointer;
+        background: linear-gradient(#e8b654, #c98f2e); color: #17130a;
+        box-shadow: inset 0 0 0 1px var(--ink), inset 0 -4px 0 rgba(0,0,0,.28);
+        font-family: var(--font-display); font-weight: 700; font-size: 14px;
+        text-transform: uppercase; letter-spacing: .1em;
       }
       button:hover { filter: brightness(1.08); }
-      #error { color: #e2686d; font-size: 12px; min-height: 1em; }
+      button:active { box-shadow: inset 0 0 0 1px var(--ink), inset 0 3px 0 rgba(0,0,0,.28); }
+      #error { color: var(--danger); font-size: 12px; min-height: 1em; }
 
-      #hud {
-        position: fixed;
-        left: 14px;
-        top: 14px;
-        display: grid;
-        gap: 6px;
-        font-size: 12px;
-        text-shadow: 0 1px 3px #000;
-        pointer-events: none;
+      /* ── Game over (z 60) */
+      #gameover {
+        position: fixed; inset: 0; z-index: 60;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+        background: radial-gradient(circle at 50% 45%, rgba(40,8,8,.88), rgba(8,4,4,.94));
+        opacity: 0; transition: opacity .35s; pointer-events: none;
       }
-      #hud .row { color: var(--muted); }
-      #hud b { color: var(--text); font-weight: 600; }
-      #xp-track {
-        width: 160px;
-        height: 4px;
-        background: #0e1017;
-        border: 1px solid var(--line);
-        border-radius: 3px;
-        overflow: hidden;
+      #gameover.visible { opacity: 1; }
+      .go-title {
+        font-size: 64px; font-weight: 700; letter-spacing: .3em; padding-left: .3em;
+        color: #c86050; text-shadow: 4px 4px 0 var(--ink);
+        border-top: 1px solid #5a2c28; border-bottom: 1px solid #5a2c28;
+        padding-top: 16px; padding-bottom: 16px;
       }
-      #xp-fill { height: 100%; width: 0%; background: #7fd8ff; transition: width 120ms linear; }
-
-      /* Souffle : même gabarit que l'XP, sans transition — une jauge qui traîne
-         derrière la course ne dit plus quand on peut relancer. */
-      #stamina-track {
-        width: 160px;
-        height: 4px;
-        margin-top: 3px;
-        background: #0e1017;
-        border: 1px solid var(--line);
-        border-radius: 3px;
-        overflow: hidden;
-      }
-      #stamina-fill { height: 100%; width: 100%; background: #d8c07f; }
-      /* En dessous du seuil de relance, la jauge dit qu'elle ne repartira pas. */
-      #stamina-fill.spent { background: #6a5c3a; }
-
-      /* Objectif de l'étage : la seule information qui dit quoi faire ensuite. */
-      #objective {
-        position: fixed;
-        left: 50%;
-        top: 14px;
-        transform: translateX(-50%);
-        font-size: 12px;
-        color: var(--accent);
-        text-shadow: 0 1px 3px #000;
-        pointer-events: none;
-        white-space: nowrap;
-      }
-      #objective.done { color: #8ee6a0; }
-
-      /* Poursuite : ce qu'on a laissé en vie descend derrière nous. Placé sous
-         l'objectif et en rouge — c'est une menace, pas une information. */
-      #chase {
-        position: fixed;
-        left: 50%;
-        top: 32px;
-        transform: translateX(-50%);
-        font-size: 12px;
-        color: #e2686d;
-        text-shadow: 0 1px 3px #000;
-        pointer-events: none;
-        white-space: nowrap;
-        animation: chase-pulse 1.1s ease-in-out infinite;
-      }
-      @keyframes chase-pulse { 50% { opacity: 0.45; } }
-
-      /* Bandeau de mise à terre : plein écran, impossible à rater. */
-      #downed {
-        position: fixed;
-        left: 50%;
-        bottom: 22%;
-        transform: translateX(-50%);
-        text-align: center;
-        pointer-events: none;
-        text-shadow: 0 2px 6px #000;
-      }
-      #downed .big { font-size: 22px; font-weight: 700; color: #e2686d; letter-spacing: 0.06em; }
-      #downed .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
-      #party { position: fixed; right: 14px; top: 14px; display: grid; gap: 4px; font-size: 12px; text-align: right; pointer-events: none; text-shadow: 0 1px 3px #000; }
-      #hint { position: fixed; left: 14px; bottom: 12px; color: var(--muted); font-size: 11px; pointer-events: none; }
-      .hidden { display: none !important; }
+      .go-sub { font-size: 15px; color: var(--muted); text-transform: uppercase;
+                letter-spacing: .12em; font-variant-numeric: tabular-nums; }
     </style>
   </head>
   <body>
@@ -181,21 +324,56 @@
     </div>
 
     <div id="hud" class="hidden">
-      <div class="row">Étage <b id="floor">1</b> · Partie <b id="room-label">—</b></div>
-      <div class="row">PV <b id="hp">—</b> · <b id="weapon">—</b></div>
-      <div class="row">Niveau <b id="level">1</b> · Ossements <b id="bones">0</b></div>
-      <div class="row hidden" id="potion-row">Fiole <b id="potion">—</b> · R pour boire</div>
-      <div id="xp-track"><div id="xp-fill"></div></div>
-      <div id="stamina-track"><div id="stamina-fill"></div></div>
+
+      <div id="run-pill" class="panel">
+        <span class="run-floor">ÉTAGE <b id="floor" class="num">1</b></span>
+        <span class="sep"></span>
+        <span class="run-room num" id="room-label">—</span>
+        <span class="sep"></span>
+        <span class="run-bones"><i class="bone-ico"></i><b id="bones" class="num">0</b></span>
+      </div>
+
+      <div id="vitals">
+        <div class="slot">
+          <div class="slot-face panel panel--gold" id="weapon-glyph">—</div>
+          <div class="slot-label" id="weapon">—</div>
+        </div>
+        <div class="bars">
+          <div class="hp-row">
+            <div class="level-badge panel">N<b id="level" class="num">1</b></div>
+            <div id="hp-track" class="gauge"><div id="hp-fill"></div><span id="hp" class="num">—</span></div>
+          </div>
+          <div id="stamina-track" class="gauge"><div id="stamina-fill"></div></div>
+          <div id="xp-track" class="gauge"><div id="xp-fill"></div></div>
+        </div>
+        <div class="slot" id="potion-row">
+          <div class="slot-face panel panel--gold"><kbd class="keycap">R</kbd></div>
+          <div class="slot-label" id="potion">—</div>
+        </div>
+      </div>
+
+      <div id="hint">
+        <kbd class="keycap">ZQSD</kbd> déplacer · <kbd class="keycap">CLIC G</kbd> attaquer ·
+        <kbd class="keycap">R</kbd> fiole · rester près d'un allié à terre le relève ·
+        manette : stick droit pour viser
+      </div>
+
     </div>
+
     <div id="objective" class="hidden"></div>
     <div id="chase" class="hidden"></div>
+
     <div id="downed" class="hidden">
       <div class="big">À TERRE</div>
-      <div class="sub" id="downed-sub"></div>
+      <div class="sub num" id="downed-sub"></div>
     </div>
+
     <div id="party" class="hidden"></div>
-    <div id="hint" class="hidden">ZQSD / WASD / flèches pour se déplacer · <b>clic gauche</b> : attaquer · rester près d'un coéquipier à terre le relève · manette : stick droit pour viser</div>
+
+    <div id="gameover">
+      <div class="go-title">GAME OVER</div>
+      <div class="go-sub" id="gameover-sub"></div>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
