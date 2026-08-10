@@ -129,6 +129,18 @@ function attackSeconds(weapon: string | undefined): number {
 
 const CORPSE_FPS = 12
 
+/**
+ * Nom lisible des objets qui demandent une intention, pour l'invite de prise.
+ * Les armes n'y sont pas : leur nom vient du bestiaire d'armes.
+ */
+const ITEM_LABELS: Record<string, string> = {
+  chest: 'coffre',
+  cap: 'plafond de soin',
+  soin: 'soin',
+  fiole_souffle: 'fiole de souffle',
+  fiole_vitesse: 'fiole de vitesse',
+}
+
 /** Rémanence de la visée sur l'orientation, en secondes. */
 const AIM_HOLD = 1
 /** En deçà, la composante horizontale est trop faible pour changer de profil. */
@@ -659,10 +671,23 @@ export class Renderer {
    * l'équipe peut payer, éteinte sinon. Le refus d'ouverture n'a pas besoin
    * de message — le prix affiché est déjà l'explication.
    */
+  private priceOf(item: ItemView): number | undefined {
+    return item.kind === 'chest' ? chestPrice(this.floor) : item.price
+  }
+
+  /**
+   * Ce qui demande une intention : une arme (on ne change pas d'arme par
+   * accident) et tout ce qui se paie (la bourse est commune, on ne vide pas
+   * celle des autres en traversant l'étal).
+   */
+  private needsIntent(item: ItemView): boolean {
+    return item.kind === 'weapon' || (this.priceOf(item) ?? 0) > 0
+  }
+
   private syncPriceTags(items: ItemView[]): void {
     const seen = new Set<string>()
     for (const item of items) {
-      const price = item.kind === 'chest' ? chestPrice(this.floor) : item.price
+      const price = this.priceOf(item)
       if (price === undefined) continue
       seen.add(item.id)
       let tag = this.priceTags.get(item.id)
@@ -694,24 +719,24 @@ export class Renderer {
   }
 
   /**
-   * Invite au-dessus de l'arme visée. Une arme se ramasse en gardant le
-   * curseur dessus et le clic droit enfoncé : l'invite dit laquelle et
-   * comment, et la jauge montre la prise en cours. Une seule invite à la
+   * Invite au-dessus de l'objet visé. Ce qui demande une intention se prend
+   * en gardant le curseur dessus et le clic droit enfoncé : l'invite dit quoi
+   * et comment, et la jauge montre la prise en cours. Une seule invite à la
    * fois — deux étiquettes superposées dans un couloir ne se lisent pas.
    */
   private syncTakePrompt(items: ItemView[]): void {
     const px = this.predicted?.x ?? this.entities.get(this.selfId)?.view.x
     const py = this.predicted?.y ?? this.entities.get(this.selfId)?.view.y
 
-    // L'arme sous le curseur d'abord — c'est elle qu'on est en train de
-    // prendre. À défaut, la plus proche à portée, comme rappel du geste.
+    // L'objet sous le curseur d'abord — c'est lui qu'on est en train de
+    // prendre. À défaut, le plus proche à portée, comme rappel du geste.
     let best: ItemView | null = this.takeHoverId
-      ? items.find((i) => i.id === this.takeHoverId && i.kind === 'weapon') ?? null
+      ? items.find((i) => i.id === this.takeHoverId && this.needsIntent(i)) ?? null
       : null
     if (!best && px !== undefined && py !== undefined) {
       let bestD = PICKUP_RANGE
       for (const item of items) {
-        if (item.kind !== 'weapon') continue
+        if (!this.needsIntent(item)) continue
         const d = Math.hypot(item.x - px, item.y - py)
         if (d <= bestD) {
           bestD = d
@@ -745,12 +770,15 @@ export class Renderer {
     const inRange =
       px !== undefined && py !== undefined &&
       Math.hypot(best.x - px, best.y - py) <= PICKUP_RANGE
-    const label = WEAPONS[best.weapon ?? '']?.label ?? 'arme'
+    const label = ITEM_LABELS[best.kind] ?? WEAPONS[best.weapon ?? '']?.label ?? 'arme'
     this.takeTag.text = `clic droit · ${label}`
     this.takeTag.alpha = inRange ? 1 : 0.5
     this.takeTag.visible = true
     this.takeTag.x = best.x * TILE
-    this.takeTag.y = best.y * TILE - TILE * 0.55
+    // Sur un objet payant, l'étiquette de prix occupe déjà la ligne du dessus :
+    // l'invite monte d'un cran pour que les deux se lisent ensemble.
+    const priced = this.priceOf(best) !== undefined
+    this.takeTag.y = best.y * TILE - TILE * (priced ? 1.05 : 0.55)
 
     // La jauge : un trait qui se remplit sous l'étiquette pendant la prise.
     this.takeGauge.clear()
@@ -768,15 +796,18 @@ export class Renderer {
     }
   }
 
-  /** L'arme au sol sous le curseur (coordonnées écran), s'il y en a une. */
-  weaponUnderCursor(sx: number, sy: number): ItemView | null {
+  /**
+   * L'objet à prendre sur demande sous le curseur (coordonnées écran) : une
+   * arme au sol, ou un article payant de l'étal.
+   */
+  takeableUnderCursor(sx: number, sy: number): ItemView | null {
     const local = this.world.toLocal({ x: sx, y: sy })
     const wx = local.x / TILE
     const wy = local.y / TILE
     let best: ItemView | null = null
     let bestD = 0.6
     for (const item of this.lastItems) {
-      if (item.kind !== 'weapon') continue
+      if (!this.needsIntent(item)) continue
       const d = Math.hypot(item.x - wx, item.y - wy)
       if (d <= bestD) {
         bestD = d

@@ -1323,10 +1323,16 @@ console.log('\nTests engine\n')
   check('un coffre trop cher reste fermé', s.items.some((i) => i.id === 'i_chest'))
   check('et la bourse est intacte', s.bones === chestPrice(s.floor) - 1, `${s.bones}`)
 
-  // Assez riche : il s'ouvre, débite le prix, et crache arme + cœur.
+  // Assez riche mais sans intention : le coffre reste fermé. Ouvrir coûte la
+  // bourse de tout le monde, ça se demande.
   s.bones = chestPrice(s.floor)
   hero.hp = hero.maxHp // le cœur craché doit rester au sol, pas fausser le compte
-  step(s, noInputs)
+  for (let i = 0; i < 3; i++) step(s, noInputs)
+  check('un coffre payable ne s\'ouvre pas tout seul',
+    s.items.some((i) => i.id === 'i_chest') && s.bones === chestPrice(s.floor), `${s.bones} os`)
+
+  // Sur demande : il s'ouvre, débite le prix, et crache arme + cœur.
+  step(s, { p_os: { ...NEUTRAL_INPUT, take: true } })
   const spent = s.events.find((e) => e.t === 'spend')
   check('un coffre payé s\'ouvre et débite la bourse', !s.items.some((i) => i.id === 'i_chest') && s.bones === 0, `solde ${s.bones}`)
   check('la dépense est annoncée', spent !== undefined && spent.amount === chestPrice(s.floor))
@@ -1398,13 +1404,20 @@ console.log('\nTests engine\n')
         a.x >= rest.x && a.x < rest.x + rest.w && a.y >= rest.y && a.y < rest.y + rest.h,
     ))
 
-    // L'étal se paie. Le soin d'abord : il ramène au plafond, pas au-delà.
+    // L'étal se paie, et il se paie sur demande : la bourse est commune, on ne
+    // doit pas pouvoir la vider en traversant l'étal au pas de course.
+    const buy = { p_rest: { ...NEUTRAL_INPUT, take: true } }
     const soin = s.items.find((i) => i.kind === 'soin')!
     s.bones = 200
     const before = s.bones
+    hero.hp = 1
     hero.x = soin.x
     hero.y = soin.y
     step(s, noInputs)
+    check('marcher sur l\'étal n\'achète rien', s.bones === before && hero.hp === 1,
+      `${s.bones} os, ${hero.hp} PV`)
+
+    step(s, buy)
     const ceiling = Math.round(hero.maxHp * healCapOf(s))
     check('le soin ramène au plafond courant', hero.hp === ceiling, `${hero.hp}/${ceiling}`)
     check('et il se paie', s.bones < before, `${before} -> ${s.bones}`)
@@ -1414,17 +1427,26 @@ console.log('\nTests engine\n')
     const cap = s.items.find((i) => i.kind === 'cap')!
     hero.x = cap.x
     hero.y = cap.y
-    step(s, noInputs)
+    step(s, buy)
     check('remonter le plafond marche', healCapOf(s) > capBefore,
       `${(capBefore * 100).toFixed(0)} % -> ${(healCapOf(s) * 100).toFixed(0)} %`)
     check('le prochain plafond coûtera plus cher', capPrice(s.capBought) > capPrice(0),
       `${capPrice(0)} -> ${capPrice(s.capBought)}`)
 
+    // Une seule pression, un seul achat : le geste ne se répète pas tant que
+    // le clic n'est pas relâché puis repris.
+    const bonesAfterCap = s.bones
+    const capBought = s.capBought
+    for (let i = 0; i < 5; i++) step(s, noInputs)
+    check('un achat ne se répète pas tout seul',
+      s.capBought === capBought && s.bones === bonesAfterCap,
+      `${capBought} -> ${s.capBought}`)
+
     // La fiole : une fente, une touche.
     const fiole = s.items.find((i) => i.kind === 'fiole_vitesse')!
     hero.x = fiole.x
     hero.y = fiole.y
-    step(s, noInputs)
+    step(s, buy)
     check('la fiole va dans la fente', hero.potion === 'vitesse', String(hero.potion))
     const speedBefore = playerSpeed(hero)
     step(s, { p_rest: { ...NEUTRAL_INPUT, drink: true } })

@@ -2090,26 +2090,31 @@ function stepItems(state: GameState, rng: Rng): void {
     const range = item.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
     if (Math.hypot(nearest.x - item.x, nearest.y - item.y) > range) continue
 
-    // Une arme ne se ramasse que sur demande. Tout le reste continue de se
-    // prendre en marchant dessus : l'or et les soins ne posent aucune question,
-    // l'arme si — et la reprendre par accident en repassant dans un couloir
-    // annulait une décision qu'on venait de prendre.
-    if (item.kind === 'weapon') {
-      if (state.tick - (nearest.takeAt ?? -TAKE_BUFFER - 1) > TAKE_BUFFER) continue
-      delete nearest.takeAt
-    }
-
     // Ce qui a un prix ne se prend que si l'équipe peut payer. Pas de message
     // d'erreur côté engine : le prix est affiché au-dessus de l'objet, un
     // objet qui reste au sol est une information, pas une panne.
     const price = item.kind === 'chest' ? chestPrice(state.floor) : item.price ?? 0
     if (price > 0 && state.bones < price) continue
 
+    // Une arme, et tout ce qui se paie, ne se prennent que sur demande. Le
+    // reste continue de se ramasser en marchant dessus : l'or et les cœurs ne
+    // posent aucune question. L'arme si — la reprendre par accident en
+    // repassant dans un couloir annulait une décision qu'on venait de prendre.
+    // Et la bourse est commune : personne ne doit pouvoir la vider en
+    // traversant l'étal, il faut avoir voulu dépenser l'os des autres.
+    const deliberate = item.kind === 'weapon' || price > 0
+    if (deliberate && state.tick - (nearest.takeAt ?? -TAKE_BUFFER - 1) > TAKE_BUFFER) continue
+
     // À l'étal, on n'achète pas l'inutile en passant : un soin à pleine vie,
     // un plafond déjà au maximum, une fiole sans fente libre restent posés.
     if (item.kind === 'soin' && nearest.hp >= Math.round(nearest.maxHp * healCapOf(state))) continue
     if (item.kind === 'cap' && healCapOf(state) >= 1) continue
     if ((item.kind === 'fiole_souffle' || item.kind === 'fiole_vitesse') && nearest.potion !== undefined) continue
+
+    // L'intention n'est consommée qu'ici : un objet écarté juste au-dessus
+    // (trop cher, inutile) ne doit pas manger la prise, sinon deux objets côte
+    // à côte à l'étal rendent la seconde d'appui inopérante une fois sur deux.
+    if (deliberate) delete nearest.takeAt
 
     if (price > 0) {
       state.bones -= price

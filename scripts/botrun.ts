@@ -23,8 +23,10 @@ import { dirname } from 'node:path'
 import {
   MAP_H,
   MAP_W,
+  PICKUP_RANGE,
   TICK_RATE,
   addPlayer,
+  chestPrice,
   createGame,
   isWalkable,
   step,
@@ -152,12 +154,24 @@ while (state.floor < startFloor + floorsToRun && deaths < MAX_DEATHS && !stalled
     const dist = distancesTo(state, Math.floor(goal.x), Math.floor(goal.y))
     const [mx, my] = stepToward(state, me, dist)
 
+    // Depuis que payer demande une intention, le bot doit la formuler : sans
+    // ça il traverse l'étal et le coffre sans jamais rien acheter, et la
+    // mesure de l'économie tomberait à zéro par construction. Il reste
+    // opportuniste — il ne va pas chercher un objet, il prend celui sur lequel
+    // il passe et que l'équipe peut payer.
+    const takeable = state.items.some((it) => {
+      const price = it.kind === 'chest' ? chestPrice(state.floor) : it.price ?? 0
+      if (price <= 0 || price > state.bones) return false
+      return Math.hypot(it.x - me.x, it.y - me.y) <= PICKUP_RANGE
+    })
+
     input = {
       sprint: false,
       mx,
       my,
       aim: Math.atan2(goal.y - me.y, goal.x - me.x),
       attack: true,
+      ...(takeable ? { take: true } : {}),
     }
   }
 

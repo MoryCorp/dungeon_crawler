@@ -383,10 +383,11 @@ async function main(): Promise<void> {
       .join('')
   }
 
-  // Ramassage d'armes : curseur sur l'arme + clic droit maintenu. La jauge se
-  // remplit en une seconde, l'impulsion part une seule fois par pression —
-  // relâcher avant de reprendre, pour qu'un échange ne ré-avale pas l'arme
-  // qu'on vient de poser.
+  // Prise délibérée (arme au sol, article payant de l'étal) : curseur dessus +
+  // clic droit maintenu. La jauge se remplit en une seconde, l'impulsion part
+  // une seule fois par pression — relâcher avant de reprendre, pour qu'un
+  // échange ne ré-avale pas l'arme qu'on vient de poser, et pour qu'un appui
+  // long ne vide pas la bourse commune article après article.
   const TAKE_HOLD_S = 1.0
   let takeHoldId: string | null = null
   let takeHoldS = 0
@@ -396,9 +397,11 @@ async function main(): Promise<void> {
     debug.frames++
     const dt = Math.min(0.1, ticker.deltaMS / 1000)
 
-    const hover = renderer.weaponUnderCursor(input.mouseX, input.mouseY)
+    const hover = renderer.takeableUnderCursor(input.mouseX, input.mouseY)
+    // Le coffre se prend d'un poil plus loin que le reste, comme dans le moteur.
+    const hoverRange = hover?.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
     const hoverInRange =
-      hover !== null && Math.hypot(hover.x - local.x, hover.y - local.y) <= PICKUP_RANGE
+      hover !== null && Math.hypot(hover.x - local.x, hover.y - local.y) <= hoverRange
     if (!input.rightHeld) takeFired = false
     if (hover && input.rightHeld && hoverInRange && !takeFired && alive && !downed) {
       if (takeHoldId !== hover.id) takeHoldS = 0
