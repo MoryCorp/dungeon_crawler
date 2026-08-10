@@ -390,9 +390,15 @@ export class RunTelemetry {
     previous?: RunRecord | null,
     run = previous?.runs ?? 0,
   ) {
-    this.wipes = previous?.wipes ?? 0
+    // Un relevé venu du disque a beau être validé à la lecture, cette classe
+    // est aussi construite depuis `restart()` et lue par `/stats` : elle ne
+    // doit pas dépendre de la vigilance de son appelant. Deux tests, et un
+    // fichier mensonger ne peut plus faire tomber le chargement d'une partie.
+    this.wipes = typeof previous?.wipes === 'number' && Number.isFinite(previous.wipes)
+      ? previous.wipes
+      : 0
     this.run = run
-    if (previous?.floors?.length) this.floors.push(...previous.floors)
+    if (Array.isArray(previous?.floors)) this.floors.push(...previous.floors)
     // On ne reprend un enregistrement que si c'est exactement là où la
     // sauvegarde s'est arrêtée : LE DERNIER, même run, même étage, même
     // scène. L'ancien `find()` sur le seul numéro d'étage recollait la
@@ -418,7 +424,7 @@ export class RunTelemetry {
   private levelOf(state: GameState): number {
     let best = 1
     for (const a of Object.values(state.actors)) {
-      if (a.kind === 'player') best = Math.max(best, a.level ?? 1)
+      if (a.kind === 'player' && !a.offline) best = Math.max(best, a.level ?? 1)
     }
     return best
   }
@@ -441,7 +447,7 @@ export class RunTelemetry {
       let best = 0
       let any = false
       for (const a of Object.values(state.actors)) {
-        if (a.kind !== 'player' || a.maxHp <= 0) continue
+        if (a.kind !== 'player' || a.maxHp <= 0 || a.offline) continue
         any = true
         best = Math.max(best, a.hp / a.maxHp)
       }
@@ -456,7 +462,7 @@ export class RunTelemetry {
     let exposedAt: { x: number; y: number } | null = null
     let atEntry = false
     for (const a of Object.values(state.actors)) {
-      if (a.kind !== 'player' || !a.alive || a.downed) continue
+      if (a.kind !== 'player' || !a.alive || a.downed || a.offline) continue
       const ratio = a.maxHp > 0 ? a.hp / a.maxHp : 1
       lowest = Math.min(lowest, ratio)
       if (ratio < DANGER_HP_RATIO) inDanger = true
@@ -505,7 +511,7 @@ export class RunTelemetry {
       squads.set(m.squad, list)
     }
     const standing = Object.values(state.actors).filter(
-      (a) => a.kind === 'player' && a.alive && !a.downed,
+      (a) => a.kind === 'player' && a.alive && !a.downed && !a.offline,
     )
     for (const [id, members] of squads) {
       const size = Math.max(this.squadSize.get(id) ?? 0, members.length)
@@ -539,7 +545,7 @@ export class RunTelemetry {
     // autant de fois qu'il y a de joueurs connectés.
     let xp = -1
     for (const a of Object.values(state.actors)) {
-      if (a.kind !== 'player') continue
+      if (a.kind !== 'player' || a.offline) continue
       xp = Math.max(xp, a.xp ?? 0)
       this.current.levelOut = Math.max(this.current.levelOut, a.level ?? 1)
     }
@@ -559,7 +565,7 @@ export class RunTelemetry {
   private snapshot(state: GameState): void {
     const profiles: NonNullable<FloorRecord['profiles']> = {}
     for (const a of Object.values(state.actors)) {
-      if (a.kind !== 'player') continue
+      if (a.kind !== 'player' || a.offline) continue
       const p = state.profiles?.[a.id]
       if (!p) continue
       const stats = profileStats(p)

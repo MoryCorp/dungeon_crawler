@@ -80,10 +80,10 @@ console.log('\nTests serveur\n')
   check('une sauvegarde se relit', loaded !== null)
   check('le compteur de runs voyage avec l\'état', loaded?.resets === 3)
   check('l\'étage et la carte reviennent intacts',
-    loaded?.state.floor === state.floor &&
-    loaded?.state.tiles.length === state.width * state.height)
+    loaded?.state?.floor === state.floor &&
+    loaded?.state?.tiles.length === state.width * state.height)
   check('au chargement, chaque personnage attend son joueur dans les limbes',
-    loaded?.state.actors.p_alice?.offline === true)
+    loaded?.state?.actors.p_alice?.offline === true)
 
   check('une room jamais sauvegardée donne une partie neuve, en silence',
     (await loadRoom('JAMAIS')) === null)

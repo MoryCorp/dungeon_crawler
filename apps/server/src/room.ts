@@ -89,9 +89,20 @@ export class Room {
   ) {
     // Trois cas au boot. État sauvegardé : on reprend sa run là où elle en
     // était. Pas d'état mais un relevé : la sauvegarde a été jetée (version
-    // bumpée) — c'est une run NEUVE, index suivant, jamais recollée sur
-    // l'ancienne. Rien du tout : première run de la room.
-    this.resets = state ? resets : run ? (run.runs ?? 0) + 1 : 0
+    // bumpée, ou wipe interrompu par un arrêt) — c'est une run NEUVE, index
+    // suivant, jamais recollée sur l'ancienne. Rien du tout : première run.
+    //
+    // Le `Math.max` est une ceinture : état et relevé sont écrits dans la même
+    // foulée, mais l'un peut survivre à l'autre (écriture échouée, fichier mis
+    // en quarantaine). On ne redescend jamais un index de run — c'est ce qui
+    // garantit qu'aucune graine n'est rejouée et qu'aucun relevé ne fusionne
+    // deux runs sous le même numéro. Si le relevé est en avance, la télémétrie
+    // ouvrira un enregistrement neuf pour l'étage courant : c'est voulu, son
+    // dernier étage appartient à une run postérieure.
+    const fromRun = run ? (run.runs ?? 0) + 1 : 0
+    this.resets = state
+      ? Math.max(resets, run?.runs ?? 0)
+      : Math.max(resets, fromRun)
     this.state = state ?? createGame(seedFromCode(code) + this.resets * 7919)
     this.telemetry = new RunTelemetry(code, this.state, run, this.resets)
   }
@@ -213,6 +224,11 @@ export class Room {
       if (ev.t === 'wipe' && this.resetAtMs === null) {
         this.broadcast({ t: 'gameover', floor: ev.floor })
         this.resetAtMs = Date.now() + 2500
+        // Le drapeau part sur le disque tout de suite. Sinon un arrêt dans ces
+        // 2,5 secondes — un redéploiement, ou simplement tout le monde qui se
+        // déconnecte, ce qui fige la room — laissait une sauvegarde de partie
+        // morte que la reprise rejouait comme si de rien n'était.
+        void this.persist()
       }
     }
     if (this.resetAtMs !== null && Date.now() >= this.resetAtMs) this.restart()
@@ -267,12 +283,19 @@ export class Room {
     this.saveQueued = true
     this.saving = this.saving.then(async () => {
       this.saveQueued = false
+      // Instantané cohérent, pris AVANT toute attente : état, relevé, compteur
+      // et wipe en attente décrivent la même run. Entre deux `await`, un tick
+      // peut relancer une descente neuve — les deux fichiers décrivaient alors
+      // deux runs différentes, et un arrêt à cet instant les figeait ainsi.
+      // `toRecord` en particulier photographie l'état vivant : appelé après
+      // l'écriture, il photographiait un état qui avait déjà avancé.
+      const state = this.state
+      const resets = this.resets
+      const pendingReset = this.resetAtMs !== null
+      const record = this.telemetry.toRecord(state.seed, new Date().toISOString(), state)
       try {
-        await saveRoom(this.code, this.state, this.resets)
-        await saveRun(
-          this.code,
-          this.telemetry.toRecord(this.state.seed, new Date().toISOString(), this.state),
-        )
+        await saveRoom(this.code, state, resets, pendingReset)
+        await saveRun(this.code, record)
       } catch (err) {
         console.error(`[room ${this.code}] sauvegarde échouée:`, err)
       }
@@ -285,6 +308,16 @@ export class Room {
     ws.send(JSON.stringify(msg))
   }
 
+  /**
+   * Les événements du tick (coups, morts, clé, grille du piège) ne voyagent
+   * que dans les paquets `state`, et un paquet sauté est perdu : rien ne les
+   * rejoue. C'est assumé. Ils ne pilotent que du son, des particules et du
+   * texte flottant — la fin de partie, le changement d'étage, le verrou de
+   * l'escalier et le HUD passent par d'autres canaux, tous prioritaires. Les
+   * rejouer à la reprise produirait une salve d'effets périmés, plus
+   * désorientante que le silence ; le seul effet durable, un recalage de
+   * recul, est de toute façon corrigé par le paquet d'état suivant.
+   */
   broadcast(msg: ServerMsg): void {
     const payload = JSON.stringify(msg)
     const droppable = msg.t === 'state'

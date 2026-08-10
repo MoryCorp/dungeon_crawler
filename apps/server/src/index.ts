@@ -11,7 +11,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { TICK_MS } from '@dc/engine'
 import { loadRoom, loadRun } from './persist.js'
 import { Room } from './room.js'
-import { MAX_VIOLATIONS, parseClientMsg } from './validate.js'
+import { MAX_MSG_BYTES, MAX_VIOLATIONS, parseClientMsg } from './validate.js'
 
 const PORT = Number(process.env.PORT ?? 3000)
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -56,11 +56,23 @@ function getRoom(code: string): Promise<Room> {
   if (!pending) {
     pending = (async () => {
       const [saved, run] = await Promise.all([loadRoom(code), loadRun(code)])
-      const room = new Room(code, saved?.state, run, saved?.resets ?? 0)
+      let room: Room
+      try {
+        room = new Room(code, saved?.state, run, saved?.resets ?? 0)
+      } catch (err) {
+        // Dernier filet : on sacrifie la mesure, jamais la partie. Un relevé
+        // qui fait tomber la construction ne doit pas rendre la room
+        // injoignable. Si ça échoue encore sans lui, c'est l'état qui est en
+        // cause et il vaut mieux que ça remonte bruyamment.
+        console.error(`[room ${code}] relevé inexploitable, la partie repart sans mesures :`, err)
+        room = new Room(code, saved?.state, null, saved?.resets ?? 0)
+      }
       rooms.set(code, room)
-      console.log(
-        `[room ${code}] ${saved ? 'reprise de la sauvegarde' : 'nouvelle partie'} (étage ${room.state.floor})`,
-      )
+      const origine =
+        saved?.state ? 'reprise de la sauvegarde'
+        : saved ? 'wipe interrompu, descente neuve'
+        : 'nouvelle partie'
+      console.log(`[room ${code}] ${origine} (étage ${room.state.floor})`)
       return room
     })().finally(() => loading.delete(code))
     loading.set(code, pending)
@@ -91,8 +103,11 @@ const server = createServer(async (req, res) => {
     // Une room chargée en mémoire a des mesures plus fraîches que le disque,
     // qui n'est réécrit que toutes les 10 secondes.
     const live = rooms.get(code)
+    // L'état est passé : c'est lui qui déclenche l'instantané des profils et
+    // du carnet du bandit. Sans lui, ces deux-là dataient du dernier étage —
+    // l'endpoint promettait plus frais que le disque et rendait plus vieux.
     const record = live
-      ? live.telemetry.toRecord(live.state.seed, new Date().toISOString())
+      ? live.telemetry.toRecord(live.state.seed, new Date().toISOString(), live.state)
       : await loadRun(code)
     if (!record) {
       res.writeHead(404, { 'content-type': 'application/json' })
@@ -139,7 +154,10 @@ const server = createServer(async (req, res) => {
 
 // ---------------------------------------------------------------- websocket
 
-const wss = new WebSocketServer({ server, path: '/ws' })
+// `maxPayload` refuse les gros messages à la porte : sans lui le plafond
+// effectif est celui de `ws`, 100 Mio, et notre limite de 2 Ko n'était mesurée
+// qu'après avoir reçu, bufferisé et décodé le message en entier.
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: MAX_MSG_BYTES })
 const socketRoom = new WeakMap<WebSocket, Room>()
 
 wss.on('connection', (ws) => {

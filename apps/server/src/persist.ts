@@ -8,6 +8,7 @@
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  MONSTERS,
   SPRINT_REFILL_DELAY,
   createDirector,
   fromBase64,
@@ -80,8 +81,21 @@ async function writeAtomic(path: string, payload: string): Promise<void> {
   }
 }
 
-export async function saveRoom(code: string, state: GameState, resets = 0): Promise<void> {
-  await ensureDir()
+export async function saveRoom(
+  code: string,
+  state: GameState,
+  resets = 0,
+  /**
+   * Une descente neuve est due mais n'a pas encore eu lieu : l'équipe vient de
+   * tomber et l'écran de fin s'affiche. L'instant du redémarrage ne se
+   * sérialise pas — c'est une heure murale, elle ne veut plus rien dire à la
+   * relecture. Le drapeau, lui, suffit : au chargement on repart neuf.
+   */
+  pendingReset = false,
+): Promise<void> {
+  // Sérialisé AVANT toute attente : `ensureDir` fait de l'I/O réelle à son
+  // tout premier appel, et des ticks passent pendant ce temps — l'état écrit
+  // ne serait plus celui que l'appelant a capturé.
   // `resets` voyage avec l'état : sans lui, un redémarrage du process
   // repartait du compteur zéro et la room rejouait la graine de sa toute
   // première run. Champ additif, pas de changement de version.
@@ -90,8 +104,10 @@ export async function saveRoom(code: string, state: GameState, resets = 0): Prom
   const payload = JSON.stringify({
     v: SAVE_VERSION,
     resets,
+    ...(pendingReset ? { pendingReset: true } : {}),
     state: { ...state, events: [], tiles: toBase64(state.tiles) },
   })
+  await ensureDir()
   // On ne veut pas d'une sauvegarde tronquée si le process meurt pendant un
   // redéploiement Coolify.
   await writeAtomic(fileFor(code), payload)
@@ -108,48 +124,148 @@ export async function saveRun(code: string, run: RunRecord): Promise<void> {
   await writeAtomic(runFileFor(code), JSON.stringify(run))
 }
 
+/**
+ * Un relevé n'est pas un état de jeu : c'est une mesure. Le perdre coûte des
+ * chiffres d'équilibrage, alors que le croire sur parole coûtait la partie —
+ * un `floors` non itérable faisait lever le constructeur de la télémétrie,
+ * rejeter le chargement de la room, et le `join` échouait.
+ */
+function plausibleRun(r: unknown): r is RunRecord {
+  if (typeof r !== 'object' || r === null) return false
+  const x = r as Record<string, unknown>
+  if (!Array.isArray(x.floors)) return false
+  if (!x.floors.every((f) => typeof f === 'object' && f !== null &&
+    Number.isFinite((f as Record<string, unknown>).floor))) return false
+  for (const k of ['wipes', 'runs', 'seed'] as const) {
+    if (x[k] !== undefined && !Number.isFinite(x[k])) return false
+  }
+  return true
+}
+
 export async function loadRun(code: string): Promise<RunRecord | null> {
+  let raw: string
   try {
-    return JSON.parse(await readFile(runFileFor(code), 'utf8')) as RunRecord
+    raw = await readFile(runFileFor(code), 'utf8')
   } catch {
     return null
   }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    await quarantine(runFileFor(code), `[run ${code}]`, 'illisible (JSON invalide)')
+    return null
+  }
+  if (!plausibleRun(parsed)) {
+    // La quarantaine compte double ici : `saveRun` réécrit toutes les dix
+    // secondes, sans renommage la preuve serait détruite avant qu'on la voie.
+    await quarantine(runFileFor(code), `[run ${code}]`, 'incohérent (structure inattendue)')
+    return null
+  }
+  return parsed
 }
 
 export interface LoadedRoom {
-  state: GameState
+  /**
+   * L'état sauvegardé, ou `null` quand la sauvegarde décrit une partie dont la
+   * descente neuve était due : il n'y a rien à reprendre, seulement un
+   * compteur de runs à faire avancer.
+   */
+  state: GameState | null
   /** Runs relancées dans cette room — repris pour ne pas rejouer une graine. */
   resets: number
 }
 
 /**
  * Un fichier qui existe mais ne se relit pas est mis de côté plutôt
- * qu'écrasé : la room repart d'un donjon neuf, et le fichier reste là pour
- * l'autopsie. Sans ça, la prochaine sauvegarde détruisait la seule preuve.
+ * qu'écrasé : la partie repart neuve, et le fichier reste là pour l'autopsie.
+ * Sans ça, la prochaine sauvegarde détruisait la seule preuve.
  */
-async function quarantine(code: string, why: string): Promise<void> {
-  const path = fileFor(code)
+async function quarantine(path: string, who: string, why: string): Promise<void> {
   const dest = `${path}.corrupt-${Date.now()}`
   try {
     await rename(path, dest)
-    console.error(`[room ${code}] sauvegarde ${why} — mise en quarantaine : ${dest}`)
+    console.error(`${who} fichier ${why} — mis en quarantaine : ${dest}`)
   } catch (err) {
-    console.error(`[room ${code}] sauvegarde ${why}, quarantaine impossible :`, err)
+    console.error(`${who} fichier ${why}, quarantaine impossible :`, err)
   }
 }
 
-/** Le strict minimum pour que le moteur ne s'écroule pas au premier tick. */
-function plausibleState(s: unknown): s is GameState & { tiles: string } {
-  if (typeof s !== 'object' || s === null) return false
+const finite = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v)
+const point = (v: unknown): boolean =>
+  typeof v === 'object' && v !== null &&
+  finite((v as Record<string, unknown>).x) && finite((v as Record<string, unknown>).y)
+
+/**
+ * Un acteur relu doit pouvoir être joué. Une espèce absente du bestiaire est
+ * le mode de panne le plus probable — un monstre retiré entre deux versions —
+ * et il ne se voit qu'au premier tick, quand `MONSTERS[species]` rend
+ * `undefined` et que tout ce qui suit s'écroule.
+ */
+function plausibleActor(key: string, a: unknown): boolean {
+  if (typeof a !== 'object' || a === null) return false
+  const r = a as Record<string, unknown>
+  if (r.id !== key) return false
+  if (r.kind !== 'player' && r.kind !== 'monster') return false
+  if (typeof r.species !== 'string' || r.species === '') return false
+  if (r.kind === 'monster' && !MONSTERS[r.species]) return false
+  if (typeof r.alive !== 'boolean') return false
+  return finite(r.x) && finite(r.y) && finite(r.hp) && finite(r.maxHp)
+}
+
+/**
+ * Ce qu'une sauvegarde doit porter pour que le premier tick tienne debout.
+ *
+ * La ligne de partage avec les valeurs par défaut plus bas : un défaut n'est
+ * légitime que si l'absence du champ a une valeur **neutre et vraie**. C'est
+ * le cas des champs ajoutés après coup — un fichier écrit avant leur
+ * existence dit la vérité en ne les portant pas (une bourse absente est une
+ * bourse vide). Un champ que tout écrivain de la version courante émet ne
+ * peut pas manquer sans rendre le fichier suspect en entier : lui inventer
+ * une valeur fabriquerait un état FAUX et effacerait la preuve. Celui-là part
+ * en quarantaine.
+ *
+ * Rend le nom du premier champ fautif, ou `null` si tout va bien : la
+ * quarantaine ne sert à rien si elle ne dit pas de quoi le fichier est mort.
+ */
+function stateFault(s: unknown): string | null {
+  if (typeof s !== 'object' || s === null) return 'état'
   const r = s as Record<string, unknown>
-  return (
-    typeof r.width === 'number' && Number.isFinite(r.width) && r.width > 0 &&
-    typeof r.height === 'number' && Number.isFinite(r.height) && r.height > 0 &&
-    typeof r.tiles === 'string' &&
-    typeof r.floor === 'number' && Number.isFinite(r.floor) &&
-    typeof r.tick === 'number' && Number.isFinite(r.tick) &&
-    typeof r.actors === 'object' && r.actors !== null
-  )
+  if (!finite(r.width) || (r.width as number) <= 0) return 'width'
+  if (!finite(r.height) || (r.height as number) <= 0) return 'height'
+  if (typeof r.tiles !== 'string') return 'tiles'
+  if (!finite(r.floor)) return 'floor'
+  if (!finite(r.tick)) return 'tick'
+  if (!finite(r.seed)) return 'seed'
+  // Un `nextId` non numérique ne plante pas : il fabrique des identifiants
+  // « iNaN » qui se marchent dessus. Une corruption silencieuse est pire
+  // qu'un plantage, elle mérite la même quarantaine.
+  if (!finite(r.rng)) return 'rng'
+  if (!finite(r.nextId)) return 'nextId'
+  if (!Array.isArray(r.items)) return 'items'
+  if (!point(r.stairs)) return 'stairs'
+  if (!point(r.spawn)) return 'spawn'
+  // Un défaut `false` ouvrirait l'escalier sans la clé du gardien : c'est
+  // exactement l'état faux que la règle interdit d'inventer.
+  if (typeof r.stairsLocked !== 'boolean') return 'stairsLocked'
+  if (typeof r.actors !== 'object' || r.actors === null || Array.isArray(r.actors)) return 'actors'
+  for (const [key, a] of Object.entries(r.actors as Record<string, unknown>)) {
+    if (!plausibleActor(key, a)) return `actors.${key}`
+  }
+  // Optionnels : légitimement absents. Les exiger mettrait en quarantaine la
+  // quasi-totalité des sauvegardes — tout étage ordinaire est sans scène et
+  // sans salle piégée. On ne les valide que s'ils sont là.
+  if (r.scene !== undefined && r.scene !== 'sas' && r.scene !== 'boss') return 'scene'
+  if (r.trap !== undefined) {
+    const t = r.trap as Record<string, unknown>
+    if (typeof t !== 'object' || t === null) return 'trap'
+    if (t.phase !== 'armed' && t.phase !== 'warning' && t.phase !== 'done') return 'trap.phase'
+    if (!Array.isArray(t.gates)) return 'trap.gates'
+  }
+  // `projectiles`, `events` et `banditPending` ne sont pas validés : ils sont
+  // vidés ou supprimés à la relecture, plus bas. Ne pas les ajouter ici par
+  // symétrie — ce serait rejeter un fichier pour un champ qu'on jette.
+  return null
 }
 
 export async function loadRoom(code: string): Promise<LoadedRoom | null> {
@@ -168,26 +284,37 @@ export async function loadRoom(code: string): Promise<LoadedRoom | null> {
     return null
   }
   try {
-    let parsed: { v?: number; resets?: number; state?: unknown }
+    let parsed: { v?: number; resets?: number; pendingReset?: boolean; state?: unknown }
     try {
       parsed = JSON.parse(raw) as typeof parsed
     } catch {
-      await quarantine(code, 'illisible (JSON invalide)')
+      await quarantine(fileFor(code), `[room ${code}]`, 'illisible (JSON invalide)')
       return null
     }
     if (parsed.v !== SAVE_VERSION) {
       console.log(`[room ${code}] sauvegarde v${parsed.v ?? '?'} ignorée (format v${SAVE_VERSION})`)
       return null
     }
-    if (!plausibleState(parsed.state)) {
-      await quarantine(code, 'incohérente (structure inattendue)')
+    const fault = stateFault(parsed.state)
+    if (fault !== null) {
+      await quarantine(fileFor(code), `[room ${code}]`, `incohérent (${fault})`)
       return null
     }
 
-    const s = parsed.state
+    const s = parsed.state as GameState & { tiles: string }
+    // Le drapeau n'est lu qu'APRÈS validation : on ne fait pas confiance à un
+    // marqueur venu d'un fichier dont on n'a pas vérifié le reste.
+    if (parsed.pendingReset === true) {
+      console.log(`[room ${code}] wipe interrompu par un arrêt — descente neuve`)
+      // L'index de run avance ici, là où l'on sait pourquoi : la run morte est
+      // finie, celle qui vient est la suivante, et elle ne rejouera pas sa
+      // graine.
+      return { state: null, resets: (parsed.resets ?? 0) + 1 }
+    }
+
     const state: GameState = { ...s, tiles: fromBase64(s.tiles) }
     if (state.tiles.length !== state.width * state.height) {
-      await quarantine(code, 'incohérente (carte tronquée)')
+      await quarantine(fileFor(code), `[room ${code}]`, 'incohérent (carte tronquée)')
       return null
     }
 
@@ -208,6 +335,10 @@ export async function loadRoom(code: string): Promise<LoadedRoom | null> {
         a.sprinting = false
         a.sprintedAt = state.tick - SPRINT_REFILL_DELAY
         a.offline = true
+        // Le compte à rebours de l'oubli repart d'ici : un personnage chargé
+        // n'a pas d'absence mesurable derrière lui, et on ne va pas l'effacer
+        // au premier escalier sous prétexte que la sauvegarde dormait.
+        a.offlineAt = state.tick
       }
       delete a.staggerReadyAt
       // Les effets de fiole sont transitoires ; la fiole portée, elle, reste.
@@ -234,6 +365,9 @@ export async function loadRoom(code: string): Promise<LoadedRoom | null> {
     // Salles typées : une sauvegarde d'avant n'en a pas. L'étage courant se
     // joue alors « tout couloir » pour les recettes, le suivant sera typé.
     state.rooms ??= []
+    // Le décor est purement visuel : son absence est neutre et vraie, un étage
+    // sans mobilier se joue exactement pareil.
+    state.decor ??= []
     // Chantier 4, tout additif : bourse de plafond, usure, salle de repos.
     state.capBonus ??= 0
     state.capBought ??= 0
@@ -247,7 +381,7 @@ export async function loadRoom(code: string): Promise<LoadedRoom | null> {
     // Filet de sécurité : une sauvegarde qui explose à la reconstitution est
     // une sauvegarde corrompue, même si elle avait l'air plausible.
     console.error(`[room ${code}] reconstitution de la sauvegarde échouée :`, err)
-    await quarantine(code, 'incohérente (reconstitution échouée)')
+    await quarantine(fileFor(code), `[room ${code}]`, 'incohérent (reconstitution échouée)')
     return null
   }
 }
