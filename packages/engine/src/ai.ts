@@ -38,7 +38,8 @@ export function buildFlowField(state: GameState, out: Int16Array, maxDist: numbe
   for (const a of Object.values(state.actors)) {
     // Un joueur à terre n'attire plus les monstres : ils se redéploient sur les
     // coéquipiers encore debout, ce qui laisse une chance de venir le relever.
-    if (a.kind !== 'player' || !a.alive || a.downed) continue
+    // Un déconnecté n'attire personne du tout : il n'est pas là.
+    if (a.kind !== 'player' || !a.alive || a.downed || a.offline) continue
     const idx = Math.floor(a.y) * w + Math.floor(a.x)
     if (out[idx] === -1) {
       out[idx] = 0
@@ -85,7 +86,7 @@ function nearestTarget(state: GameState, m: Actor): Actor | null {
   let best: Actor | null = null
   let bestD = Infinity
   for (const a of Object.values(state.actors)) {
-    if (a.kind !== 'player' || !a.alive) continue
+    if (a.kind !== 'player' || !a.alive || a.offline) continue
     // On préfère largement une cible debout, mais on achève un joueur à terre
     // s'il n'y a plus que lui.
     const penalty = a.downed ? 1e4 : 0

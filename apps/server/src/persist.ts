@@ -5,7 +5,7 @@
  * largement pour 4 joueurs. Postgres deviendra utile le jour où on voudra de la
  * progression méta entre les parties, pas avant.
  */
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   SPRINT_REFILL_DELAY,
@@ -62,11 +62,22 @@ function ensureDir(): Promise<void> {
 const fileFor = (code: string) => join(ROOMS_DIR, `${code}.json`)
 const runFileFor = (code: string) => join(RUNS_DIR, `${code}.json`)
 
-/** Écriture atomique : jamais de fichier tronqué si le process meurt. */
+/**
+ * Écriture atomique : jamais de fichier tronqué si le process meurt. Le nom
+ * du fichier temporaire est unique par écriture — un `.tmp` fixe faisait que
+ * deux écritures concurrentes s'écrasaient l'une l'autre à mi-course. En cas
+ * d'échec, le temporaire est nettoyé au lieu de s'accumuler sur le disque.
+ */
+let writeSeq = 0
 async function writeAtomic(path: string, payload: string): Promise<void> {
-  const tmp = `${path}.tmp`
-  await writeFile(tmp, payload, 'utf8')
-  await rename(tmp, path)
+  const tmp = `${path}.${process.pid}.${writeSeq++}.tmp`
+  try {
+    await writeFile(tmp, payload, 'utf8')
+    await rename(tmp, path)
+  } catch (err) {
+    await unlink(tmp).catch(() => {})
+    throw err
+  }
 }
 
 export async function saveRoom(code: string, state: GameState, resets = 0): Promise<void> {
@@ -74,10 +85,12 @@ export async function saveRoom(code: string, state: GameState, resets = 0): Prom
   // `resets` voyage avec l'état : sans lui, un redémarrage du process
   // repartait du compteur zéro et la room rejouait la graine de sa toute
   // première run. Champ additif, pas de changement de version.
+  // `events` reste dehors : c'est le transitoire du tick en cours, il est
+  // remis à zéro au tick suivant et ne veut rien dire rechargé.
   const payload = JSON.stringify({
     v: SAVE_VERSION,
     resets,
-    state: { ...state, tiles: toBase64(state.tiles) },
+    state: { ...state, events: [], tiles: toBase64(state.tiles) },
   })
   // On ne veut pas d'une sauvegarde tronquée si le process meurt pendant un
   // redéploiement Coolify.
@@ -109,18 +122,74 @@ export interface LoadedRoom {
   resets: number
 }
 
-export async function loadRoom(code: string): Promise<LoadedRoom | null> {
+/**
+ * Un fichier qui existe mais ne se relit pas est mis de côté plutôt
+ * qu'écrasé : la room repart d'un donjon neuf, et le fichier reste là pour
+ * l'autopsie. Sans ça, la prochaine sauvegarde détruisait la seule preuve.
+ */
+async function quarantine(code: string, why: string): Promise<void> {
+  const path = fileFor(code)
+  const dest = `${path}.corrupt-${Date.now()}`
   try {
-    const raw = await readFile(fileFor(code), 'utf8')
-    const parsed = JSON.parse(raw) as {
-      v?: number
-      resets?: number
-      state?: Record<string, unknown>
-    }
-    if (parsed.v !== SAVE_VERSION || !parsed.state) return null
+    await rename(path, dest)
+    console.error(`[room ${code}] sauvegarde ${why} — mise en quarantaine : ${dest}`)
+  } catch (err) {
+    console.error(`[room ${code}] sauvegarde ${why}, quarantaine impossible :`, err)
+  }
+}
 
-    const s = parsed.state as unknown as GameState & { tiles: string }
+/** Le strict minimum pour que le moteur ne s'écroule pas au premier tick. */
+function plausibleState(s: unknown): s is GameState & { tiles: string } {
+  if (typeof s !== 'object' || s === null) return false
+  const r = s as Record<string, unknown>
+  return (
+    typeof r.width === 'number' && Number.isFinite(r.width) && r.width > 0 &&
+    typeof r.height === 'number' && Number.isFinite(r.height) && r.height > 0 &&
+    typeof r.tiles === 'string' &&
+    typeof r.floor === 'number' && Number.isFinite(r.floor) &&
+    typeof r.tick === 'number' && Number.isFinite(r.tick) &&
+    typeof r.actors === 'object' && r.actors !== null
+  )
+}
+
+export async function loadRoom(code: string): Promise<LoadedRoom | null> {
+  // Quatre façons d'échouer, quatre réponses. Absent : partie neuve, en
+  // silence. Version d'avant : partie neuve, en le disant. Illisible ou
+  // incohérent : quarantaine, puis partie neuve. Erreur d'I/O : on le dit
+  // aussi — un disque plein ne doit pas se déguiser en « pas de sauvegarde ».
+  let raw: string
+  try {
+    raw = await readFile(fileFor(code), 'utf8')
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException
+    if (e.code !== 'ENOENT') {
+      console.error(`[room ${code}] lecture de la sauvegarde impossible (${e.code}) :`, e.message)
+    }
+    return null
+  }
+  try {
+    let parsed: { v?: number; resets?: number; state?: unknown }
+    try {
+      parsed = JSON.parse(raw) as typeof parsed
+    } catch {
+      await quarantine(code, 'illisible (JSON invalide)')
+      return null
+    }
+    if (parsed.v !== SAVE_VERSION) {
+      console.log(`[room ${code}] sauvegarde v${parsed.v ?? '?'} ignorée (format v${SAVE_VERSION})`)
+      return null
+    }
+    if (!plausibleState(parsed.state)) {
+      await quarantine(code, 'incohérente (structure inattendue)')
+      return null
+    }
+
+    const s = parsed.state
     const state: GameState = { ...s, tiles: fromBase64(s.tiles) }
+    if (state.tiles.length !== state.width * state.height) {
+      await quarantine(code, 'incohérente (carte tronquée)')
+      return null
+    }
 
     // Personne n'est connecté au chargement : tout le monde est prêt à agir, et
     // aucun coup ne reste figé en cours de préparation.
@@ -131,10 +200,14 @@ export async function loadRoom(code: string): Promise<LoadedRoom | null> {
       delete a.dashUntil
       delete a.pendingAttack
       // On reprend le souffle plein : personne n'a couru depuis des jours.
+      // Et personne n'est là : chaque personnage attend son joueur dans les
+      // limbes, c'est le `join` qui le fera revenir au monde. Sans ça, le
+      // premier connecté jouait entouré des corps ciblables de ses amis.
       if (a.kind === 'player') {
         a.stamina = 1
         a.sprinting = false
         a.sprintedAt = state.tick - SPRINT_REFILL_DELAY
+        a.offline = true
       }
       delete a.staggerReadyAt
       // Les effets de fiole sont transitoires ; la fiole portée, elle, reste.
@@ -170,7 +243,11 @@ export async function loadRoom(code: string): Promise<LoadedRoom | null> {
     // pic vieux de trois jours livrerait une vague sur un donjon endormi.
     state.director = createDirector(state.tick, state.seed)
     return { state, resets: parsed.resets ?? 0 }
-  } catch {
+  } catch (err) {
+    // Filet de sécurité : une sauvegarde qui explose à la reconstitution est
+    // une sauvegarde corrompue, même si elle avait l'air plausible.
+    console.error(`[room ${code}] reconstitution de la sauvegarde échouée :`, err)
+    await quarantine(code, 'incohérente (reconstitution échouée)')
     return null
   }
 }

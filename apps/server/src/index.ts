@@ -8,9 +8,10 @@ import { createServer } from 'node:http'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { TICK_MS, type ClientMsg } from '@dc/engine'
+import { TICK_MS } from '@dc/engine'
 import { loadRoom, loadRun } from './persist.js'
 import { Room } from './room.js'
+import { MAX_VIOLATIONS, parseClientMsg } from './validate.js'
 
 const PORT = Number(process.env.PORT ?? 3000)
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -143,12 +144,14 @@ const socketRoom = new WeakMap<WebSocket, Room>()
 
 wss.on('connection', (ws) => {
   let joined = false
+  // Messages malformés tolérés avant fermeture : un client bogué a droit à
+  // quelques ratés, un client hostile n'a pas droit à un flot.
+  let violations = 0
 
   ws.on('message', async (raw) => {
-    let msg: ClientMsg
-    try {
-      msg = JSON.parse(raw.toString()) as ClientMsg
-    } catch {
+    const msg = parseClientMsg(raw.toString())
+    if (!msg) {
+      if (++violations >= MAX_VIOLATIONS) ws.close(4002, 'messages invalides')
       return
     }
 

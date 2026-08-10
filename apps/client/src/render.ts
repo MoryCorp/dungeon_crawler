@@ -975,7 +975,9 @@ export class Renderer {
       }
 
       const dimmed = !view.visible && !isSelf
-      entity.sprite.alpha = !view.alive ? 0.3 : dimmed ? 0.4 : 1
+      // Un coéquipier déconnecté reste visible mais fantomatique : on sait
+      // où l'attendre sans le confondre avec un joueur en jeu.
+      entity.sprite.alpha = !view.alive ? 0.3 : view.offline ? 0.35 : dimmed ? 0.4 : 1
       entity.sprite.tint = this.spriteTint(view)
 
       // Télégraphe : l'arc rouge qui annonce le coup et laisse le temps de

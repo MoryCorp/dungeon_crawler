@@ -1010,6 +1010,13 @@ export interface Actor {
   xp?: number
   /** À terre : vivant mais hors de combat, en attente d'être relevé. */
   downed?: boolean
+  /**
+   * Déconnecté : le personnage reste dans le donjon mais sort du monde —
+   * invisible pour l'IA et la Directrice, inerte, invulnérable, saignement et
+   * réapparition gelés. Sans ça, un joueur qui ferme son onglet devenait un
+   * sac de frappe immortel qui aimantait les monstres et empêchait le wipe.
+   */
+  offline?: boolean
   bleedOutAt?: number
   /** Progression de la relève en cours, de 0 à 1. */
   reviveProgress?: number

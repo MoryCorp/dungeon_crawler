@@ -10,6 +10,7 @@ import {
   createGame,
   packBits,
   removePlayer,
+  setPlayerConnected,
   step,
   toBase64,
   type GameState,
@@ -24,7 +25,19 @@ interface Client {
   playerId: string
   name: string
   input: PlayerInput | null
+  /** Paquets `state` sautés pour cause de tampon plein : un `floor` complet le remettra à jour. */
+  starved: boolean
 }
+
+/**
+ * Tampon d'envoi au-delà duquel on cesse d'empiler des paquets `state` sur une
+ * socket qui ne suit pas : ils se périment en 33 ms, les accumuler ne fait que
+ * creuser le retard. Les paquets structurants (`floor`, `gameover`) passent
+ * toujours — rater l'un d'eux fausse tout ce qui suit.
+ */
+const SOFT_BUFFER = 64 * 1024
+/** Au-delà, la connexion ne rattrapera jamais : on la ferme proprement. */
+const HARD_BUFFER = 1024 * 1024
 
 /** Graine déterministe à partir du code de room : le même code rejoue le même donjon. */
 function seedFromCode(code: string): number {
@@ -108,7 +121,8 @@ export class Room {
     }
 
     addPlayer(this.state, playerId, name)
-    this.clients.set(ws, { ws, playerId, name, input: null })
+    setPlayerConnected(this.state, playerId, true)
+    this.clients.set(ws, { ws, playerId, name, input: null, starved: false })
 
     this.send(ws, { t: 'welcome', selfId: playerId, room: this.code, tickRate: TICK_RATE })
     this.send(ws, this.floorMsg())
@@ -120,7 +134,10 @@ export class Room {
     if (!client) return
     this.clients.delete(ws)
     // Le personnage reste dans le donjon : on veut pouvoir se reconnecter et
-    // retrouver son perso où il était, pas repartir du spawn.
+    // retrouver son perso où il était, pas repartir du spawn. Mais il sort du
+    // monde — sinon il resterait une cible immortelle qui aimante les
+    // monstres et empêche le wipe de l'équipe encore présente.
+    setPlayerConnected(this.state, client.playerId, false)
   }
 
   /**
@@ -136,6 +153,13 @@ export class Room {
     this.telemetry = new RunTelemetry(this.code, this.state, record, this.resets)
     this.resetAtMs = null
     this.floorDirty = true
+    // Les compteurs vivaient sur les ticks de l'ANCIEN état : le nouveau
+    // repart de zéro, et sans remise à zéro la sauvegarde périodique restait
+    // suspendue de longues minutes après un wipe. On persiste tout de suite —
+    // un crash juste après le wipe rechargerait sinon la run morte.
+    this.lastSaveTick = 0
+    this.visCountdown = 0
+    void this.persist()
   }
 
   /** Retire définitivement le personnage (quitter la partie, pas juste fermer l'onglet). */
@@ -227,16 +251,33 @@ export class Room {
     }
   }
 
-  async persist(): Promise<void> {
-    try {
-      await saveRoom(this.code, this.state, this.resets)
-      await saveRun(
-        this.code,
-        this.telemetry.toRecord(this.state.seed, new Date().toISOString(), this.state),
-      )
-    } catch (err) {
-      console.error(`[room ${this.code}] sauvegarde échouée:`, err)
-    }
+  /** Écriture en vol, et au plus une en attente derrière elle. */
+  private saving: Promise<void> = Promise.resolve()
+  private saveQueued = false
+
+  /**
+   * Les écritures d'une même room se suivent, jamais ne se chevauchent : deux
+   * `writeAtomic` concurrents sur le même fichier peuvent se renommer l'un
+   * sur l'autre dans le désordre et laisser la version la plus vieille gagner.
+   * Les appels pendant une écriture en cours se COALESCENT en une seule —
+   * c'est l'état au moment où elle démarre qui compte, pas le nombre d'appels.
+   */
+  persist(): Promise<void> {
+    if (this.saveQueued) return this.saving
+    this.saveQueued = true
+    this.saving = this.saving.then(async () => {
+      this.saveQueued = false
+      try {
+        await saveRoom(this.code, this.state, this.resets)
+        await saveRun(
+          this.code,
+          this.telemetry.toRecord(this.state.seed, new Date().toISOString(), this.state),
+        )
+      } catch (err) {
+        console.error(`[room ${this.code}] sauvegarde échouée:`, err)
+      }
+    })
+    return this.saving
   }
 
   send(ws: WebSocket, msg: ServerMsg): void {
@@ -246,8 +287,25 @@ export class Room {
 
   broadcast(msg: ServerMsg): void {
     const payload = JSON.stringify(msg)
+    const droppable = msg.t === 'state'
     for (const c of this.clients.values()) {
-      if (c.ws.readyState === c.ws.OPEN) c.ws.send(payload)
+      if (c.ws.readyState !== c.ws.OPEN) continue
+      const buffered = c.ws.bufferedAmount
+      if (buffered > HARD_BUFFER) {
+        c.ws.close(4003, 'connexion trop lente')
+        continue
+      }
+      if (droppable && buffered > SOFT_BUFFER) {
+        c.starved = true
+        continue
+      }
+      // La socket a rattrapé son retard : un `floor` complet d'abord, au cas
+      // où elle aurait raté un changement d'étage pendant la disette.
+      if (c.starved && droppable) {
+        c.starved = false
+        c.ws.send(JSON.stringify(this.floorMsg()))
+      }
+      c.ws.send(payload)
     }
   }
 }

@@ -80,6 +80,8 @@ export interface ActorView {
   /** XP cumulée nécessaire pour le niveau suivant : évite de dupliquer la courbe côté client. */
   xpNext?: number
   downed?: boolean
+  /** Déconnecté : le personnage attend son joueur — rendu estompé. */
+  offline?: boolean
   /** Progression de la relève, 0 à 1. */
   revive?: number
   /** Jauge de sprint, 0 à 1. Le client la redescend entre deux paquets. */
@@ -219,6 +221,7 @@ export function buildActorViews(state: GameState, visible: Uint8Array): ActorVie
       view.xp = a.xp ?? 0
       view.xpNext = xpForLevel(level + 1)
       view.downed = a.downed === true
+      if (a.offline) view.offline = true
       view.stamina = round2(a.stamina ?? 1)
       if (a.downed) view.revive = round2(a.reviveProgress ?? 0)
       if (a.potion !== undefined) view.potion = a.potion

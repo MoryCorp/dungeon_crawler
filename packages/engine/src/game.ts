@@ -844,7 +844,7 @@ function profileMovement(
   // dirait rien du style, seulement de la fréquentation.
   let nearest = Infinity
   for (const other of Object.values(state.actors)) {
-    if (other.kind !== 'player' || other.id === actor.id || !other.alive || other.downed) continue
+    if (other.kind !== 'player' || other.id === actor.id || !other.alive || other.downed || other.offline) continue
     nearest = Math.min(nearest, Math.hypot(other.x - actor.x, other.y - actor.y))
   }
   if (nearest < Infinity) {
@@ -923,7 +923,7 @@ export function slowStrain(state: GameState): number {
   let best = 0
   let players = 0
   for (const a of Object.values(state.actors)) {
-    if (a.kind !== 'player' || !a.alive || a.maxHp <= 0) continue
+    if (a.kind !== 'player' || !a.alive || a.maxHp <= 0 || a.offline) continue
     players++
     best = Math.max(best, a.hp / a.maxHp)
   }
@@ -941,7 +941,7 @@ export function slowStrain(state: GameState): number {
 
 function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
   const players = Object.values(state.actors).filter(
-    (a) => a.kind === 'player' && a.alive && !a.downed,
+    (a) => a.kind === 'player' && a.alive && !a.downed && !a.offline,
   )
 
   // L'usure s'accumule ici, au même rythme pour tout le monde : des
@@ -1162,7 +1162,7 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   const restRoom = state.rooms.find((r) => r.kind === 'repos')
   let target: Actor | null = null
   for (const a of Object.values(state.actors)) {
-    if (a.kind !== 'player' || !a.alive || a.downed || a.maxHp <= 0) continue
+    if (a.kind !== 'player' || !a.alive || a.downed || a.maxHp <= 0 || a.offline) continue
     if (restRoom && insideRoom(restRoom, a.x, a.y)) continue
     if (!target || a.hp / a.maxHp > target.hp / target.maxHp) target = a
   }
@@ -1430,7 +1430,7 @@ export function addPlayer(state: GameState, id: string, name: string): Actor {
   profileOf(state, id)
 
   const anchor = Object.values(state.actors).find(
-    (a) => a.kind === 'player' && a.alive && !a.downed,
+    (a) => a.kind === 'player' && a.alive && !a.downed && !a.offline,
   )
   const base = anchor ?? { x: state.spawn.x + 0.5, y: state.spawn.y + 0.5 }
   const pos = findFreeSpot(state, base.x, base.y)
@@ -1468,6 +1468,23 @@ export function removePlayer(state: GameState, id: string): void {
   delete state.actors[id]
 }
 
+/**
+ * Bascule un personnage entre le monde et les limbes de la déconnexion.
+ * C'est le serveur qui appelle, sur join/leave — le moteur, lui, ne sait pas
+ * ce qu'est une socket, il sait juste qu'un joueur `offline` n'existe pour
+ * personne : ni cible, ni vision, ni usure, ni partage d'XP.
+ */
+export function setPlayerConnected(state: GameState, id: string, connected: boolean): void {
+  const a = state.actors[id]
+  if (!a || a.kind !== 'player') return
+  if (connected) {
+    delete a.offline
+  } else {
+    a.offline = true
+    a.sprinting = false
+  }
+}
+
 // ---------------------------------------------------------------- combat
 
 /**
@@ -1477,7 +1494,9 @@ export function removePlayer(state: GameState, id: string): void {
  */
 function grantXp(state: GameState, amount: number): void {
   for (const player of Object.values(state.actors)) {
-    if (player.kind !== 'player') continue
+    // Le déconnecté ne progresse pas en son absence : l'XP récompense ceux
+    // qui jouent, et son niveau au retour est celui qu'il avait en partant.
+    if (player.kind !== 'player' || player.offline) continue
     player.xp = (player.xp ?? 0) + amount
     let level = player.level ?? 1
     while (player.xp >= xpForLevel(level + 1)) {
@@ -1559,7 +1578,7 @@ function killOrDown(state: GameState, victim: Actor, rng: Rng): void {
     // (aucune mécanique d'auto-relevage). Mort sèche, et l'événement `wipe`
     // dit au serveur que la partie est finie — en solo comme en équipe.
     const someoneStanding = Object.values(state.actors).some(
-      (a) => a.kind === 'player' && a.id !== victim.id && a.alive && !a.downed,
+      (a) => a.kind === 'player' && a.id !== victim.id && a.alive && !a.downed && !a.offline,
     )
     if (!someoneStanding) {
       victim.hp = 0
@@ -1636,8 +1655,8 @@ function damage(
 ): void {
   if (!to.alive) return
   // Un joueur déjà à terre n'est plus une cible : le finir en boucle n'apporte
-  // rien qu'une frustration.
-  if (to.kind === 'player' && to.downed) return
+  // rien qu'une frustration. Un déconnecté non plus — il n'est pas là.
+  if (to.kind === 'player' && (to.downed || to.offline)) return
   if (to.invulnUntil !== undefined && state.tick < to.invulnUntil) return
 
   // Réduction par l'armure. Sans armure c'est l'identité — le chemin existe
@@ -1989,7 +2008,9 @@ function stepProjectiles(state: GameState, rng: Rng): void {
 }
 
 function stepItems(state: GameState, rng: Rng): void {
-  const players = Object.values(state.actors).filter((a) => a.kind === 'player' && a.alive && !a.downed)
+  const players = Object.values(state.actors).filter(
+    (a) => a.kind === 'player' && a.alive && !a.downed && !a.offline,
+  )
   if (players.length === 0) return
 
   for (let i = state.items.length - 1; i >= 0; i--) {
@@ -2140,11 +2161,18 @@ function stepItems(state: GameState, rng: Rng): void {
 /** Mise à terre : saignement, et relève par un coéquipier resté à côté. */
 function stepDowned(state: GameState): void {
   const standing = Object.values(state.actors).filter(
-    (a) => a.kind === 'player' && a.alive && !a.downed,
+    (a) => a.kind === 'player' && a.alive && !a.downed && !a.offline,
   )
 
   for (const a of Object.values(state.actors)) {
     if (a.kind !== 'player' || !a.alive || !a.downed) continue
+
+    // Déconnecté à terre : le sablier s'arrête. Mourir en son absence serait
+    // punir la coupure réseau, pas le jeu — le saignement reprend au retour.
+    if (a.offline) {
+      if (a.bleedOutAt !== undefined) a.bleedOutAt += 1
+      continue
+    }
 
     const helper = standing.find((s) => Math.hypot(s.x - a.x, s.y - a.y) <= REVIVE_RANGE)
     if (helper) {
@@ -2199,9 +2227,14 @@ export function step(
   // 1. Réapparitions dues (après saignement complet).
   for (const a of Object.values(state.actors)) {
     if (a.kind !== 'player' || a.alive) continue
+    // Mort ET déconnecté : la réapparition attend le retour, elle aussi.
+    if (a.offline) {
+      if (a.respawnAt !== undefined) a.respawnAt += 1
+      continue
+    }
     if (a.respawnAt !== undefined && state.tick >= a.respawnAt) {
       const mate = Object.values(state.actors).find(
-        (o) => o.kind === 'player' && o.alive && !o.downed && o.id !== a.id,
+        (o) => o.kind === 'player' && o.alive && !o.downed && !o.offline && o.id !== a.id,
       )
       const base = mate ?? { x: state.spawn.x + 0.5, y: state.spawn.y + 0.5 }
       const pos = findFreeSpot(state, base.x, base.y)
@@ -2224,7 +2257,7 @@ export function step(
   // 2. Champ de vision de l'équipe (rendu + aggro). Un joueur à terre voit
   // encore : c'est ce qui lui permet d'appeler à l'aide.
   for (const a of Object.values(state.actors)) {
-    if (a.kind === 'player' && a.alive) {
+    if (a.kind === 'player' && a.alive && !a.offline) {
       computeFov(
         state.tiles, state.width, state.height,
         Math.floor(a.x), Math.floor(a.y), FOV_RADIUS, visible,
@@ -2240,6 +2273,8 @@ export function step(
   const threats = Object.values(state.actors).filter((a) => a.kind === 'monster' && a.alive)
   for (const actor of Object.values(state.actors)) {
     if (actor.kind !== 'player' || !actor.alive) continue
+    // Un déconnecté ne joue pas : pas de physique, pas de profil — il attend.
+    if (actor.offline) continue
     const input = inputs[actor.id]
     if (!input) {
       movePhysical(state.tiles, state.width, state.height, actor, 0, 0, 0)
@@ -2423,7 +2458,7 @@ export function step(
   // 5. Escalier : verrouillé tant que la clé du gardien n'est pas ramassée.
   if (!state.stairsLocked) {
     for (const a of Object.values(state.actors)) {
-      if (a.kind !== 'player' || !a.alive || a.downed) continue
+      if (a.kind !== 'player' || !a.alive || a.downed || a.offline) continue
       if (Math.hypot(a.x - (state.stairs.x + 0.5), a.y - (state.stairs.y + 0.5)) < 0.6) {
         descend(state)
         break
