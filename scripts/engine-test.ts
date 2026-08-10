@@ -1645,6 +1645,75 @@ console.log('\nTests engine\n')
   )
 }
 
+// « Les plus proches de l'escalier » : celui qu'on vient de PRENDRE, pas celui
+// du nouvel étage. Le tri se mesurait sur l'escalier d'arrivée — la dette
+// gardait les mauvais monstres, ceux qui ne nous collaient pas du tout.
+{
+  const s = createGame(781)
+  addPlayer(s, 'p_debt', 'Endetté')
+  clearMonsters(s)
+  const oldStairs = { ...s.stairs }
+  for (let i = 0; i < PURSUE_MAX + 6; i++) {
+    // Éparpillés à des distances distinctes de l'escalier qu'on va prendre.
+    putMonster(s, `m_d${i}`, 'skeleton', s.spawn.x + 0.5 + i * 0.9, s.spawn.y + 0.5)
+  }
+  const expected = Object.values(s.actors)
+    .filter((a) => a.kind === 'monster')
+    .sort(
+      (a, b) =>
+        Math.hypot(a.x - oldStairs.x, a.y - oldStairs.y) -
+        Math.hypot(b.x - oldStairs.x, b.y - oldStairs.y),
+    )
+    .slice(0, PURSUE_MAX)
+    .map((a) => a.id)
+  descend(s)
+  const kept = new Set(s.pursuers.map((p) => p.actor.id))
+  check(
+    'la dette garde ceux qui collaient à l\'ancien escalier',
+    expected.every((id) => kept.has(id)) && kept.size === expected.length,
+  )
+}
+
+// --- descente en jeu : un seul générateur par tick --------------------------
+// `descend` relisait `state.rng` figé en début de tick, puis `step` écrasait
+// son avancée : les tirages de la génération d'étage n'existaient pas pour la
+// suite. Le contrat : descend avance le générateur qu'on lui passe, et deux
+// parties identiques qui traversent l'escalier EN JEU restent identiques.
+{
+  const s = createGame(4242)
+  addPlayer(s, 'p_rng', 'Jumeau')
+  const shared = new Rng(s.rng)
+  const before = shared.s
+  descend(s, shared)
+  check('la descente avance le générateur partagé', shared.s !== before)
+  check('et l\'état repart de cette avancée', s.rng === shared.s)
+
+  const mk = () => {
+    const g = createGame(4243)
+    addPlayer(g, 'p_tw', 'Jumeau')
+    clearMonsters(g)
+    g.stairsLocked = false
+    const p = g.actors.p_tw!
+    p.x = g.stairs.x + 0.5
+    p.y = g.stairs.y + 0.5
+    return g
+  }
+  const a = mk()
+  const b = mk()
+  const walk: PlayerInput = { mx: 1, my: 0, aim: 0, attack: false, sprint: false }
+  for (let t = 0; t < TICK_RATE * 2; t++) {
+    step(a, { p_tw: walk })
+    step(b, { p_tw: walk })
+  }
+  check('les jumeaux ont bien changé d\'étage', a.floor === 2, `étage ${a.floor}`)
+  check(
+    'deux parties identiques restent identiques après l\'escalier',
+    a.rng === b.rng && JSON.stringify(a.actors) === JSON.stringify(b.actors) &&
+      JSON.stringify(a.tiles) === JSON.stringify(b.tiles),
+    `rng ${a.rng} vs ${b.rng}`,
+  )
+}
+
 // --- le modèle de puissance -------------------------------------------------
 // Ces tests ne vérifient pas un comportement, ils verrouillent des invariants
 // de conception. Ce sont eux qui empêchent de revenir en arrière sans le voir.

@@ -263,7 +263,9 @@ export class Renderer {
         paintDecor(ctx, d.kind, d.x, d.y)
       }
     }
-    this.mapSprite?.destroy()
+    // `destroy(true)` : la texture de carte (un canvas plein écran) part avec
+    // le sprite — sinon chaque étage en laissait une de plus sur le GPU.
+    this.mapSprite?.destroy(true)
     this.mapSprite = new Sprite(nearestTexture(canvas))
     this.mapLayer.removeChildren()
     this.mapLayer.addChild(this.mapSprite)
@@ -289,6 +291,16 @@ export class Renderer {
     for (const fx of this.effects) fx.node.destroy()
     this.effects = []
     this.fxLayer.removeChildren()
+    // Tout ce qui vit dans fxLayer et qu'on référence encore doit repartir à
+    // null : le removeChildren vient de les détacher, et une référence vers un
+    // nœud orphelin passe le `if (!this.takeTag)` sans jamais réapparaître à
+    // l'écran — le prompt « clic droit · arme » mourait à la première descente.
+    this.takeTag?.destroy()
+    this.takeTag = null
+    this.takeGauge?.destroy()
+    this.takeGauge = null
+    for (const tag of this.priceTags.values()) tag.destroy()
+    this.priceTags.clear()
     for (const c of this.corpses) c.sprite.destroy()
     this.corpses = []
   }

@@ -3,9 +3,10 @@
  *
  * Une vague sans recette est toujours la même : la meilleure espèce en stock,
  * quelque part hors de vue. Six recettes donnent aux vagues des intentions
- * différentes — ruer, clouer, prendre en tenaille, couper la route, harceler —
- * et le tirage est pour l'instant **uniforme** : la variété d'abord, et les
- * échantillons dont une future adaptation au style du joueur aura besoin.
+ * différentes — ruer, clouer, prendre en tenaille, couper la route, harceler.
+ * Le tirage n'est plus uniforme : c'est le bandit (bandit.ts) qui choisit,
+ * par joueur et par arme portée, selon ce que chaque recette a produit — le
+ * levier de chaque vague est mesuré et inscrit à son carnet.
  * Aucune recette ne touche aux statistiques : TTK et K sont hors de sa portée,
  * elle ne dispose que de la composition et de la géométrie.
  *

@@ -29,6 +29,8 @@ const st = (semitones: number): number => 2 ** (semitones / 12)
 
 export class GameAudio {
   private ctx: AudioContext | null = null
+  /** Une demi-seconde de bruit blanc, allouée une fois pour tous les effets. */
+  private noiseBuffer: AudioBuffer | null = null
   private master!: GainNode
   private sfxBus!: GainNode
   private musicBus!: GainNode
@@ -293,11 +295,16 @@ export class GameAudio {
 
   private noiseSource(): AudioBufferSourceNode {
     const ctx = this.ctx!
-    const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate)
-    const data = buffer.getChannelData(0)
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+    // Le buffer est partagé : du bruit blanc est du bruit blanc, en réallouer
+    // 44 100 échantillons à chaque coup d'épée ne faisait que nourrir le GC.
+    // Seule la source (légère, jetable) est créée par effet.
+    if (!this.noiseBuffer || this.noiseBuffer.sampleRate !== ctx.sampleRate) {
+      this.noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate)
+      const data = this.noiseBuffer.getChannelData(0)
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+    }
     const src = ctx.createBufferSource()
-    src.buffer = buffer
+    src.buffer = this.noiseBuffer
     return src
   }
 

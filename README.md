@@ -505,6 +505,7 @@ rendu.
 
 ```bash
 npx tsx scripts/engine-test.ts   # règles pures, aucune dépendance externe
+npx tsx scripts/server-test.ts   # frontières du serveur : réseau, disque, sockets, télémétrie
 npx tsx scripts/curve.ts 20      # invariants du modèle de puissance
 npx tsx scripts/smoke.ts         # bout en bout, serveur lancé requis
 npx tsx scripts/botrun.ts 10     # équilibrage : le bourrinage suffit-il ?
@@ -566,7 +567,7 @@ connecté ne tourne pas : le donjon est figé jusqu'au retour de quelqu'un.
 Se reconnecter avec le même pseudo reprend le même personnage à sa position,
 avec son arme et son niveau.
 
-Le format porte un numéro de version (`SAVE_VERSION`, actuellement **3**). Une
+Le format porte un numéro de version (`SAVE_VERSION`, actuellement **8**). Une
 sauvegarde d'une autre version est ignorée et la partie repart d'un donjon
 neuf : entre amis c'est acceptable, et bien préférable à un chargement d'état à
 moitié valide.
@@ -596,7 +597,7 @@ Gardez `TILE = 16` et un `SCALE` **entier**, sinon les pixels bavent.
   rien y faire : c'est voulu pour les monstres, gênant pour un AFK
 - La carte complète est envoyée au client : le brouillard est cosmétique
 - On porte une arme, pas un inventaire : pas de sac, pas d'armure, pas de sorts
-- Pas encore : classes, progression entre les parties, son
+- Pas encore : classes, progression entre les parties
 
 ## Pistes
 

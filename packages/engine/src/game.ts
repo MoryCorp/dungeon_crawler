@@ -32,7 +32,6 @@ import type {
 } from './types.js'
 import {
   ACTOR_RADIUS,
-  AGGRO_MAX_DIST,
   AGGRO_MEMORY,
   BANDIT_HURT_WEIGHT,
   BANDIT_WINDOW,
@@ -83,9 +82,7 @@ import {
   RESPAWN_OF_CAP,
   REVIVE_OF_CAP,
   healCap,
-  HORDE_MAX,
   HORDE_MAX_DIST,
-  HORDE_MIN,
   HORDE_MIN_DIST,
   HORDE_SPREAD,
   KB_STACK_FALLOFF,
@@ -648,8 +645,12 @@ export function createGame(seed: number, floor = 1): GameState {
   return state
 }
 
-export function descend(state: GameState): void {
-  const rng = new Rng(state.rng)
+// En jeu, `step()` passe SON générateur : la génération de l'étage avance la
+// même séquence que le reste du tick, et le `state.rng = rng.s` final de step
+// repart bien d'après elle. Avant, descend relisait `state.rng` figé en début
+// de tick et step écrasait ensuite l'avancée — deux parties « identiques »
+// divergeaient selon ce que le tick avait consommé avant l'escalier.
+export function descend(state: GameState, rng: Rng = new Rng(state.rng)): void {
 
   // La salle de repos se mérite : décidée sur l'état au moment de prendre
   // l'escalier, jamais au rythme d'un métronome. Le signal lent la justifie,
@@ -701,6 +702,10 @@ export function descend(state: GameState): void {
     : generateFloor(rng, state.floor)
   if (scene) state.scene = scene
   else delete state.scene
+
+  // L'escalier qu'on vient de prendre, AVANT que le nouvel étage l'écrase :
+  // c'est à lui que se mesure « qui nous collait vraiment » plus bas.
+  const oldStairs = state.stairs
 
   state.tiles = layout.tiles
   state.width = layout.width
@@ -755,8 +760,8 @@ export function descend(state: GameState): void {
         .filter((a) => a.kind === 'monster' && a.alive)
         .sort(
           (a, b) =>
-            Math.hypot(a.x - state.stairs.x, a.y - state.stairs.y) -
-            Math.hypot(b.x - state.stairs.x, b.y - state.stairs.y),
+            Math.hypot(a.x - oldStairs.x, a.y - oldStairs.y) -
+            Math.hypot(b.x - oldStairs.x, b.y - oldStairs.y),
         )
         .slice(0, PURSUE_MAX)
     : []
@@ -2460,7 +2465,7 @@ export function step(
     for (const a of Object.values(state.actors)) {
       if (a.kind !== 'player' || !a.alive || a.downed || a.offline) continue
       if (Math.hypot(a.x - (state.stairs.x + 0.5), a.y - (state.stairs.y + 0.5)) < 0.6) {
-        descend(state)
+        descend(state, rng)
         break
       }
     }
