@@ -21,6 +21,12 @@ export const ticks = (seconds: number) => Math.round(seconds * TICK_RATE)
 export const Tile = {
   Wall: 0,
   Floor: 1,
+  /**
+   * Valeur réservée : aucune génération ne pose de porte aujourd'hui. Le
+   * franchissement, le rendu et le dump ASCII la supportent d'avance, et sa
+   * valeur ne bouge pas — renuméroter les tuiles invaliderait toutes les
+   * sauvegardes pour du décor.
+   */
   Door: 2,
   Stairs: 3,
   /**
@@ -421,6 +427,14 @@ export const RESPAWN_OF_CAP = 0.45
 export const CARRIED_OF_CAP = 0.3
 
 export const RESPAWN_TICKS = ticks(8)
+/**
+ * Absence au bout de laquelle un personnage est oublié — retiré du donjon à la
+ * prochaine descente, jamais en plein étage. Quinze minutes de jeu effectif :
+ * assez pour un redémarrage de box, un train qui passe sous un tunnel ou un
+ * dîner écourté ; pas assez pour que la partie se remplisse de corps que plus
+ * personne ne vient chercher.
+ */
+export const OFFLINE_FORGET = ticks(15 * 60)
 export const RESPAWN_GRACE = ticks(2)
 
 // --- Combat -----------------------------------------------------------------
@@ -1017,6 +1031,12 @@ export interface Actor {
    * sac de frappe immortel qui aimantait les monstres et empêchait le wipe.
    */
   offline?: boolean
+  /**
+   * Tick auquel il s'est déconnecté. Un tick, pas une heure : le moteur reste
+   * déterministe, et une partie que personne ne joue ne vieillit pas — ce qui
+   * est la bonne mesure, l'abandon se compte en temps de jeu manqué.
+   */
+  offlineAt?: number
   bleedOutAt?: number
   /** Progression de la relève en cours, de 0 à 1. */
   reviveProgress?: number
@@ -1080,6 +1100,8 @@ export interface Projectile {
    * disparaît des mesures — or c'est précisément un moment intéressant.
    */
   ownerSpecies: string
+  /** Escouade du tireur, figée au départ pour la même raison que l'espèce. */
+  ownerSquad?: string
   /** Un projectile de monstre ne touche que les joueurs, et inversement. */
   hostileToPlayers: boolean
   x: number
@@ -1182,6 +1204,15 @@ export type GameEvent =
       t: 'hit'
       from: string
       fromSpecies: string
+      /**
+       * Escouade de l'auteur, quand il en avait une. Même raison d'être que
+       * `fromSpecies` : l'événement doit se suffire à lui-même. Le carnet du
+       * bandit ne crédite une vague que des coups portés par ses escouades, et
+       * l'auteur a souvent disparu du registre avant qu'on lise l'événement —
+       * un kamikaze meurt de son explosion, un archer est tué avant l'impact
+       * de sa flèche.
+       */
+      fromSquad?: string
       to: string
       toSpecies: string
       dmg: number

@@ -202,15 +202,21 @@ export function separateActors(
   tiles: Uint8Array,
   w: number,
   h: number,
-  actors: { x: number; y: number; alive: boolean; kind?: string }[],
+  actors: { x: number; y: number; alive: boolean; kind?: string; offline?: boolean }[],
   r: number,
 ): void {
+  // Le corps d'un joueur déconnecté n'écarte plus rien : il n'est pas là. Le
+  // filtre vit ici plutôt qu'à l'appel, parce que la boucle de désencastrement
+  // qui suit immédiatement, elle, doit continuer à le prendre en compte — deux
+  // listes voisines aux contenus différents finiraient recollées un jour.
+  const absent = (a: { kind?: string; offline?: boolean }): boolean =>
+    a.kind === 'player' && a.offline === true
   for (let i = 0; i < actors.length; i++) {
     const a = actors[i]!
-    if (!a.alive) continue
+    if (!a.alive || absent(a)) continue
     for (let j = i + 1; j < actors.length; j++) {
       const b = actors[j]!
-      if (!b.alive) continue
+      if (!b.alive || absent(b)) continue
       // Deux monstres se tolèrent plus près l'un de l'autre qu'ils ne tolèrent
       // un joueur : à l'écartement plein (0.66 tuile), deux poursuivants qui
       // convergent vers la même embouchure de couloir (1 tuile) se poussaient

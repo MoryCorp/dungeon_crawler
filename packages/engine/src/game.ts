@@ -81,7 +81,6 @@ import {
   HEART_HEAL_RATIO,
   RESPAWN_OF_CAP,
   REVIVE_OF_CAP,
-  healCap,
   HORDE_MAX_DIST,
   HORDE_MIN_DIST,
   HORDE_SPREAD,
@@ -127,6 +126,7 @@ import {
   RECIPE_FRONT_MIN_SPEED,
   RECIPE_NEAR_MAX,
   RESPAWN_GRACE,
+  OFFLINE_FORGET,
   RESPAWN_TICKS,
   REVIVE_RANGE,
   REVIVE_TICKS,
@@ -584,6 +584,10 @@ function isWalkableAt(state: GameState, x: number, y: number): boolean {
 
 function isFree(state: GameState, x: number, y: number): boolean {
   if (!isWalkableAt(state, x, y)) return false
+  // Volontairement sans filtre `offline` : c'est le seul endroit où
+  // l'empreinte d'un corps absent sert encore à quelque chose — on ne fait
+  // apparaître personne pile dedans, sinon les deux se chevauchent jusqu'à ce
+  // que l'absent revienne.
   for (const a of Object.values(state.actors)) {
     if (a.alive && Math.hypot(a.x - x, a.y - y) < ACTOR_RADIUS * 2) return false
   }
@@ -667,12 +671,24 @@ export function descend(state: GameState, rng: Rng = new Rng(state.rng)): void {
     state.reserveCount
   const cleared = state.floorKills / Math.max(1, state.floorKills + remaining)
   for (const a of Object.values(state.actors)) {
-    if (a.kind !== 'player') continue
+    // Un absent n'a pas vu cet étage : le créditer de la patience de l'équipe
+    // fausserait son profil pour des heures de jeu qu'il n'a pas jouées.
+    if (a.kind !== 'player' || a.offline) continue
     const prof = profileOf(state, a.id)
     prof.clearedSum += cleared
     prof.floorsSeen += 1
   }
   state.floorKills = 0
+
+  // Les personnages abandonnés depuis longtemps sont oubliés ici, à la
+  // frontière d'un étage — jamais en plein combat, où un corps qui disparaît
+  // sous les yeux de l'équipe n'aurait aucun sens. Le profil de style, lui,
+  // survit : il décrit le joueur, pas la session.
+  for (const a of Object.values(state.actors)) {
+    if (a.kind !== 'player' || !a.offline) continue
+    if (state.tick - (a.offlineAt ?? state.tick) < OFFLINE_FORGET) continue
+    removePlayer(state, a.id)
+  }
 
   // La vague en cours d'évaluation disparaît avec l'étage : on solde son
   // levier avec ce qu'elle a produit jusqu'ici.
@@ -996,21 +1012,20 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
   if (pending) {
     pending.peak = Math.max(pending.peak, state.director.intensity)
     // Attribution causale : seuls comptent les coups portés À la cible de la
-    // vague PAR ses escouades. Avant, une vague visant Alice était créditée
-    // du monstre posé qui frappait Bob — le carnet apprenait du bruit. Un
-    // auteur disparu du registre (mort avant l'impact de sa flèche) compte
-    // aussi : c'est presque toujours un membre de la vague qu'on vient de
-    // tuer, jamais un joueur.
+    // vague PAR ses escouades. Une vague visant Alice n'est plus créditée du
+    // monstre posé qui frappait Bob — le carnet apprenait du bruit.
+    //
+    // L'événement fait seule autorité : il porte l'escouade de l'auteur, donc
+    // le coup reste attribuable même quand l'auteur a disparu dans le tick
+    // même — un kamikaze mort de son explosion, un archer tué avant l'impact
+    // de sa flèche. C'est ce que l'ancien repli par espèce approximait, en
+    // créditant au passage tout monstre étranger à la vague.
     let waveFraction = 0
     for (const ev of state.events) {
       if (ev.t !== 'hit' || ev.to !== pending.target) continue
       const victim = state.actors[ev.to]
       if (victim?.kind !== 'player' || victim.maxHp <= 0) continue
-      const from = state.actors[ev.from]
-      const fromWave = from
-        ? from.squad !== undefined && pending.squads.includes(from.squad)
-        : ev.fromSpecies !== 'hero' && ev.fromSpecies !== ''
-      if (!fromWave) continue
+      if (ev.fromSquad === undefined || !pending.squads.includes(ev.fromSquad)) continue
       waveFraction = Math.max(waveFraction, ev.dmg / victim.maxHp)
     }
     pending.hurt += waveFraction
@@ -1327,8 +1342,13 @@ function stepTrap(state: GameState, rng: Rng): void {
   const cx = room.x + room.w / 2
   const cy = room.y + room.h / 2
 
+  // Un déconnecté ne compte pour personne dans cette salle : il ne l'arme pas,
+  // il n'empêche pas de la désarmer en sortant, et il ne peut surtout pas être
+  // élu cible de la vague — la fenêtre du bandit se serait ouverte sur un
+  // absent, impossible à blesser, et le carnet aurait appris que la recette
+  // était mauvaise alors qu'elle n'a jamais été jouée.
   const playersInside = Object.values(state.actors).filter(
-    (a) => a.kind === 'player' && a.alive && insideRoom(room, a.x, a.y),
+    (a) => a.kind === 'player' && a.alive && !a.offline && insideRoom(room, a.x, a.y),
   )
 
   if (trap.phase === 'armed') {
@@ -1484,8 +1504,10 @@ export function setPlayerConnected(state: GameState, id: string, connected: bool
   if (!a || a.kind !== 'player') return
   if (connected) {
     delete a.offline
+    delete a.offlineAt
   } else {
     a.offline = true
+    a.offlineAt = state.tick
     a.sprinting = false
   }
 }
@@ -1657,6 +1679,8 @@ function damage(
   originY: number,
   /** Espèce à imputer quand la source n'existe plus — une flèche sans archer. */
   fromSpecies = from?.species ?? '',
+  /** Escouade à imputer, même raison : elle voyage avec le coup, pas avec l'auteur. */
+  fromSquad = from?.squad,
 ): void {
   if (!to.alive) return
   // Un joueur déjà à terre n'est plus une cible : le finir en boucle n'apporte
@@ -1677,6 +1701,7 @@ function damage(
     t: 'hit',
     from: from?.id ?? '',
     fromSpecies,
+    ...(fromSquad !== undefined ? { fromSquad } : {}),
     to: to.id,
     toSpecies: to.species,
     dmg: amount,
@@ -1735,6 +1760,10 @@ function spawnProjectile(
     id: `pr${state.nextId++}`,
     ownerId: owner.id,
     ownerSpecies: owner.species,
+    // L'escouade est figée au départ, pour la même raison que l'espèce : la
+    // flèche survit à son archer, et le carnet du bandit doit savoir de quelle
+    // vague elle venait même quand celui qui l'a tirée n'existe plus.
+    ...(owner.squad !== undefined ? { ownerSquad: owner.squad } : {}),
     hostileToPlayers: owner.kind === 'monster',
     // On décale du rayon de l'acteur, sinon le tir naît dans son propre corps.
     x: owner.x + Math.cos(aim) * (ACTOR_RADIUS + PROJECTILE_RADIUS + 0.02),
@@ -1816,6 +1845,10 @@ function playerAttack(state: GameState, actor: Actor, rng: Rng): void {
     p.hostileToPlayers = false
     p.ownerId = actor.id
     p.ownerSpecies = actor.species
+    // Le projectile change de camp : il n'appartient plus à la vague qui l'a
+    // tiré. Sans cet oubli, un tir renvoyé PAR un joueur créditait encore la
+    // recette du monstre au carnet du bandit.
+    delete p.ownerSquad
     // Assez de vie pour retraverser la salle — un renvoi qui expire en vol
     // n'aurait l'air de rien.
     p.ttl = Math.max(p.ttl, 60)
@@ -1926,7 +1959,7 @@ function monsterStrike(state: GameState, m: Actor, rng: Rng): void {
         t: 'swing', id: m.id, x: m.x, y: m.y, aim: m.aim, reach: 1.7, halfArc: MONSTER_HALF_ARC,
       })
       for (const target of Object.values(state.actors)) {
-        if (!target.alive || target.kind !== 'player') continue
+        if (!target.alive || target.kind !== 'player' || target.offline) continue
         if (
           !inAttackArc(
             m.x, m.y, m.aim,
@@ -1956,7 +1989,7 @@ function monsterStrike(state: GameState, m: Actor, rng: Rng): void {
         t: 'swing', id: m.id, x: m.x, y: m.y, aim: m.aim, reach: def.reach, halfArc: MONSTER_HALF_ARC,
       })
       for (const target of Object.values(state.actors)) {
-        if (!target.alive || target.kind !== 'player') continue
+        if (!target.alive || target.kind !== 'player' || target.offline) continue
         if (
           !inAttackArc(
             m.x, m.y, m.aim,
@@ -1996,14 +2029,17 @@ function stepProjectiles(state: GameState, rng: Rng): void {
     for (const target of Object.values(state.actors)) {
       if (!target.alive || target.id === p.ownerId) continue
       if (p.hostileToPlayers !== (target.kind === 'player')) continue
-      if (target.kind === 'player' && target.downed) continue
+      // Un joueur à terre n'est plus une cible, un déconnecté n'est pas là du
+      // tout : sans ce second cas, son corps servait de bouclier — la flèche
+      // s'y consumait sans blesser personne, et l'équipe se planquait derrière.
+      if (target.kind === 'player' && (target.downed || target.offline)) continue
       // Capsule verticale à l'échelle du rang : la hitbox suit le sprite,
       // une flèche qui traverse visiblement un torse doit toucher.
       const bodyScale = target.boss ? 1.9 : target.elite ? 1.35 : 1
       if (!hitsBody(p.x, p.y, target.x, target.y, ACTOR_RADIUS + PROJECTILE_RADIUS, BODY_HEIGHT * bodyScale)) continue
 
       const owner = state.actors[p.ownerId] ?? null
-      damage(state, owner, target, p.damage, p.knockback, p.x, p.y, p.ownerSpecies)
+      damage(state, owner, target, p.damage, p.knockback, p.x, p.y, p.ownerSpecies, p.ownerSquad)
       if (target.hp <= 0) killOrDown(state, target, rng)
       consumed = true
       break
@@ -2396,7 +2432,10 @@ export function step(
 
       let connected = false
       for (const target of Object.values(state.actors)) {
-        if (!target.alive || target.kind !== 'player' || target.downed) continue
+        // Un fantôme n'arrête pas une charge : sans le filtre, la ruée se
+        // brisait sur un corps absent et le monstre encaissait son temps de
+        // récupération pour rien.
+        if (!target.alive || target.kind !== 'player' || target.downed || target.offline) continue
         if (Math.hypot(target.x - m.x, target.y - m.y) > ACTOR_RADIUS * 2 + 0.15) continue
         damage(state, m, target, m.atk, def.knockback, m.x, m.y)
         if (target.hp <= 0) killOrDown(state, target, rng)
@@ -2445,6 +2484,10 @@ export function step(
   stepItems(state, rng)
 
   separateActors(state.tiles, state.width, state.height, Object.values(state.actors), ACTOR_RADIUS)
+  // Le désencastrement, lui, couvre TOUT LE MONDE, déconnectés compris — ne
+  // jamais y ajouter de filtre `offline`. C'est ce qui rend sûr le fait de ne
+  // plus les écarter : quand la grille du piège tombe sur la tuile d'un absent,
+  // c'est cette boucle qui le remet sur du sol avant qu'il ne revienne.
   for (const a of Object.values(state.actors)) {
     if (a.alive) unstick(state.tiles, state.width, state.height, a)
   }
