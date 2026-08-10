@@ -129,6 +129,7 @@ export async function loadRoom(code: string): Promise<LoadedRoom | null> {
       a.swingUntil = 0
       delete a.windupUntil
       delete a.dashUntil
+      delete a.pendingAttack
       // On reprend le souffle plein : personne n'a couru depuis des jours.
       if (a.kind === 'player') {
         a.stamina = 1

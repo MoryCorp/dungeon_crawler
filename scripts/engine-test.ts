@@ -73,6 +73,7 @@ import {
   WEAPONS,
   addPlayer,
   biomeOf,
+  buildActorViews,
   computeFov,
   createGame,
   descend,
@@ -83,6 +84,7 @@ import {
   inAttackArc,
   isWalkable,
   monsterCooldownAt,
+  monsterPool,
   movePhysical,
   packBits,
   playerAttackMult,
@@ -2516,12 +2518,17 @@ console.log('\nTests engine\n')
   check('étages 1-2 : soldats et chauves-souris seulement', garnison(1, ['bat', 'soldat']) && garnison(2, ['bat', 'soldat']))
   check('étage 3 : les archers royaux rejoignent', garnison(3, ['bat', 'soldat', 'archer_royal']))
   check(
-    'étage 4 : les chevaliers, mais pas encore les prêtres',
+    'étage 4 : les chevaliers, mais jamais les prêtres',
     garnison(4, ['bat', 'soldat', 'archer_royal', 'chevalier']),
   )
+  // Le prêtre n'appartient à AUCUN pool d'étage : l'échelle retardée ne le
+  // fait entrer qu'au créneau 5, devenu SAS + arène. Sa scène est l'arène —
+  // il est la garde d'élite du Gardien (voir « Le palier de boss »), pas un
+  // rang de troupe. Un test « garnison complète étage 5 » validerait une
+  // scène qui n'existe pas dans le flux réel.
   check(
-    'étage 5 : la garnison complète',
-    garnison(5, ['bat', 'soldat', 'archer_royal', 'chevalier', 'pretre']),
+    'aucun étage réel ne pose de prêtre en troupe',
+    [1, 2, 3, 4].every((f) => !monsterPool(f).includes('pretre')),
   )
 
   // L'élite vient des rangs déjà connus : le nouveau venu d'un étage sert dans
@@ -2543,6 +2550,11 @@ console.log('\nTests engine\n')
   )
   const gard = MONSTERS.gardien!
   const ow = MONSTERS.orc_warrior!
+  // Exception de clone assumée (voir types.ts) : maxHp/atk/xp suivent la loi
+  // du clone, mais les timings (speed/reach/windup/cooldown/dash) sont à lui —
+  // des patterns propres exigent des timings propres. Ne pas élargir ce test
+  // aux 15 clés des clones stricts : ce serait tester une doctrine qu'on a
+  // explicitement choisi de ne pas appliquer au boss.
   check(
     'le Gardien porte les chiffres du chevalier lourd — TTK/K intouchables',
     gard.maxHp === ow.maxHp && gard.atk === ow.atk && gard.xp === ow.xp,
@@ -2621,12 +2633,30 @@ console.log('\nTests engine\n')
     hero.x = boss.x - 5
     hero.y = boss.y
     hero.invulnUntil = 0
+    let wound = false
+    for (let i = 0; i < TICK_RATE * 4 && !wound; i++) {
+      step(s, { p_palier: idle })
+      wound = boss.windupUntil !== undefined && s.tick < boss.windupUntil
+    }
+    check('à distance, le Gardien prépare une charge', wound && boss.pendingAttack === 'charge')
+    // Le télégraphe transporté : le serveur annonce le couloir de la ruée,
+    // pas l'arc de portée 6,5 que le client déduisait de l'espèce.
+    const allSeen = new Uint8Array(s.width * s.height).fill(1)
+    const bossView = buildActorViews(s, allSeen).find((v) => v.id === boss.id)
+    check(
+      'le protocole annonce le couloir de charge',
+      bossView?.telegraphHalfArc === 0.16 && (bossView?.telegraphReach ?? 0) > 5,
+      `reach ${bossView?.telegraphReach}, halfArc ${bossView?.telegraphHalfArc}`,
+    )
+    // Le contrat du télégraphe : fermer l'écart pendant la préparation ne
+    // transforme pas la charge en martèlement — ce qui est annoncé part.
+    hero.x = boss.x - 1.2
     let dashed = false
-    for (let i = 0; i < TICK_RATE * 4 && !dashed; i++) {
+    for (let i = 0; i < TICK_RATE * 2 && !dashed; i++) {
       step(s, { p_palier: idle })
       dashed = boss.dashUntil !== undefined
     }
-    check('à distance, le Gardien charge', dashed)
+    check('la charge annoncée part, même l\'écart fermé', dashed)
     // On laisse la ruée se finir avant de tester le contact.
     for (let i = 0; i < TICK_RATE * 2 && boss.dashUntil !== undefined; i++) {
       step(s, { p_palier: idle })
@@ -2656,9 +2686,12 @@ console.log('\nTests engine\n')
     boss.hp = Math.floor(boss.maxHp * 0.2)
     step(s, { p_palier: idle })
     const wave2 = Object.values(s.actors).filter(
-      (a) => a.kind === 'monster' && !a.boss && a.species === 'archer_royal',
+      (a) => a.kind === 'monster' && !a.boss && a.species === 'pretre',
     )
-    check('au quart, deux archers royaux', wave2.length === 2 && wave2.every((a) => !a.elite))
+    check(
+      'au quart, deux prêtres — la signature de l\'arène',
+      wave2.length === 2 && wave2.every((a) => !a.elite),
+    )
     check(
       "l'appel de la garde s'annonce",
       s.events.some((e) => e.t === 'bossphase') || boss.bossPhase === 2,

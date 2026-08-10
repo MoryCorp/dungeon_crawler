@@ -10,7 +10,7 @@
  */
 import type { Decor, Room } from './mapgen.js'
 import type { Actor, GameEvent, GameState, ItemKind, PlayerInput } from './types.js'
-import { healCapOf, xpForLevel } from './types.js'
+import { MONSTERS, MONSTER_HALF_ARC, TICK_RATE, healCapOf, xpForLevel } from './types.js'
 
 const g = globalThis as unknown as {
   Buffer?: { from(b: Uint8Array | string, enc?: string): Uint8Array & { toString(e: string): string } }
@@ -99,6 +99,13 @@ export interface ActorView {
   /** Monstres uniquement. */
   rank?: 'elite' | 'boss'
   dashing?: boolean
+  /**
+   * Géométrie exacte du coup en préparation, calculée par le serveur qui
+   * seul connaît le pattern figé. Le client la dessine telle quelle — avant,
+   * il la déduisait de l'espèce et mentait sur les deux patterns du colosse.
+   */
+  telegraphReach?: number
+  telegraphHalfArc?: number
 }
 
 export interface ProjectileView {
@@ -222,6 +229,27 @@ export function buildActorViews(state: GameState, visible: Uint8Array): ActorVie
       if (a.boss) view.rank = 'boss'
       else if (a.elite) view.rank = 'elite'
       if (a.dashUntil !== undefined && a.dashUntil > state.tick) view.dashing = true
+      if (view.winding) {
+        const def = MONSTERS[a.species]
+        if (def) {
+          const charging =
+            def.behavior === 'charger' ||
+            (def.behavior === 'colosse' && a.pendingAttack === 'charge')
+          if (charging) {
+            // Un couloir : la ruée blesse sur sa trajectoire, pas en arc.
+            view.telegraphReach =
+              round2(((def.dashSpeed ?? 10) * (def.dashTicks ?? 12)) / TICK_RATE)
+            view.telegraphHalfArc = 0.16
+          } else if (def.behavior === 'colosse') {
+            // Le martèlement : l'arc court du marteau, pas la portée de charge.
+            view.telegraphReach = 1.7
+            view.telegraphHalfArc = round3(MONSTER_HALF_ARC)
+          } else {
+            view.telegraphReach = round2(def.reach)
+            view.telegraphHalfArc = round3(MONSTER_HALF_ARC)
+          }
+        }
+      }
     }
 
     out.push(view)

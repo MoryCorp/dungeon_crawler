@@ -201,11 +201,26 @@ export function decideMonsterAction(
     }
 
     case 'colosse': {
+      // Préparation arrivée à terme : le coup annoncé part, quelle que soit
+      // la distance du moment. Sans ça, un joueur pile dans la zone morte
+      // (1,7–3 tuiles) à l'expiration annulait la frappe en silence — un
+      // télégraphe suivi de rien est pire qu'un coup à esquiver.
+      if (m.windupUntil !== undefined) return { type: 'windup', aim: m.aim }
       // Deux distances, deux réponses : au contact il martèle (l'arc plus la
       // couronne d'éclats), à distance il se fige puis charge en ligne droite.
       // Entre les deux, il marche — lentement, c'est son poids qui l'annonce.
-      if (ready && dist <= 1.7) return { type: 'windup', aim }
+      // Le pattern se fige ICI, au DÉBUT de la préparation : le télégraphe
+      // est un contrat, ce qui est annoncé est ce qui part. La garde sur
+      // windupUntil est le verrou : au tick d'expiration, ce case tourne une
+      // dernière fois avant la frappe — sans elle, il re-décidait sur la
+      // distance du moment et le contrat sautait.
+      const starting = m.windupUntil === undefined
+      if (ready && dist <= 1.7) {
+        if (starting) m.pendingAttack = 'slam'
+        return { type: 'windup', aim }
+      }
       if (ready && seesDirectly && dist > 3 && dist <= def.reach) {
+        if (starting) m.pendingAttack = 'charge'
         return { type: 'windup', aim }
       }
       break

@@ -250,7 +250,12 @@ async function main(): Promise<void> {
         bonesLabel.textContent = String(msg.bones ?? 0)
         audio.setIntensity(msg.intensity ?? 0)
         for (const ev of msg.events) audio.onEvent(ev, selfId)
-        floorLabel.textContent = String(msg.floor)
+        // Même libellé enrichi que le paquet `floor` : sans ça, le premier
+        // paquet d'état écrasait « Sanctuaire »/« Gardien » après un tick.
+        floorLabel.textContent =
+          lastScene === 'sas' ? `${msg.floor} · Sanctuaire`
+          : lastScene === 'boss' ? `${msg.floor} · Gardien`
+          : String(msg.floor)
         updateHud(msg.actors, msg.locked, msg.chasing)
 
         for (const ev of msg.events) {

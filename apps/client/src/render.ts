@@ -978,20 +978,26 @@ export class Renderer {
       entity.sprite.alpha = !view.alive ? 0.3 : dimmed ? 0.4 : 1
       entity.sprite.tint = this.spriteTint(view)
 
-      // Télégraphe : l'arc rouge qui annonce le coup et laisse le temps de sortir.
-      const key = view.winding ? `${view.aim.toFixed(2)}:${view.species}:${scale}` : ''
+      // Télégraphe : l'arc rouge qui annonce le coup et laisse le temps de
+      // sortir. La géométrie vient du serveur (telegraphReach/HalfArc) : lui
+      // seul connaît le pattern figé — la déduire de l'espèce faisait mentir
+      // les deux patterns du colosse. Repli espèce pour un vieux serveur.
+      const reach =
+        view.telegraphReach ??
+        (MONSTERS[view.species]?.behavior === 'charger'
+          ? (MONSTERS[view.species]!.dashSpeed ?? 10) *
+            ((MONSTERS[view.species]!.dashTicks ?? 12) / TICK_RATE)
+          : MONSTERS[view.species]?.reach ?? 1)
+      const halfArc =
+        view.telegraphHalfArc ??
+        (MONSTERS[view.species]?.behavior === 'charger' ? 0.16 : MONSTER_HALF_ARC)
+      const key = view.winding
+        ? `${view.aim.toFixed(2)}:${reach.toFixed(2)}:${halfArc.toFixed(3)}:${scale}`
+        : ''
       if (key !== entity.telegraphKey) {
         entity.telegraphKey = key
         entity.telegraph.visible = view.winding
         if (view.winding) {
-          const def = MONSTERS[view.species]
-          // Le chargeur annonce sa trajectoire, pas une zone de frappe : un
-          // long couloir étroit devant lui.
-          const isCharge = def?.behavior === 'charger'
-          const reach = isCharge
-            ? (def.dashSpeed ?? 10) * ((def.dashTicks ?? 12) / 30)
-            : (def?.reach ?? 1)
-          const halfArc = isCharge ? 0.16 : MONSTER_HALF_ARC
           drawWedge(entity.telegraph, reach * TILE, view.aim, halfArc, 0xff5252, 0.28)
         }
       }

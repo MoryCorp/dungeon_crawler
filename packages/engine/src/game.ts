@@ -1831,8 +1831,11 @@ function monsterCooldown(state: GameState, def: SpeciesDef): number {
 
 /**
  * Les seuils de vie du Gardien : à 50 % puis 25 %, il appelle la garde — deux
- * soldats de l'échelle du biome, puis deux du rang suivant. Des renforts de
- * rang normal, jamais d'élite : la clé de l'arène, c'est lui et lui seul.
+ * soldats de l'échelle du biome, puis deux du DERNIER rang. Au Château, ce
+ * dernier rang est le prêtre : l'échelle retardée ne le fait jamais entrer
+ * dans les pools d'étage (le créneau 5 est devenu SAS + arène), l'arène est
+ * donc SA scène — la signature de fin d'acte, pas un rang de troupe. Des
+ * renforts de rang normal, jamais d'élite : la clé, c'est le Gardien seul.
  * Un seul appel par seuil, même si un coup massif fait sauter les deux d'un
  * coup — le pattern doit rester lisible, pas s'empiler.
  */
@@ -1841,7 +1844,8 @@ function stepBossPhase(state: GameState, m: Actor, rng: Rng): void {
   if (phase <= (m.bossPhase ?? 0)) return
   m.bossPhase = phase
   const ladder = biomeOf(state.floor).ladder
-  const species = (phase === 1 ? ladder[0] : ladder[1]) ?? monsterPool(state.floor)[0]!
+  const species =
+    (phase === 1 ? ladder[0] : ladder[ladder.length - 1]) ?? monsterPool(state.floor)[0]!
   for (let k = 0; k < 2; k++) {
     const at = findFreeSpot(state, m.x + (k === 0 ? -2.5 : 2.5), m.y)
     spawnMonster(state, `garde${state.floor}_${phase}_${k}`, species, at.x, at.y, 'normal', rng)
@@ -1881,17 +1885,14 @@ function monsterStrike(state: GameState, m: Actor, rng: Rng): void {
     }
 
     case 'colosse': {
-      // Le pattern se choisit au moment de frapper, sur la distance réelle :
-      // loin, la charge sismique — même verbe que le chargeur, même contre
-      // possible en plein vol. Près, le martèlement : l'arc de mêlée, puis une
-      // couronne de huit éclats de pierre qui punit de rester collé sans
-      // regarder — chacun se pare ou s'esquive comme une flèche.
-      let nearest = Infinity
-      for (const target of Object.values(state.actors)) {
-        if (target.kind !== 'player' || !target.alive || target.downed) continue
-        nearest = Math.min(nearest, Math.hypot(target.x - m.x, target.y - m.y))
-      }
-      if (nearest > 3) {
+      // Le pattern a été figé au début de la préparation (ai.ts) : le
+      // télégraphe est un contrat. Loin, la charge sismique — même verbe que
+      // le chargeur, même contre possible en plein vol. Près, le
+      // martèlement : l'arc de mêlée, puis une couronne de huit éclats de
+      // pierre qui punit de rester collé — chacun se pare comme une flèche.
+      const pattern = m.pendingAttack ?? 'slam'
+      delete m.pendingAttack
+      if (pattern === 'charge') {
         m.dashUntil = state.tick + (def.dashTicks ?? 12)
         m.dashVx = Math.cos(m.aim)
         m.dashVy = Math.sin(m.aim)

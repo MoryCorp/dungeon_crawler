@@ -884,7 +884,10 @@ export const MONSTERS: Record<string, SpeciesDef> = {
   // d'étage, seulement au bout du SAS, en rang boss. Ses chiffres de base sont
   // ceux de l'orc guerrier (l'ancien boss) : même TTK de boss, seuls les
   // patterns changent — c'est le comportement qui fait le combat, pas la barre
-  // de vie.
+  // de vie. Exception de clone ASSUMÉE : maxHp/atk/xp suivent la loi, mais
+  // speed/reach/windup/cooldown/dash lui appartiennent — des patterns propres
+  // exigent des timings propres. Toute retouche de ces timings se prouve sur
+  // un relevé d'arène, pas au ressenti.
   gardien:          { label: 'Gardien de pierre',  behavior: 'colosse', maxHp: 34, atk: 9, speed: 1.8, reach: 6.5,  windup: ticks(0.80), cooldown: ticks(1.7),  knockback: 12,  weight: 3.0, xp: 18, color: 0xd2694a,
                       dashSpeed: 12, dashTicks: ticks(0.60), projectileSpeed: 6.5 },
 }
@@ -1038,6 +1041,13 @@ export interface Actor {
   boss?: boolean
   /** Colosse : paliers de vie déjà franchis (appels de la garde). */
   bossPhase?: number
+  /**
+   * Le pattern du colosse, figé au DÉBUT de la préparation. Le contrat du
+   * télégraphe : ce qui est annoncé est ce qui part — sans ce champ, un
+   * joueur qui s'écartait d'un martèlement pouvait le voir se transformer en
+   * charge au moment de l'exécution (mesuré à l'audit).
+   */
+  pendingAttack?: 'charge' | 'slam'
   /** Avant ce tick, l'attaque en préparation ne peut plus être interrompue. */
   staggerReadyAt?: number
   /** Escouade de livraison : les membres d'un même groupe s'attendent. */
