@@ -103,7 +103,7 @@ export class Room {
     this.resets = state
       ? Math.max(resets, run?.runs ?? 0)
       : Math.max(resets, fromRun)
-    this.state = state ?? createGame(seedFromCode(code) + this.resets * 7919)
+    this.state = state ?? createGame(seedFromCode(code) + this.resets * 7919, 1, true)
     this.telemetry = new RunTelemetry(code, this.state, run, this.resets)
   }
 
@@ -159,7 +159,7 @@ export class Room {
   private restart(): void {
     const record = this.telemetry.toRecord(this.state.seed, new Date().toISOString(), this.state)
     this.resets++
-    this.state = createGame(seedFromCode(this.code) + this.resets * 7919)
+    this.state = createGame(seedFromCode(this.code) + this.resets * 7919, 1, true)
     for (const c of this.clients.values()) addPlayer(this.state, c.playerId, c.name)
     this.telemetry = new RunTelemetry(this.code, this.state, record, this.resets)
     this.resetAtMs = null

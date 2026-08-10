@@ -255,6 +255,22 @@ const asWs = (w: FakeWs) => w as unknown as import('ws').WebSocket
 }
 
 {
+  // Le vestiaire est un état comme un autre : il se sauvegarde et se relit.
+  // Sans ça, une équipe qui referme l'onglet avant d'avoir choisi son arme
+  // verrait sa sauvegarde mise en quarantaine à la reconnexion.
+  const room = new Room('TSTV')
+  room.join(asWs(fakeWs()), 'Alice')
+  check('une partie neuve s\'ouvre dans le vestiaire', room.state.scene === 'entree')
+  await room.persist()
+  const saved = await loadRoom('TSTV')
+  check('le vestiaire se relit sans quarantaine', saved?.state?.scene === 'entree')
+  const repris = new Room('TSTV', saved?.state, null, saved?.resets ?? 0)
+  repris.join(asWs(fakeWs()), 'Alice')
+  repris.tick()
+  check('et il se joue', repris.state.scene === 'entree' && repris.state.tick > 0)
+}
+
+{
   // Garde-fou : sans wipe en attente, une reprise reste une reprise.
   const room = new Room('TSTN')
   room.join(asWs(fakeWs()), 'Alice')
@@ -274,8 +290,14 @@ const asWs = (w: FakeWs) => w as unknown as import('ws').WebSocket
 
   const base = new Room('TSTM')
   base.join(asWs(fakeWs()), 'Alice')
+  // On quitte le vestiaire : c'est un vrai étage du donjon qu'on veut mutiler,
+  // avec ses monstres — sinon les mutations qui visent le bestiaire ne
+  // mordraient sur rien et le test se croirait vert.
+  descend(base.state)
   base.tick()
   await base.persist()
+  check('la sauvegarde mutilée part bien d\'un étage peuplé',
+    Object.values(base.state.actors).some((a) => a.kind === 'monster'))
   const brut = JSON.parse(await readFile(fileOf('TSTM'), 'utf8')) as {
     v: number
     state: Record<string, unknown>

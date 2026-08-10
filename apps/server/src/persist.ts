@@ -193,6 +193,7 @@ async function quarantine(path: string, who: string, why: string): Promise<void>
 
 /** Les phases du piège, énumérées ici pour que l'oubli d'une se voie. */
 const TRAP_PHASES: string[] = ['armed', 'warning', 'sprung', 'done']
+const SCENES: string[] = ['entree', 'sas', 'boss']
 
 const finite = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v)
 const point = (v: unknown): boolean =>
@@ -258,7 +259,7 @@ function stateFault(s: unknown): string | null {
   // Optionnels : légitimement absents. Les exiger mettrait en quarantaine la
   // quasi-totalité des sauvegardes — tout étage ordinaire est sans scène et
   // sans salle piégée. On ne les valide que s'ils sont là.
-  if (r.scene !== undefined && r.scene !== 'sas' && r.scene !== 'boss') return 'scene'
+  if (r.scene !== undefined && !SCENES.includes(r.scene as string)) return 'scene'
   if (r.trap !== undefined) {
     const t = r.trap as Record<string, unknown>
     if (typeof t !== 'object' || t === null) return 'trap'

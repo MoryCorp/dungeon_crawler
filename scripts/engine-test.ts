@@ -21,6 +21,8 @@ import {
   capPrice,
   playerSpeed,
   NEUTRAL_INPUT,
+  STARTING_WEAPON,
+  ENTRY_WEAPONS,
   HEART_HEAL_RATIO,
   MAP_H,
   CARRIED_OF_CAP,
@@ -2842,6 +2844,54 @@ console.log('\nTests engine\n')
       biomeOf(6).ladder.every((sp) => MONSTERS[sp]!.behavior !== 'colosse') &&
       biomeOf(1).swarm !== 'gardien' && biomeOf(6).swarm !== 'gardien',
   )
+}
+
+{
+  console.log("\nLe vestiaire — on choisit son arme avant d'entrer")
+
+  const s = createGame(3141, 1, true)
+  check("la partie s'ouvre dans le vestiaire, à l'étage 1", s.scene === 'entree' && s.floor === 1)
+  check('aucun monstre, aucune réserve : rien ne menace',
+    s.reserveCount === 0 && !Object.values(s.actors).some((a) => a.kind === 'monster'))
+  check("l'escalier est ouvert : on descend quand on a choisi", !s.stairsLocked)
+  check('pas de marchand : rien ne se vend ici',
+    !s.decor.some((d) => d.kind === 'marchand'))
+
+  const rack = s.items.filter((i) => i.kind === 'weapon')
+  check('un exemplaire de chaque arme est posé au sol',
+    rack.length === ENTRY_WEAPONS.length &&
+      new Set(rack.map((i) => i.weapon)).size === ENTRY_WEAPONS.length,
+    rack.map((i) => i.weapon).join(' '))
+  check('rien ne se paie au vestiaire', rack.every((i) => i.price === undefined))
+
+  const hero = addPlayer(s, 'p_vest', 'Arrivant')
+  check("on arrive l'épée à la main", hero.weapon === STARTING_WEAPON)
+
+  // Prendre la hache : elle demande la même intention qu'ailleurs, et l'épée
+  // reste au sol pour le suivant — à quatre, tout le monde trouve son compte.
+  const axe = rack.find((i) => i.weapon === 'axe')!
+  hero.x = axe.x
+  hero.y = axe.y
+  step(s, noInputs)
+  check('on ne change pas d\'arme en marchant dessus', hero.weapon === STARTING_WEAPON)
+  step(s, { p_vest: { ...NEUTRAL_INPUT, take: true } })
+  check('la hache se prend sur demande', hero.weapon === 'axe')
+  check("l'épée laissée compense l'exemplaire unique",
+    s.items.some((i) => i.kind === 'weapon' && i.weapon === STARTING_WEAPON))
+
+  // Sortir du vestiaire, c'est entrer dans l'étage 1 — pas descendre d'un cran.
+  descend(s)
+  check("sortir du vestiaire ouvre l'étage 1", s.floor === 1 && s.scene === undefined)
+  check("l'étage 1 se verrouille comme tout étage", s.stairsLocked)
+  check('le donjon est peuplé', Object.values(s.actors).some((a) => a.kind === 'monster'))
+  check("l'arme choisie traverse l'escalier", hero.weapon === 'axe')
+  check('personne ne poursuit depuis le vestiaire', s.pursuers.length === 0)
+
+  // Le vestiaire ne déplace pas le donjon : l'étage 1 est celui de la graine.
+  const plain = createGame(3141)
+  check("l'étage 1 est le même qu'une partie sans vestiaire",
+    s.spawn.x === plain.spawn.x && s.spawn.y === plain.spawn.y &&
+      s.stairs.x === plain.stairs.x && s.stairs.y === plain.stairs.y)
 }
 
 {

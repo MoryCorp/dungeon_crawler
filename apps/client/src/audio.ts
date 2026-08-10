@@ -15,6 +15,11 @@
  * plus on est profond, plus c'est sombre.
  */
 
+import type { Scene } from '@dc/engine'
+
+/** Le vestiaire et le SAS sont le même jardin : même lumière, même musique. */
+const sanctuary = (scene?: Scene): boolean => scene === 'sas' || scene === 'entree'
+
 /** Gamme mineure naturelle, en demi-tons depuis la tonique. */
 const MODE = [0, 2, 3, 5, 7, 8, 10]
 /** Notes de mélodie : pentatonique mineure, clairsemée et sans fausse note. */
@@ -43,7 +48,7 @@ export class GameAudio {
 
   private root = 110 // La tonique courante, en Hz.
   private floor = 1
-  private scene?: 'sas' | 'boss'
+  private scene?: Scene
   private intensity = 0
   private shownIntensity = 0
   private beat = 0
@@ -103,7 +108,7 @@ export class GameAudio {
     this.intensity = Math.max(0, Math.min(1, x))
   }
 
-  setFloor(floor: number, scene?: 'sas' | 'boss'): void {
+  setFloor(floor: number, scene?: Scene): void {
     if (floor === this.floor && scene === this.scene && this.ctx) return
     this.floor = floor
     this.scene = scene
@@ -173,9 +178,9 @@ export class GameAudio {
     const ctx = this.ctx!
     // Lissage : la musique réagit en une seconde ou deux, jamais d'à-coup.
     this.shownIntensity += (this.intensity - this.shownIntensity) * 0.12
-    // Le sanctuaire ne chauffe jamais : quoi que dise la Directrice, la
-    // musique y reste au calme absolu.
-    const heat = this.scene === 'sas' ? 0 : this.shownIntensity
+    // Un sanctuaire ne chauffe jamais : quoi que dise la Directrice, la
+    // musique y reste au calme absolu — vestiaire d'entrée compris.
+    const heat = sanctuary(this.scene) ? 0 : this.shownIntensity
 
     this.droneFilter.frequency.setTargetAtTime(300 + heat * 1900, ctx.currentTime, 0.4)
     this.tensionGain.gain.setTargetAtTime(heat * heat * 0.05, ctx.currentTime, 0.4)
@@ -195,7 +200,7 @@ export class GameAudio {
     // Le jardin du SAS : pas de pouls, pas de souffle — des plumes de
     // mélodie en majeur, plus fréquentes qu'en descente, et la tierce
     // d'écho devient majeure aussi. Même instruments, autre lumière.
-    const sas = this.scene === 'sas'
+    const sas = sanctuary(this.scene)
     const penta = sas ? PENTA_MAJOR : PENTA
     const mode = sas ? MODE_MAJOR : MODE
     // Pulsation sourde : un cœur qui bat, discret au calme, insistant au pic.

@@ -31,6 +31,7 @@ class FakeClient {
   ws: WebSocket
   selfId = ''
   floor = 0
+  scene: string | undefined
   mapSize = 0
   actors: ActorView[] = []
   items: ItemView[] = []
@@ -52,6 +53,7 @@ class FakeClient {
         if (msg.t === 'welcome') this.selfId = msg.selfId
         if (msg.t === 'floor') {
           this.floor = msg.floor
+          this.scene = msg.scene
           this.mapSize = msg.width * msg.height
         }
         if (msg.t === 'state') {
@@ -122,7 +124,13 @@ async function run(): Promise<void> {
   check('le héros a une arme de départ', me.weapon === 'sword', String(me.weapon))
   check('le héros démarre niveau 1', me.level === 1 && me.xp === 0, `n${me.level}, ${me.xp} xp`)
   check('le palier de niveau suivant est annoncé', (me.xpNext ?? 0) > 0, `${me.xpNext} xp`)
-  check('l\'escalier est verrouillé au début de l\'étage', alice.locked)
+  check('la partie s\'ouvre dans le vestiaire', alice.scene === 'entree', String(alice.scene))
+  check(
+    'un râtelier d\'armes y attend les deux joueurs',
+    alice.items.filter((i) => i.kind === 'weapon').length >= 4,
+    `${alice.items.filter((i) => i.kind === 'weapon').length} arme(s) au sol`,
+  )
+  check('et l\'escalier y est ouvert : on descend quand on a choisi', !alice.locked)
   check('personne ne poursuit au premier étage', alice.chasing === 0, `${alice.chasing}`)
   check('le héros démarre avec les PV de base', me.maxHp === PLAYER_BASE_HP, `${me.maxHp} PV`)
   check('l\'état transporte objets et projectiles',

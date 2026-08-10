@@ -164,6 +164,12 @@ export const WEAPONS: Record<string, WeaponDef> = {
 export const STARTING_WEAPON = 'sword'
 /** Armes trouvables dans les coffres. */
 export const LOOT_WEAPONS = ['dagger', 'axe', 'spear', 'bow']
+/**
+ * Le râtelier du vestiaire : un exemplaire de chacune. L'épée n'y est pas,
+ * tout le monde l'a déjà en main — celui qui en prend une autre laisse la
+ * sienne au sol, et il y a donc toujours de quoi armer quatre joueurs.
+ */
+export const ENTRY_WEAPONS = LOOT_WEAPONS
 
 // --- Progression : le modèle de puissance -----------------------------------
 
@@ -1270,16 +1276,23 @@ export type GameEvent =
   /** Le Gardien franchit un seuil de vie et appelle la garde. */
   | { t: 'bossphase'; id: string; phase: number; x: number; y: number }
 
+/**
+ * Une scène est un étage qui n'en est pas un : même numéro d'étage, autre
+ * décor et autres règles. `entree` ouvre la partie (le vestiaire : on y choisit
+ * son arme, rien ne menace) ; `sas` et `boss` composent le palier de boss.
+ * Absent = étage ordinaire du donjon.
+ */
+export type Scene = 'entree' | 'sas' | 'boss'
+
 export interface GameState {
   tick: number
   floor: number
   /**
-   * Où l'on est dans le palier de boss. Tous les BOSS_EVERY étages, la
-   * descente marque un temps : le SAS (sanctuaire marchand, aucune menace),
-   * puis l'arène (le Gardien seul, une grande salle). Les deux portent le
-   * numéro de l'étage de boss ; absent = étage ordinaire.
+   * Où l'on est hors du donjon proprement dit. L'entrée porte le numéro de
+   * l'étage 1, le SAS et l'arène celui de l'étage de boss — on « passe de 4 à
+   * 6 », avec un temps au milieu.
    */
-  scene?: 'sas' | 'boss'
+  scene?: Scene
   seed: number
   rng: number
   width: number

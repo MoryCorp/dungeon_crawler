@@ -9,7 +9,7 @@
  * est donc cosmétique. Sans importance entre amis.
  */
 import type { Decor, Room } from './mapgen.js'
-import type { Actor, GameEvent, GameState, ItemKind, PlayerInput } from './types.js'
+import type { Actor, GameEvent, GameState, ItemKind, PlayerInput, Scene } from './types.js'
 import { MONSTERS, MONSTER_HALF_ARC, TICK_RATE, healCapOf, xpForLevel } from './types.js'
 
 const g = globalThis as unknown as {
@@ -145,8 +145,8 @@ export type ServerMsg =
       decor?: Decor[]
       /** Les salles : le client habille chacune de son matériau de sol. */
       rooms?: Room[]
-      /** Palier de boss : sanctuaire marchand ou arène du Gardien. */
-      scene?: 'sas' | 'boss'
+      /** Vestiaire d'entrée, sanctuaire marchand ou arène du Gardien. */
+      scene?: Scene
     }
   /** Équipe au tapis : écran bref côté client, le serveur relance une descente
    *  neuve dans la même room quelques secondes plus tard. */

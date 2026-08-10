@@ -272,8 +272,11 @@ export function generateFloor(rng: Rng, floor: number): FloorLayout {
  * et c'est précisément ce qu'il ne doit pas être. Le canevas garde les
  * dimensions standard : tout ce qui raisonne en MAP_W×MAP_H (champ de flux,
  * minicarte, bots) continue de marcher sans cas particulier.
+ *
+ * Le vestiaire d'entrée réutilise la même salle sans marchand : c'est le même
+ * lieu, avant que quiconque ait de quoi acheter.
  */
-export function generateSasFloor(): FloorLayout {
+export function generateSasFloor(merchant = true): FloorLayout {
   const width = MAP_W
   const height = MAP_H
   const tiles = new Uint8Array(width * height).fill(Tile.Wall)
@@ -293,7 +296,9 @@ export function generateSasFloor(): FloorLayout {
   const sy = room.y + Math.floor(room.h / 2)
 
   const decor: Decor[] = [
-    { x: room.x + Math.floor(room.w / 2), y: room.y + 1, kind: 'marchand' },
+    ...(merchant
+      ? [{ x: room.x + Math.floor(room.w / 2), y: room.y + 1, kind: 'marchand' as const }]
+      : []),
     // Un peu de verdure et de vaisselle : le sanctuaire se reconnaît au
     // premier regard, avant même de lire quoi que ce soit.
     { x: room.x + 1, y: room.y + 1, kind: 'champignon' },

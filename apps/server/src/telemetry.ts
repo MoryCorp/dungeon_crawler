@@ -21,6 +21,7 @@ import {
   slowStrain,
   type GameEvent,
   type GameState,
+  type Scene,
 } from '@dc/engine'
 
 /** Compteur par clé, écrit sans avoir à initialiser chaque case. */
@@ -43,7 +44,7 @@ export interface FloorRecord {
    * La scène du palier de boss : SAS et arène partagent le numéro d'étage,
    * leurs mesures ne doivent jamais se confondre avec un étage ordinaire.
    */
-  scene?: 'sas' | 'boss'
+  scene?: Scene
   /** Ticks écoulés dans l'étage. La durée est ce qui trahit un ventre mou. */
   ticks: number
   /**
@@ -322,7 +323,7 @@ function emptyFloor(
   floor: number,
   level: number,
   run: number,
-  scene?: 'sas' | 'boss',
+  scene?: Scene,
 ): FloorRecord {
   return {
     floor,

@@ -87,6 +87,7 @@ import {
   KB_STACK_FALLOFF,
   KB_STACK_RESET,
   KNOCKBACK_DECAY,
+  ENTRY_WEAPONS,
   LOOT_WEAPONS,
   MONSTERS,
   MONSTER_HALF_ARC,
@@ -513,7 +514,7 @@ function populate(state: GameState, rooms: Room[], rng: Rng): void {
 }
 
 // L'étal de la salle de repos : quatre objets posés au sol, prix affichés,
-// achat en marchant dessus. La Directrice muette et l'absence de monstres
+// achat sur demande. La Directrice muette et l'absence de monstres
 // font le reste — la salle EST le répit, l'étal n'est que la dépense.
 function placeStall(state: GameState, rooms: Room[]): void {
   const rest = rooms.find((r) => r.kind === 'repos')
@@ -564,6 +565,27 @@ function populateSas(state: GameState, rooms: Room[]): void {
   placeStall(state, rooms)
 }
 
+/**
+ * Le vestiaire : un exemplaire de chaque arme posé au sol, gratuit, et
+ * l'escalier ouvert. Tout le monde arrive l'épée à la main — prendre autre
+ * chose la laisse sur place, si bien qu'il y a toujours de quoi s'armer même à
+ * quatre. Premier arrivé, premier servi : il n'y a qu'une dague, et c'est le
+ * premier choix collectif de la partie.
+ */
+function populateEntree(state: GameState, rooms: Room[]): void {
+  state.reserveCount = 0
+  const room = rooms[0]!
+  const cx = room.x + Math.floor(room.w / 2) + 0.5
+  const cy = room.y + 1.5
+  const rack = ENTRY_WEAPONS
+  for (let i = 0; i < rack.length; i++) {
+    // Alignées sous le mur haut, à l'écart du point d'arrivée : on les voit en
+    // entrant sans risquer d'en ramasser une avant d'avoir choisi.
+    const at = findFreeSpot(state, cx + i - (rack.length - 1) / 2, cy)
+    dropItem(state, { kind: 'weapon', x: at.x, y: at.y, weapon: rack[i]! })
+  }
+}
+
 // L'arène : le Gardien seul, au fond, face à l'entrée. Pas de réserve non
 // plus — ses renforts sont les siens, appelés par ses propres seuils de vie,
 // pas par la Directrice.
@@ -610,13 +632,20 @@ function findFreeSpot(state: GameState, cx: number, cy: number): { x: number; y:
 
 // ---------------------------------------------------------------- cycle de vie
 
-export function createGame(seed: number, floor = 1): GameState {
+/**
+ * `entry` ouvre la partie sur le vestiaire : même numéro d'étage que le
+ * premier, mais le donjon n'a pas encore commencé. C'est ce que fait le
+ * serveur. Les harnais de mesure (courbe, bots, tests) appellent sans, et
+ * démarrent donc directement dans l'étage 1 — ce qu'ils veulent mesurer.
+ */
+export function createGame(seed: number, floor = 1, entry = false): GameState {
   const rng = new Rng(seed)
-  const layout = generateFloor(rng, floor)
+  const layout = entry ? generateSasFloor(false) : generateFloor(rng, floor)
 
   const state: GameState = {
     tick: 0,
     floor,
+    ...(entry ? { scene: 'entree' as const } : {}),
     seed,
     rng: rng.s,
     width: layout.width,
@@ -628,7 +657,8 @@ export function createGame(seed: number, floor = 1): GameState {
     nextId: 1,
     stairs: layout.stairs,
     spawn: layout.spawn,
-    stairsLocked: true,
+    // Le vestiaire ne se verrouille pas : on descend quand on a choisi.
+    stairsLocked: !entry,
     pursuers: [],
     reserveCount: 0,
     director: createDirector(0, seed),
@@ -644,7 +674,8 @@ export function createGame(seed: number, floor = 1): GameState {
     events: [],
   }
 
-  populate(state, layout.rooms, rng)
+  if (entry) populateEntree(state, layout.rooms)
+  else populate(state, layout.rooms, rng)
   state.rng = rng.s
   return state
 }
@@ -700,7 +731,11 @@ export function descend(state: GameState, rng: Rng = new Rng(state.rng)): void {
   // numéro de l'étage de boss — on « passe de 4 à 6 », avec un temps au milieu.
   const from = state.scene
   let scene: GameState['scene']
-  if (state.scene === 'sas') {
+  if (state.scene === 'entree') {
+    // Le vestiaire porte déjà le numéro de l'étage 1 : en sortir, c'est y
+    // entrer, pas descendre d'un cran.
+    scene = undefined
+  } else if (state.scene === 'sas') {
     scene = 'boss'
   } else if (state.scene === 'boss') {
     scene = undefined

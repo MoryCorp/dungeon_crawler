@@ -18,6 +18,7 @@ import {
   xpForLevel,
   type ActorView,
   type PlayerInput,
+  type Scene,
   type ServerMsg,
 } from '@dc/engine'
 import { GameAudio } from './audio.js'
@@ -79,6 +80,14 @@ const SNAP_DISTANCE = 1.2
 /** Correction douce appliquée à chaque paquet quand l'écart reste faible. */
 const CORRECTION = 0.2
 
+/** Ce qu'affiche le HUD à la place du seul numéro d'étage. */
+function sceneLabel(floor: number, scene?: Scene): string {
+  return scene === 'entree' ? 'Vestiaire'
+    : scene === 'sas' ? `${floor} · Sanctuaire`
+    : scene === 'boss' ? `${floor} · Gardien`
+    : String(floor)
+}
+
 async function main(): Promise<void> {
   const app = new Application()
   await app.init({
@@ -113,7 +122,7 @@ async function main(): Promise<void> {
   let mapW = 0
   let mapH = 0
   let lastFloor = 0
-  let lastScene: 'sas' | 'boss' | undefined
+  let lastScene: Scene | undefined
   let alive = true
   let downed = false
   let hasted = false
@@ -216,10 +225,7 @@ async function main(): Promise<void> {
         tiles = fromBase64(msg.tiles)
         renderer.setFloor(msg.width, msg.height, tiles, samefloor, msg.decor ?? [], msg.floor, msg.rooms ?? [], msg.scene)
         audio.setFloor(msg.floor, msg.scene)
-        floorLabel.textContent =
-          msg.scene === 'sas' ? `${msg.floor} · Sanctuaire`
-          : msg.scene === 'boss' ? `${msg.floor} · Gardien`
-          : String(msg.floor)
+        floorLabel.textContent = sceneLabel(msg.floor, msg.scene)
         if (!samefloor) localReady = false
         break
       }
@@ -252,10 +258,7 @@ async function main(): Promise<void> {
         for (const ev of msg.events) audio.onEvent(ev, selfId)
         // Même libellé enrichi que le paquet `floor` : sans ça, le premier
         // paquet d'état écrasait « Sanctuaire »/« Gardien » après un tick.
-        floorLabel.textContent =
-          lastScene === 'sas' ? `${msg.floor} · Sanctuaire`
-          : lastScene === 'boss' ? `${msg.floor} · Gardien`
-          : String(msg.floor)
+        floorLabel.textContent = sceneLabel(msg.floor, lastScene)
         updateHud(msg.actors, msg.locked, msg.chasing)
 
         for (const ev of msg.events) {
@@ -348,9 +351,12 @@ async function main(): Promise<void> {
 
     objective.classList.remove('hidden')
     objective.classList.toggle('done', !locked)
-    objective.textContent = locked
-      ? 'Escalier verrouillé — tuez le gardien et récupérez la clé'
-      : 'Escalier ouvert — descendez quand vous êtes prêts'
+    objective.textContent =
+      lastScene === 'entree'
+        ? 'Choisissez votre arme — clic droit maintenu — puis descendez'
+        : locked
+          ? 'Escalier verrouillé — tuez le gardien et récupérez la clé'
+          : 'Escalier ouvert — descendez quand vous êtes prêts'
 
     const wasDowned = downed
     downed = self?.downed === true

@@ -387,8 +387,19 @@ Cinq armes, qui changent la façon de jouer plutôt qu'un chiffre : la **dague**
 frappe vite et court sans presque t'immobiliser, la **hache** ouvre un arc de
 170° mais te cloue sur place, la **lance** tient à 2.4 tuiles dans un cône
 étroit, l'**arc** tire un projectile. On les trouve dans les coffres et sur les
-boss ; on en change en marchant dessus, et l'ancienne reste au sol pour un
-coéquipier.
+boss ; l'ancienne reste au sol pour un coéquipier.
+
+La partie s'ouvre sur le **vestiaire** : le jardin du sanctuaire, sans marchand
+ni menace, avec un exemplaire de chaque arme posé au sol et l'escalier déjà
+ouvert. Tout le monde arrive l'épée à la main, donc celui qui en prend une autre
+laisse la sienne — il y a toujours de quoi armer quatre joueurs, mais il n'y a
+qu'une dague : le premier choix de la partie est collectif.
+
+**Rien de coûteux ne se prend en marchant dessus.** Une arme et tout ce qui a un
+prix demandent la même intention : curseur dessus, clic droit maintenu une
+seconde, une jauge se remplit. La bourse est commune — sans ce geste, n'importe
+qui la viderait en traversant l'étal, et reprendre par accident l'arme qu'on
+vient de poser annulait une décision qu'on venait de prendre.
 
 L'**XP est commune à l'équipe** — ramasser une orbe fait monter tout le monde.
 Sans ça celui qui porte les coups distance les autres et la moitié du groupe se
