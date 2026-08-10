@@ -58,6 +58,8 @@ import {
   PROJECTILE_RADIUS,
   hitsBody,
   moveWithCollision,
+  setPlayerConnected,
+  OFFLINE_FORGET,
   separateActors,
   REVIVE_TICKS,
   ROLL_BUFFER,
@@ -616,6 +618,136 @@ console.log('\nTests engine\n')
   const pm = settle('player', 'monster')
   check('deux monstres se chevauchent un peu', mm < 0.5, `${mm.toFixed(2)} tuile`)
   check('le joueur garde ses distances pleines', pm > 0.6, `${pm.toFixed(2)} tuile`)
+
+  // Un déconnecté n'écarte plus personne : son corps n'est pas là.
+  const a = { x: 5, y: 5, alive: true, kind: 'player', offline: true }
+  const b = { x: 5.1, y: 5, alive: true, kind: 'monster' }
+  for (let i = 0; i < 30; i++) separateActors(open, W, W, [a, b], ACTOR_RADIUS)
+  check(
+    'le corps d\'un absent n\'écarte plus rien',
+    Math.abs(Math.hypot(b.x - a.x, b.y - a.y) - 0.1) < 1e-9,
+  )
+}
+
+// --- l'absent est vraiment hors du monde -------------------------------------
+// Le drapeau `offline` promet qu'un joueur déconnecté n'existe plus pour
+// personne. Il tenait déjà pour l'IA et les mesures ; son CORPS, lui, restait
+// et jouait au bouclier. Chaque contrat ci-dessous a été un exploit ou une
+// perte de sens mesurée.
+{
+  // Une flèche traverse le corps d'un absent et va toucher celui qui joue :
+  // l'équipe ne se planque plus derrière le corps d'un coéquipier parti.
+  const s = createGame(1818)
+  clearMonsters(s)
+  const parti = addPlayer(s, 'p_parti', 'Parti')
+  const reste = addPlayer(s, 'p_reste', 'Resté')
+  // Alignés sur l'axe du tir : l'absent d'abord, celui qui joue derrière.
+  parti.y = reste.y
+  parti.x = reste.x + 2
+  reste.x = reste.x + 4
+  delete parti.invulnUntil
+  delete reste.invulnUntil
+  setPlayerConnected(s, 'p_parti', false)
+  s.projectiles.push({
+    id: 'pr_test', ownerId: 'm_absent', ownerSpecies: 'skeleton_mage',
+    hostileToPlayers: true, x: parti.x - 1, y: parti.y, vx: 8, vy: 0,
+    damage: 5, knockback: 0, ttl: 200, color: 0xffffff,
+  })
+  const resteHp = reste.hp
+  for (let t = 0; t < TICK_RATE && reste.hp === resteHp; t++) step(s, noInputs)
+  check('la flèche traverse le corps d\'un absent', parti.hp === parti.maxHp)
+  check('et va toucher celui qui joue', reste.hp < resteHp, `${reste.hp}/${resteHp}`)
+}
+
+{
+  // Une ruée ne se brise pas sur un fantôme : elle le traverse et poursuit.
+  const s = createGame(31416)
+  clearMonsters(s)
+  addPlayer(s, 'p_parti', 'Parti')
+  const parti = s.actors.p_parti!
+  parti.x = 12
+  parti.y = 10
+  setPlayerConnected(s, 'p_parti', false)
+  const rusheur = putMonster(s, 'm_dash', 'skeleton_rogue', 8, 10)
+  rusheur.dashUntil = s.tick + 20
+  rusheur.dashVx = 1
+  rusheur.dashVy = 0
+  const before = rusheur.x
+  step(s, noInputs)
+  check('la ruée ne se brise pas sur un absent',
+    rusheur.dashUntil !== undefined && rusheur.x > before,
+    `x ${before.toFixed(2)} → ${rusheur.x.toFixed(2)}`)
+}
+
+{
+  // Le piège ignore un déconnecté : il ne l'arme pas, et une salle armée par
+  // un joueur qui se déconnecte se réarme au lieu de se refermer sur personne.
+  const s = createGame(31417)
+  clearMonsters(s)
+  addPlayer(s, 'p_parti', 'Parti')
+  const parti = s.actors.p_parti!
+  const room = s.rooms.find((r) => r.w >= 5 && r.h >= 5) ?? s.rooms[0]!
+  s.trap = { room, phase: 'armed', gates: [] }
+  parti.x = room.x + room.w / 2
+  parti.y = room.y + room.h / 2
+  setPlayerConnected(s, 'p_parti', false)
+  step(s, noInputs)
+  check('un absent n\'arme pas la salle piégée', s.trap?.phase === 'armed')
+
+  setPlayerConnected(s, 'p_parti', true)
+  step(s, noInputs)
+  check('mais un joueur présent, oui', s.trap?.phase === 'warning')
+  setPlayerConnected(s, 'p_parti', false)
+  for (let t = 0; t < TRAP_WARNING_TICKS + 5; t++) step(s, noInputs)
+  check('et se déconnecter dans l\'avertissement la réarme',
+    s.trap?.phase === 'armed', `${s.trap?.phase}`)
+}
+
+{
+  // Le désencastrement, lui, continue de couvrir les absents : c'est ce qui
+  // rend sûr le fait de ne plus les écarter.
+  const s = createGame(31418)
+  clearMonsters(s)
+  addPlayer(s, 'p_parti', 'Parti')
+  const parti = s.actors.p_parti!
+  setPlayerConnected(s, 'p_parti', false)
+  const tx = Math.floor(parti.x)
+  const ty = Math.floor(parti.y)
+  s.tiles[ty * s.width + tx] = Tile.Gate
+  step(s, noInputs)
+  check('un absent enfermé sous une grille est quand même dégagé',
+    Math.floor(parti.x) !== tx || Math.floor(parti.y) !== ty)
+}
+
+{
+  // La patience d'un étage ne se crédite qu'à ceux qui l'ont traversé.
+  const s = createGame(31419)
+  clearMonsters(s)
+  addPlayer(s, 'p_parti', 'Parti')
+  addPlayer(s, 'p_reste', 'Resté')
+  setPlayerConnected(s, 'p_parti', false)
+  descend(s)
+  check('la patience de l\'étage ne crédite pas l\'absent',
+    (s.profiles.p_parti?.floorsSeen ?? 0) === 0 &&
+    (s.profiles.p_reste?.floorsSeen ?? 0) === 1)
+}
+
+{
+  // L'oubli : un personnage abandonné depuis un quart d'heure quitte le
+  // donjon à la descente suivante, mais son profil de style reste.
+  const s = createGame(31420)
+  clearMonsters(s)
+  addPlayer(s, 'p_parti', 'Parti')
+  addPlayer(s, 'p_reste', 'Resté')
+  setPlayerConnected(s, 'p_parti', false)
+  descend(s)
+  check('une absence courte ne coûte pas le personnage', s.actors.p_parti !== undefined)
+
+  s.tick += OFFLINE_FORGET
+  descend(s)
+  check('un quart d\'heure d\'absence, si', s.actors.p_parti === undefined)
+  check('mais le profil de style survit au personnage', s.profiles.p_parti !== undefined)
+  check('et celui qui joue reste', s.actors.p_reste !== undefined)
 }
 
 // --- le renvoi de projectile -------------------------------------------------
@@ -2150,6 +2282,60 @@ console.log('\nTests engine\n')
     hurtSeen = s.banditPending?.hurt ?? 0
   }
   check('les coups portés à la cible par son escouade créditent le carnet', hurtSeen > 0)
+
+  // L'auteur disparu du registre. L'escouade voyage avec le COUP, pas avec
+  // l'acteur : c'est ce qui distingue la flèche d'un membre de la vague, tué
+  // avant qu'elle n'arrive, de celle d'un tireur qui n'en a jamais fait
+  // partie. Avant, l'espèce servait de repli et les créditait toutes les deux.
+  const shot = (squad: string | undefined): number => {
+    const g = createGame(9092)
+    clearMonsters(g)
+    const cible = addPlayer(g, 'p_cible', 'Cible')
+    cible.invulnUntil = 0
+    g.banditPending = {
+      id: 'p_cible:sword', recipe: 'ruee', until: g.tick + TICK_RATE * 60,
+      peak: 0, hurt: 0, target: 'p_cible', squads: ['sq_vague'],
+    }
+    // Le tireur n'existe plus : seule sa flèche reste, avec ce qu'elle porte.
+    g.projectiles.push({
+      id: 'pr_orphelin', ownerId: 'm_disparu', ownerSpecies: 'skeleton_mage',
+      ...(squad !== undefined ? { ownerSquad: squad } : {}),
+      hostileToPlayers: true, x: cible.x - 1.2, y: cible.y, vx: 8, vy: 0,
+      damage: 5, knockback: 0, ttl: 200, color: 0xffffff,
+    })
+    for (let i = 0; i < TICK_RATE && cible.hp === cible.maxHp; i++) step(g, noInputs)
+    return g.banditPending?.hurt ?? 0
+  }
+  check('la flèche d\'un membre de la vague crédite sa recette', shot('sq_vague') > 0)
+  check('celle d\'un tireur étranger ne crédite rien', shot('sq_ailleurs') === 0)
+  check('et une flèche sans escouade non plus', shot(undefined) === 0)
+
+  // Non-régression du cas que l'ancien repli par espèce couvrait : le kamikaze
+  // meurt de sa propre explosion, donc il a quitté le registre avant qu'on lise
+  // les événements du tick. Son coup doit rester crédité à sa vague.
+  {
+    const g = createGame(9093)
+    clearMonsters(g)
+    const cible = addPlayer(g, 'p_cible', 'Cible')
+    cible.invulnUntil = 0
+    cible.maxHp = 9000
+    cible.hp = 9000
+    const boum = putMonster(g, 'm_boum', 'orc_bomber', cible.x + 0.9, cible.y)
+    boum.squad = 'sq_vague'
+    boum.squadUntil = 999999
+    g.banditPending = {
+      id: 'p_cible:sword', recipe: 'ruee', until: g.tick + TICK_RATE * 60,
+      peak: 0, hurt: 0, target: 'p_cible', squads: ['sq_vague'],
+    }
+    let blast = false
+    for (let i = 0; i < TICK_RATE * 4 && !blast; i++) {
+      step(g, noInputs)
+      blast = g.events.some((e) => e.t === 'blast')
+    }
+    check('le kamikaze explose bien', blast)
+    check('et son explosion reste créditée à sa vague', (g.banditPending?.hurt ?? 0) > 0)
+    check('alors qu\'il a déjà quitté le registre', g.actors.m_boum === undefined)
+  }
 
   // Le ciblage hors repos : un joueur frais planqué au sanctuaire ne coupe
   // plus les vagues pour toute l'équipe — la Directrice vise un éligible.

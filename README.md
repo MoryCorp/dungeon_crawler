@@ -504,6 +504,7 @@ rendu.
 ## Tests
 
 ```bash
+npm test                         # les deux harnais ci-dessous, à la suite
 npx tsx scripts/engine-test.ts   # règles pures, aucune dépendance externe
 npx tsx scripts/server-test.ts   # frontières du serveur : réseau, disque, sockets, télémétrie
 npx tsx scripts/curve.ts 20      # invariants du modèle de puissance

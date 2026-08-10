@@ -191,6 +191,9 @@ async function quarantine(path: string, who: string, why: string): Promise<void>
   }
 }
 
+/** Les phases du piège, énumérées ici pour que l'oubli d'une se voie. */
+const TRAP_PHASES: string[] = ['armed', 'warning', 'sprung', 'done']
+
 const finite = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v)
 const point = (v: unknown): boolean =>
   typeof v === 'object' && v !== null &&
@@ -259,7 +262,7 @@ function stateFault(s: unknown): string | null {
   if (r.trap !== undefined) {
     const t = r.trap as Record<string, unknown>
     if (typeof t !== 'object' || t === null) return 'trap'
-    if (t.phase !== 'armed' && t.phase !== 'warning' && t.phase !== 'done') return 'trap.phase'
+    if (!TRAP_PHASES.includes(t.phase as string)) return 'trap.phase'
     if (!Array.isArray(t.gates)) return 'trap.gates'
   }
   // `projectiles`, `events` et `banditPending` ne sont pas validés : ils sont

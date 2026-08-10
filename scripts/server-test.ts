@@ -19,7 +19,7 @@ import { addPlayer, createGame, descend } from '@dc/engine'
 const DATA = await mkdtemp(join(tmpdir(), 'dc-server-test-'))
 process.env.DATA_DIR = DATA
 
-const { loadRoom, saveRoom } = await import('../apps/server/src/persist.js')
+const { loadRoom, loadRun, saveRoom } = await import('../apps/server/src/persist.js')
 const { Room } = await import('../apps/server/src/room.js')
 const { RunTelemetry } = await import('../apps/server/src/telemetry.js')
 const { MAX_MSG_BYTES, parseClientMsg, sanitizeInput } = await import(
@@ -226,6 +226,185 @@ const asWs = (w: FakeWs) => w as unknown as import('ws').WebSocket
 
   await room.persist()
   check('la room persiste son état', (await loadRoom('TSTB')) !== null)
+}
+
+// --- le wipe survit à l'arrêt du process ------------------------------------
+// Les 2,5 secondes d'écran de fin étaient un trou : un arrêt dedans (SIGTERM
+// d'un redéploiement, ou toute l'équipe qui se déconnecte et fige la room)
+// sauvegardait la partie morte, et la reprise la rejouait.
+{
+  const room = new Room('TSTW')
+  room.join(asWs(fakeWs()), 'Alice')
+  const seedAvant = room.state.seed
+  const resetsAvant = (room as unknown as { resets: number }).resets
+  // Un wipe programmé qui n'arrivera jamais : le process s'arrête avant.
+  ;(room as unknown as { resetAtMs: number | null }).resetAtMs = Date.now() + 900_000
+  await room.persist()
+
+  const saved = await loadRoom('TSTW')
+  check('une partie morte ne se relit pas comme une partie vivante',
+    saved !== null && saved.state === null)
+  check('mais son compteur de runs a avancé', saved?.resets === resetsAvant + 1)
+
+  const repris = new Room('TSTW', saved?.state, await loadRun('TSTW'), saved?.resets ?? 0)
+  check('la reprise repart d\'une descente neuve',
+    repris.state.tick === 0 && repris.state.floor === 1)
+  check('sur une graine jamais jouée', repris.state.seed !== seedAvant)
+  check('et personne ne ressuscite dans le donjon qui l\'a tué',
+    Object.keys(repris.state.actors).every((id) => !id.startsWith('p_')))
+}
+
+{
+  // Garde-fou : sans wipe en attente, une reprise reste une reprise.
+  const room = new Room('TSTN')
+  room.join(asWs(fakeWs()), 'Alice')
+  room.state.floor = 4
+  await room.persist()
+  const saved = await loadRoom('TSTN')
+  check('une sauvegarde ordinaire se reprend toujours',
+    saved?.state?.floor === 4 && saved.resets === 0)
+}
+
+// --- une sauvegarde relue supporte son premier tick --------------------------
+// La validation ne sert à rien si elle laisse passer un état qui tombe au
+// premier tick : la quarantaine n'agit qu'au chargement, pas après.
+{
+  const roomsDir = join(DATA, 'rooms')
+  const fileOf = (code: string) => join(roomsDir, `${code}.json`)
+
+  const base = new Room('TSTM')
+  base.join(asWs(fakeWs()), 'Alice')
+  base.tick()
+  await base.persist()
+  const brut = JSON.parse(await readFile(fileOf('TSTM'), 'utf8')) as {
+    v: number
+    state: Record<string, unknown>
+  }
+
+  /** Écrit une copie mutilée de la sauvegarde saine et tente de la relire. */
+  const mutile = async (
+    code: string,
+    abime: (s: Record<string, unknown>) => void,
+  ): Promise<{ lu: Awaited<ReturnType<typeof loadRoom>>; enQuarantaine: boolean }> => {
+    const copie = JSON.parse(JSON.stringify(brut)) as typeof brut
+    abime(copie.state)
+    await writeFile(fileOf(code), JSON.stringify(copie), 'utf8')
+    const lu = await loadRoom(code)
+    const enQuarantaine = (await readdir(roomsDir)).some((f) =>
+      f.startsWith(`${code}.json.corrupt-`))
+    return { lu, enQuarantaine }
+  }
+
+  const fatals: [string, (s: Record<string, unknown>) => void][] = [
+    ['sans graine', (s) => delete s.seed],
+    ['sans générateur', (s) => delete s.rng],
+    ['sans compteur d\'identifiants', (s) => delete s.nextId],
+    ['sans objets au sol', (s) => delete s.items],
+    ['sans escalier', (s) => delete s.stairs],
+    ['sans point d\'apparition', (s) => delete s.spawn],
+    ['sans verrou d\'escalier', (s) => delete s.stairsLocked],
+    ['aux acteurs en tableau', (s) => { s.actors = [] }],
+    ['à l\'acteur sans position', (s) => {
+      (s.actors as Record<string, Record<string, unknown>>).p_alice!.x = 'ici'
+    }],
+    ['à l\'espèce inconnue au bestiaire', (s) => {
+      const a = s.actors as Record<string, Record<string, unknown>>
+      const m = Object.values(a).find((x) => x.kind === 'monster')
+      if (m) m.species = 'dragon_oublie'
+    }],
+    ['au piège dans une phase impossible', (s) => {
+      s.trap = { room: { x: 1, y: 1, w: 5, h: 5 }, phase: 'oups', gates: [] }
+    }],
+  ]
+  let fatalsOk = 0
+  for (const [nom, abime] of fatals) {
+    const code = `TX${fatalsOk}`
+    const { lu, enQuarantaine } = await mutile(code, abime)
+    if (lu === null && enQuarantaine) fatalsOk++
+    else check(`une sauvegarde ${nom} part en quarantaine`, false, `${code}`)
+  }
+  check('toute sauvegarde qui tomberait au premier tick part en quarantaine',
+    fatalsOk === fatals.length, `${fatalsOk}/${fatals.length}`)
+
+  // Le garde-fou inverse, tout aussi important : ce qui est légitimement
+  // absent doit continuer de se relire. Une validation trop zélée mettrait en
+  // quarantaine la quasi-totalité des parties — tout étage ordinaire est sans
+  // scène de palier et sans salle piégée.
+  const tolerables: [string, (s: Record<string, unknown>) => void][] = [
+    ['sans scène de palier', (s) => delete s.scene],
+    ['sans décor', (s) => delete s.decor],
+    ['sans salle piégée', (s) => delete s.trap],
+    ['sans bourse d\'ossements', (s) => delete s.bones],
+  ]
+  let tolerablesOk = 0
+  for (const [nom, abime] of tolerables) {
+    const code = `TO${tolerablesOk}`
+    const { lu } = await mutile(code, abime)
+    if (lu?.state) {
+      // Et la preuve par l'usage : l'état relu se joue vraiment.
+      const r = new Room(code, lu.state)
+      r.join(asWs(fakeWs()), 'Zoé')
+      r.tick()
+      tolerablesOk++
+    } else {
+      check(`une sauvegarde ${nom} se relit quand même`, false, code)
+    }
+  }
+  check('ce qui est légitimement absent se relit et se joue',
+    tolerablesOk === tolerables.length, `${tolerablesOk}/${tolerables.length}`)
+}
+
+// --- un relevé corrompu coûte la mesure, jamais la partie --------------------
+{
+  const runsDir = join(DATA, 'runs')
+  const runFileOf = (code: string) => join(runsDir, `${code}.json`)
+
+  await writeFile(runFileOf('TSTR'), '{"floors":{"length":3},"wipes":0}', 'utf8')
+  const lu = await loadRun('TSTR')
+  check('un relevé qui ment sur ses étages est refusé', lu === null)
+  check('et part en quarantaine au lieu d\'être écrasé dix secondes plus tard',
+    (await readdir(runsDir)).some((f) => f.startsWith('TSTR.json.corrupt-')))
+
+  // Même passé en force, il ne doit pas faire tomber la construction : c'est
+  // ce qui rendait la partie injoignable.
+  let leve = false
+  try {
+    const t = new RunTelemetry('TSTR', createGame(1), { floors: { length: 3 } } as never)
+    t.toRecord(1, '2026-08-10T00:00:00Z')
+  } catch {
+    leve = true
+  }
+  check('la télémétrie survit à un relevé mensonger', !leve)
+}
+
+// --- état et relevé décrivent toujours la même run ---------------------------
+{
+  const room = new Room('TSTP')
+  room.join(asWs(fakeWs()), 'Alice')
+  const ecriture = room.persist()
+  // Une descente neuve s'intercale pendant l'écriture : avant, les deux
+  // fichiers finissaient sur deux runs différentes.
+  ;(room as unknown as { restart(): void }).restart()
+  await ecriture
+  await (room as unknown as { saving: Promise<void> }).saving
+
+  const etat = await loadRoom('TSTP')
+  const releve = await loadRun('TSTP')
+  check('l\'état et le relevé sortent du même instant',
+    etat?.state != null && releve != null &&
+    releve.seed === etat.state.seed && (releve.runs ?? 0) === etat.resets,
+    `run ${releve?.runs} vs resets ${etat?.resets}`)
+}
+
+{
+  // Le compteur de runs ne redescend jamais : si un des deux fichiers est en
+  // avance, c'est lui qui fait foi — sinon une graine serait rejouée.
+  const state = createGame(4242)
+  addPlayer(state, 'p_a', 'A')
+  const enAvance = { room: 'TSTQ', seed: 1, updatedAt: '', floors: [], wipes: 0, runs: 5 }
+  const room = new Room('TSTQ', state, enAvance, 2)
+  check('un relevé en avance sur l\'état ne fait pas rejouer une graine',
+    (room as unknown as { resets: number }).resets === 5)
 }
 
 await rm(DATA, { recursive: true, force: true })

@@ -206,6 +206,21 @@ async function run(): Promise<void> {
   const missing = await fetch(`${httpBase}/stats/ZZZZ`)
   check('une partie sans mesure répond 404', missing.status === 404, `HTTP ${missing.status}`)
 
+  // Un message obèse est refusé par la socket elle-même, avant d'être reçu en
+  // entier : c'est le seul endroit où l'on exerce vraiment le plafond du
+  // serveur, les tests de la fonction de validation ne voient pas la porte.
+  {
+    const glouton = new WebSocket(URL)
+    await new Promise<void>((resolve) => glouton.once('open', () => resolve()))
+    const ferme = new Promise<number>((resolve) => glouton.once('close', (code) => resolve(code)))
+    glouton.send(JSON.stringify({ t: 'ping', ts: 1, pad: 'x'.repeat(64 * 1024) }))
+    const code = await Promise.race([
+      ferme,
+      new Promise<number>((resolve) => setTimeout(() => resolve(-1), 2000)),
+    ])
+    check('un message obèse fait fermer la connexion', code === 1009, `code ${code}`)
+  }
+
   aliceAgain.ws.close()
   bob.ws.close()
   await wait(300)

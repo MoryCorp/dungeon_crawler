@@ -10,7 +10,8 @@
     "dev": "node scripts/dev.mjs",
     "build": "npm run build --workspace=@dc/client",
     "start": "node --import tsx apps/server/src/index.ts",
-    "typecheck": "tsc --noEmit -p packages/engine && tsc --noEmit -p apps/server && tsc --noEmit -p apps/client && tsc --noEmit -p scripts"
+    "typecheck": "tsc --noEmit -p packages/engine && tsc --noEmit -p apps/server && tsc --noEmit -p apps/client && tsc --noEmit -p scripts",
+    "test": "node --import tsx scripts/engine-test.ts && node --import tsx scripts/server-test.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

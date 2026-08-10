@@ -317,7 +317,7 @@ Nettoyage simple avant tag v1.0.
 
 ## Addendum — Relevé post-chantier (10 août 2026)
 
-Les quatre jalons issus de cet audit sont livrés : « La preuve redevient
+Les quatre jalons issus de cet audit ont été livrés : « La preuve redevient
 vraie » (curve au cycle réel, télémétrie par run/étage/scène, attribution
 causale du bandit, ciblage hors salle de repos), « Le Gardien honnête »
 (pattern figé au télégraphe, exécution garantie à l'expiration, prêtre en
@@ -325,8 +325,31 @@ garde d'élite de l'arène), « Le serveur ferme ses portes » (validation
 réseau, statut hors ligne, backpressure, sauvegardes en quarantaine) et
 « Transitions fiables » (descente déterministe, ancien escalier, client sans
 fuites, harnais `scripts/server-test.ts`). Suite complète verte à chaque
-jalon : typecheck, engine-test, server-test, curve, botrun brute + rush,
-smoke, build client.
+jalon.
+
+**Cette affirmation était trop tranquille pour la moitié serveur, et une
+relecture du chantier l'a montré.** Le gameplay et les instruments de mesure
+tenaient ; les frontières, non. Un wipe se volatilisait si le process
+s'arrêtait dans les 2,5 secondes d'écran de fin — le cas exact d'un
+redéploiement — et la partie morte était rejouée telle quelle au retour. Le
+statut hors ligne promettait « hors du monde » alors que le corps absorbait
+encore flèches et charges, armait la salle piégée et faussait toutes les
+mesures. Et une sauvegarde superficiellement plausible pouvait passer le
+chargement pour tomber à chaque tick, hors de portée de la quarantaine.
+
+Ces trois familles sont corrigées par le chantier suivant (« Le serveur
+survit au redéploiement », « Le monde ne garde pas de fantômes », « La preuve
+du serveur »), avec leurs verrous dans `scripts/server-test.ts` — dont un
+contrat qui prouve l'objectif plutôt que le moyen : toute sauvegarde relue
+doit supporter un vrai `join` et un vrai tick.
+
+Trois limites restent, assumées et écrites là où on les cherchera : les
+événements d'un paquet d'état sauté pour cause de socket saturée ne sont pas
+rejoués (ils ne pilotent que du son et des particules) ; le corps d'un
+personnage absent continue d'occuper sa place aux yeux du placement, pour
+qu'on ne fasse apparaître personne dedans ; et `Tile.Door` reste une valeur
+réservée, jamais générée, parce que renuméroter les tuiles invaliderait
+toutes les sauvegardes pour du décor.
 
 ### La courbe, maintenant qu'elle dit vrai (B1 corrigé)
 
