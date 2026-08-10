@@ -313,3 +313,57 @@ Nettoyage simple avant tag v1.0.
 4. **Fiabiliser les transitions** : ancien escalier capturé avant la descente, RNG unique, compteurs de room réinitialisés après wipe, tests de descente live et save/load.
 
 5. **Enrichir l’économie sans toucher aux statistiques** : ceinture tactique minimale graines/orbes/objets lancés, achat explicite, puis mesure de son effet sur dépenses, engagement, downs et diversité d’armes.
+---
+
+## Addendum — Relevé post-chantier (10 août 2026)
+
+Les quatre jalons issus de cet audit sont livrés : « La preuve redevient
+vraie » (curve au cycle réel, télémétrie par run/étage/scène, attribution
+causale du bandit, ciblage hors salle de repos), « Le Gardien honnête »
+(pattern figé au télégraphe, exécution garantie à l'expiration, prêtre en
+garde d'élite de l'arène), « Le serveur ferme ses portes » (validation
+réseau, statut hors ligne, backpressure, sauvegardes en quarantaine) et
+« Transitions fiables » (descente déterministe, ancien escalier, client sans
+fuites, harnais `scripts/server-test.ts`). Suite complète verte à chaque
+jalon : typecheck, engine-test, server-test, curve, botrun brute + rush,
+smoke, build client.
+
+### La courbe, maintenant qu'elle dit vrai (B1 corrigé)
+
+`curve.ts` calcule enfin le cycle d'attaque réel étage par étage (windup +
+récupération resserrée). Verdict sur 20 étages :
+
+- **TTK : 1,20 s constant, dérive ×1,000.** La cible est tenue exactement —
+  le modèle de puissance fait ce qu'il promet.
+- **K : 3,26 (étage 1) → 2,37 (étage 20), dérive ×1,383** (le
+  temps-pour-mourir se contracte de ~27 %). Le resserrement de récupération
+  des monstres (`FLOOR_COOLDOWN_TIGHTEN`) ronge le TTD plus vite que les PV
+  du joueur ne montent. Le plancher (`FLOOR_COOLDOWN_MIN` à l'étage 14)
+  stabilise K ≈ 2,4 au-delà.
+
+**Décision : constaté et documenté, pas corrigé.** TTK/K sont intouchables
+dans ce chantier ; l'équilibrage de la dérive de K est un chantier séparé qui
+attendra son go, nourri par ces chiffres devenus fiables.
+
+### Botrun, 3 graines, brute et rush (10 étages demandés)
+
+| Graine | Mode | Étage atteint | Morts | TTK relevé | K relevé (é.1 → dernier) |
+|---|---|---|---|---|---|
+| 20260808 | brute | 4 (wipe) | 6 | 1,11 → 1,37 s | 19,5 → 9,3 |
+| 20260809 | brute | 4 (wipe) | 6 | 1,11 → 1,29 s | 23,2 → 13,6 |
+| 20260810 | brute | 4 (wipe) | 6 | 1,11 → 1,25 s | 26,8 → 7,3 |
+| 20260808 | rush | 4 (wipe) | 6 | 1,37 s | 8,0 |
+| 20260809 | rush | 4 (wipe) | 6 | 1,37 s | 4,4 |
+| 20260810 | rush | 4 (wipe) | 6 | 1,37 s | 2,6 |
+
+Lecture : le bot (qui joue mal, c'est sa fonction) meurt à l'étage 4 sur les
+six runs — cohérence brute/rush retrouvée, la poursuite fait payer le rush
+(16, 8 et 11 suiveurs livrés à l'étage 4). Aucun étage traversé sans
+encaisser, premier étage dangereux : 1–2. Le K relevé en jeu reste très
+au-dessus du K analytique (le bot frappe des monstres déjà engagés sur
+quatre joueurs) ; c'est la dérive RELATIVE qui compte, et elle suit la
+courbe.
+
+**Aucune décision d'équilibrage n'est prise ici.** Ce relevé est la ligne de
+base : les chiffres sont désormais produits par des instruments justes, et
+toute retouche future de TTK/K devra se prouver contre eux.
