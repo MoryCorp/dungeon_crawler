@@ -55,7 +55,7 @@ function getRoom(code: string): Promise<Room> {
   if (!pending) {
     pending = (async () => {
       const [saved, run] = await Promise.all([loadRoom(code), loadRun(code)])
-      const room = new Room(code, saved, run)
+      const room = new Room(code, saved?.state, run, saved?.resets ?? 0)
       rooms.set(code, room)
       console.log(
         `[room ${code}] ${saved ? 'reprise de la sauvegarde' : 'nouvelle partie'} (étage ${room.state.floor})`,

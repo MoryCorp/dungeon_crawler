@@ -82,6 +82,7 @@ import {
   generateFloor,
   inAttackArc,
   isWalkable,
+  monsterCooldownAt,
   movePhysical,
   packBits,
   playerAttackMult,
@@ -2022,6 +2023,83 @@ console.log('\nTests engine\n')
     'les gains restent dans [0, 1]',
     Object.values(arms).every((a) => a.sum >= 0 && a.sum <= a.n),
   )
+}
+
+// --- La preuve ---------------------------------------------------------------
+//
+// Les instruments de mesure eux-mêmes : l'audit a montré qu'un outil faux
+// certifie n'importe quoi. Ces tests verrouillent la formule partagée.
+{
+  console.log('\nLa preuve')
+
+  // Le cycle réel : moteur et curve.ts doivent lire LA MÊME formule.
+  const orc = MONSTERS.orc!
+  check(
+    'la récupération ne se resserre pas à l\'étage 1',
+    monsterCooldownAt(1, orc) === Math.max(4, Math.round(orc.cooldown)),
+  )
+  check(
+    'elle se resserre de 3 % par étage',
+    monsterCooldownAt(10, orc) === Math.max(4, Math.round(orc.cooldown * (1 - 0.03 * 9))),
+  )
+  check(
+    'et touche son plancher de 60 % à l\'étage 15, définitivement',
+    monsterCooldownAt(15, orc) === Math.max(4, Math.round(orc.cooldown * 0.6)) &&
+      monsterCooldownAt(30, orc) === monsterCooldownAt(15, orc),
+  )
+
+  // L'attribution causale du bandit : une vague visant Alice ne doit rien
+  // apprendre d'un coup pris par Bob, ni d'un monstre étranger à la vague.
+  const s = createGame(9091)
+  clearMonsters(s)
+  const alice = addPlayer(s, 'p_alice', 'Alice')
+  const bob = addPlayer(s, 'p_bob', 'Bob')
+  alice.invulnUntil = 0
+  bob.invulnUntil = 0
+  alice.x = bob.x + 5
+  const m = putMonster(s, 'm_sq', 'orc', bob.x + 0.8, bob.y)
+  m.squad = 'sq_test'
+  m.squadUntil = 999999
+  s.banditPending = {
+    id: 'p_alice:sword', recipe: 'ruee', until: s.tick + TICK_RATE * 60,
+    peak: 0, hurt: 0, target: 'p_alice', squads: ['sq_test'],
+  }
+  let bobHit = false
+  for (let i = 0; i < TICK_RATE * 3 && !bobHit; i++) {
+    step(s, noInputs)
+    bobHit = s.events.some((e) => e.t === 'hit' && e.to === 'p_bob')
+  }
+  check('le monstre frappe bien Bob', bobHit)
+  check('…mais la fenêtre d\'Alice n\'en apprend rien', (s.banditPending?.hurt ?? -1) === 0)
+  // La même fenêtre, re-ciblée sur Bob : là, le coup compte.
+  s.banditPending!.target = 'p_bob'
+  let hurtSeen = 0
+  for (let i = 0; i < TICK_RATE * 4 && hurtSeen === 0; i++) {
+    step(s, noInputs)
+    hurtSeen = s.banditPending?.hurt ?? 0
+  }
+  check('les coups portés à la cible par son escouade créditent le carnet', hurtSeen > 0)
+
+  // Le ciblage hors repos : un joueur frais planqué au sanctuaire ne coupe
+  // plus les vagues pour toute l'équipe — la Directrice vise un éligible.
+  const t = createGame(8801, 6)
+  clearMonsters(t)
+  const planque = addPlayer(t, 'p_planque', 'Planqué')
+  const dehors = addPlayer(t, 'p_dehors', 'Dehors')
+  dehors.maxHp = 9000
+  dehors.hp = 8000 // blessé : l'ancien code choisissait donc le planqué, et abandonnait
+  const restRoom = t.rooms[1]!
+  restRoom.kind = 'repos'
+  planque.x = restRoom.x + restRoom.w / 2
+  planque.y = restRoom.y + restRoom.h / 2
+  t.reserveCount = 30
+  t.director = createDirector(t.tick)
+  let waves = 0
+  for (let i = 0; i < TICK_RATE * 240 && waves === 0; i++) {
+    step(t, { p_planque: idle, p_dehors: idle })
+    for (const ev of t.events) if (ev.t === 'horde') waves++
+  }
+  check('la Directrice livre malgré le planqué au repos', waves >= 1, `${waves} vague(s)`)
 }
 
 // --- Sprint -------------------------------------------------------------------

@@ -557,6 +557,21 @@ export const FLOOR_XP_GROWTH = FLOOR_HP_GROWTH
 export const FLOOR_COOLDOWN_TIGHTEN = 0.03
 export const FLOOR_COOLDOWN_MIN = 0.6
 
+/**
+ * Cadence d'attaque d'un monstre à un étage donné : la récupération se
+ * resserre avec la profondeur, jamais la préparation. Fonction pure et
+ * exportée pour une raison de doctrine : c'est LA formule que le moteur ET
+ * les outils analytiques (curve.ts) doivent partager — l'audit a montré que
+ * deux copies divergentes faisaient certifier un K constant qui ne l'est pas.
+ */
+export function monsterCooldownAt(floor: number, def: { cooldown: number }): number {
+  const tighten = Math.max(
+    FLOOR_COOLDOWN_MIN,
+    1 - FLOOR_COOLDOWN_TIGHTEN * Math.max(0, floor - 1),
+  )
+  return Math.max(4, Math.round(def.cooldown * tighten))
+}
+
 /** Facteur de puissance d'un étage. Géométrique, comme celui du joueur. */
 export function floorScale(floor: number, growth: number): number {
   return powerScale(floor - 1, growth)
@@ -1246,7 +1261,17 @@ export interface GameState {
   /** Mémoire du bandit : par joueur ciblé, ce que chaque recette a rapporté. */
   bandit: Record<string, BanditArms>
   /** Vague en cours d'évaluation : son gain s'inscrit à la fin de la fenêtre. */
-  banditPending?: { id: string; recipe: string; until: number; peak: number; hurt: number }
+  banditPending?: {
+    id: string
+    recipe: string
+    until: number
+    peak: number
+    hurt: number
+    /** La cible de la vague : seuls ses dégâts subis créditent le carnet. */
+    target: string
+    /** Les escouades livrées : seuls leurs coups comptent — attribution causale. */
+    squads: string[]
+  }
   /** Monstres tués sur l'étage courant — le dénominateur de la patience. */
   floorKills: number
   /** Bourse d'équipe : les ossements ramassés, pas encore dépensés. */

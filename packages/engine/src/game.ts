@@ -53,8 +53,7 @@ import {
   ELITE_WEIGHT_MULT,
   ELITE_XP_MULT,
   FLOOR_ATK_GROWTH,
-  FLOOR_COOLDOWN_MIN,
-  FLOOR_COOLDOWN_TIGHTEN,
+  monsterCooldownAt,
   FLOOR_HP_GROWTH,
   FLOW_MAX_DIST,
   FLOOR_XP_GROWTH,
@@ -319,7 +318,9 @@ function garrisonDepth(floor: number, ladderLength: number): number {
   return Math.min(Math.max(floorInAct(floor) - 1, 1), ladderLength)
 }
 
-function monsterPool(floor: number): string[] {
+// Exporté pour curve.ts : la courbe d'XP doit compter les espèces qu'un étage
+// pose réellement, pas la moyenne de tout le bestiaire boss compris.
+export function monsterPool(floor: number): string[] {
   const biome = biomeOf(floor)
   if (biome.ladder.length === 0) {
     // Le cachot historique, seul biome sans échelle propre.
@@ -989,7 +990,25 @@ function runDirector(state: GameState, visible: Uint8Array, rng: Rng): void {
   const pending = state.banditPending
   if (pending) {
     pending.peak = Math.max(pending.peak, state.director.intensity)
-    pending.hurt += damageFraction
+    // Attribution causale : seuls comptent les coups portés À la cible de la
+    // vague PAR ses escouades. Avant, une vague visant Alice était créditée
+    // du monstre posé qui frappait Bob — le carnet apprenait du bruit. Un
+    // auteur disparu du registre (mort avant l'impact de sa flèche) compte
+    // aussi : c'est presque toujours un membre de la vague qu'on vient de
+    // tuer, jamais un joueur.
+    let waveFraction = 0
+    for (const ev of state.events) {
+      if (ev.t !== 'hit' || ev.to !== pending.target) continue
+      const victim = state.actors[ev.to]
+      if (victim?.kind !== 'player' || victim.maxHp <= 0) continue
+      const from = state.actors[ev.from]
+      const fromWave = from
+        ? from.squad !== undefined && pending.squads.includes(from.squad)
+        : ev.fromSpecies !== 'hero' && ev.fromSpecies !== ''
+      if (!fromWave) continue
+      waveFraction = Math.max(waveFraction, ev.dmg / victim.maxHp)
+    }
+    pending.hurt += waveFraction
     if (state.tick >= pending.until) settleBandit(state)
   }
 
@@ -1136,17 +1155,19 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   // la tension, pas des exécutions. Ce biais est documenté ici parce qu'il
   // est invisible dans les chiffres : le bandit apprend PAR cible, donc ses
   // carnets décrivent toujours ce qui marche contre un joueur en forme.
+  // La salle de repos : la Directrice s'y tait — pour ceux qui s'y trouvent.
+  // Un joueur au sanctuaire sort de la SÉLECTION, il ne protège pas les
+  // autres : avant, le mieux portant planqué au repos coupait toutes les
+  // vagues pour l'équipe entière (mesuré à l'audit — exploit structurel).
+  const restRoom = state.rooms.find((r) => r.kind === 'repos')
   let target: Actor | null = null
   for (const a of Object.values(state.actors)) {
     if (a.kind !== 'player' || !a.alive || a.downed || a.maxHp <= 0) continue
+    if (restRoom && insideRoom(restRoom, a.x, a.y)) continue
     if (!target || a.hp / a.maxHp > target.hp / target.maxHp) target = a
   }
+  // Toute l'équipe au repos : là oui, la Directrice se tait vraiment.
   if (!target) return
-
-  // La salle de repos : la Directrice s'y tait. Pas de vague tant que sa
-  // cible s'y trouve — et le joueur le sait, c'est ce qui fait le repos.
-  const restRoom = state.rooms.find((r) => r.kind === 'repos')
-  if (restRoom && insideRoom(restRoom, target.x, target.y)) return
 
   // Une vague part avant la fin de la fenêtre de la précédente : on solde la
   // précédente avec ce qui a été observé jusqu'ici plutôt que de lui
@@ -1190,8 +1211,14 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
   // arrivent de deux côtés opposés et n'ont aucune raison de s'attendre l'une
   // l'autre — chacune doit arriver entière, c'est tout.
   let squadIndex = 0
+  // Les escouades livrées, mémorisées pour l'attribution : la fenêtre du
+  // bandit ne créditera que les coups portés par CES monstres-là.
+  const squads: string[] = []
   for (const group of plan) {
-    const squad = `s${state.tick}_${squadIndex++}`
+    // L'étage dans l'identifiant : deux runs au même tick (restart) ne
+    // doivent jamais partager une chaîne d'escouade.
+    const squad = `s${state.floor}_${state.tick}_${squadIndex++}`
+    squads.push(squad)
     const anchor = recipeAnchor(
       state, visible, rng, target,
       placementOpts(state, target, group.placement, flankAngle),
@@ -1271,6 +1298,8 @@ function deliverHorde(state: GameState, count: number, visible: Uint8Array, rng:
       until: state.tick + BANDIT_WINDOW,
       peak: 0,
       hurt: 0,
+      target: target.id,
+      squads,
     }
   }
 }
@@ -1332,10 +1361,17 @@ function stepTrap(state: GameState, rng: Rng): void {
     // (contexte du joueur le mieux portant dans la salle), groupes mono-espèce.
     const target = playersInside.reduce((b, a) => (a.hp / a.maxHp > b.hp / b.maxHp ? a : b))
     const context = `${target.id}:${target.weapon ?? 'sword'}`
-    const recipe = pickRecipe((state.bandit[context] ??= {}), rng)
+    // Même chemin d'apprentissage que les vagues normales : démarrage à chaud
+    // du carnet, et une fenêtre d'évaluation ouverte plus bas. Avant, le
+    // piège tirait sur un carnet vide et n'inscrivait jamais son résultat —
+    // le bandit ne savait rien de ses vagues piégées.
+    const arms = state.bandit[context] ?? (state.bandit[context] = warmStart(state.bandit, target.id))
+    const recipe = pickRecipe(arms, rng)
     const plan = planWave(recipe, trapWaveSize(state.floor), monsterPool(state.floor), new Map(), rng)
+    const trapSquads: string[] = []
     for (const group of plan) {
-      const squad = `t${state.tick}_${group.placement}`
+      const squad = `t${state.floor}_${state.tick}_${group.placement}`
+      trapSquads.push(squad)
       for (let i = 0; i < group.fromDebt + group.fromReserve; i++) {
         // Dans la salle, mais jamais collé à un joueur : le monstre apparaît
         // à au moins deux tuiles, sinon le premier coup part sans télégraphe.
@@ -1359,6 +1395,17 @@ function stepTrap(state: GameState, rng: Rng): void {
         actor.squad = squad
         actor.squadUntil = state.tick + SQUAD_PATIENCE
       }
+    }
+    // La fenêtre du piège remplace toute fenêtre en cours : on solde d'abord.
+    settleBandit(state)
+    state.banditPending = {
+      id: context,
+      recipe: recipe.name,
+      until: state.tick + BANDIT_WINDOW,
+      peak: 0,
+      hurt: 0,
+      target: target.id,
+      squads: trapSquads,
     }
     trap.phase = 'sprung'
     return
@@ -1777,18 +1824,9 @@ function explode(state: GameState, m: Actor, rng: Rng): void {
   delete state.actors[m.id]
 }
 
-/**
- * Cadence d'attaque d'un monstre à cet étage. On resserre le temps de
- * récupération avec la profondeur, jamais le temps de préparation : le
- * télégraphe doit rester aussi lisible à l'étage 20 qu'au premier, sinon la
- * difficulté cesse d'être juste.
- */
+/** Cadence d'attaque à cet étage — la formule vit dans monsterCooldownAt. */
 function monsterCooldown(state: GameState, def: SpeciesDef): number {
-  const tighten = Math.max(
-    FLOOR_COOLDOWN_MIN,
-    1 - FLOOR_COOLDOWN_TIGHTEN * Math.max(0, state.floor - 1),
-  )
-  return Math.max(4, Math.round(def.cooldown * tighten))
+  return monsterCooldownAt(state.floor, def)
 }
 
 /**

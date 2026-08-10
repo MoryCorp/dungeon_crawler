@@ -72,9 +72,15 @@ export class Room {
     public readonly code: string,
     state?: GameState | null,
     run?: RunRecord | null,
+    resets = 0,
   ) {
-    this.state = state ?? createGame(seedFromCode(code))
-    this.telemetry = new RunTelemetry(code, this.state, run)
+    // Trois cas au boot. État sauvegardé : on reprend sa run là où elle en
+    // était. Pas d'état mais un relevé : la sauvegarde a été jetée (version
+    // bumpée) — c'est une run NEUVE, index suivant, jamais recollée sur
+    // l'ancienne. Rien du tout : première run de la room.
+    this.resets = state ? resets : run ? (run.runs ?? 0) + 1 : 0
+    this.state = state ?? createGame(seedFromCode(code) + this.resets * 7919)
+    this.telemetry = new RunTelemetry(code, this.state, run, this.resets)
   }
 
   get isEmpty(): boolean {
@@ -123,11 +129,11 @@ export class Room {
    * des runs successives s'empilent dans la même télémétrie.
    */
   private restart(): void {
-    const record = this.telemetry.toRecord(this.state.seed, new Date().toISOString())
+    const record = this.telemetry.toRecord(this.state.seed, new Date().toISOString(), this.state)
     this.resets++
     this.state = createGame(seedFromCode(this.code) + this.resets * 7919)
     for (const c of this.clients.values()) addPlayer(this.state, c.playerId, c.name)
-    this.telemetry = new RunTelemetry(this.code, this.state, record)
+    this.telemetry = new RunTelemetry(this.code, this.state, record, this.resets)
     this.resetAtMs = null
     this.floorDirty = true
   }
@@ -223,8 +229,11 @@ export class Room {
 
   async persist(): Promise<void> {
     try {
-      await saveRoom(this.code, this.state)
-      await saveRun(this.code, this.telemetry.toRecord(this.state.seed, new Date().toISOString()))
+      await saveRoom(this.code, this.state, this.resets)
+      await saveRun(
+        this.code,
+        this.telemetry.toRecord(this.state.seed, new Date().toISOString(), this.state),
+      )
     } catch (err) {
       console.error(`[room ${this.code}] sauvegarde échouée:`, err)
     }

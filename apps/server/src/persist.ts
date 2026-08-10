@@ -69,10 +69,14 @@ async function writeAtomic(path: string, payload: string): Promise<void> {
   await rename(tmp, path)
 }
 
-export async function saveRoom(code: string, state: GameState): Promise<void> {
+export async function saveRoom(code: string, state: GameState, resets = 0): Promise<void> {
   await ensureDir()
+  // `resets` voyage avec l'état : sans lui, un redémarrage du process
+  // repartait du compteur zéro et la room rejouait la graine de sa toute
+  // première run. Champ additif, pas de changement de version.
   const payload = JSON.stringify({
     v: SAVE_VERSION,
+    resets,
     state: { ...state, tiles: toBase64(state.tiles) },
   })
   // On ne veut pas d'une sauvegarde tronquée si le process meurt pendant un
@@ -99,10 +103,20 @@ export async function loadRun(code: string): Promise<RunRecord | null> {
   }
 }
 
-export async function loadRoom(code: string): Promise<GameState | null> {
+export interface LoadedRoom {
+  state: GameState
+  /** Runs relancées dans cette room — repris pour ne pas rejouer une graine. */
+  resets: number
+}
+
+export async function loadRoom(code: string): Promise<LoadedRoom | null> {
   try {
     const raw = await readFile(fileFor(code), 'utf8')
-    const parsed = JSON.parse(raw) as { v?: number; state?: Record<string, unknown> }
+    const parsed = JSON.parse(raw) as {
+      v?: number
+      resets?: number
+      state?: Record<string, unknown>
+    }
     if (parsed.v !== SAVE_VERSION || !parsed.state) return null
 
     const s = parsed.state as unknown as GameState & { tiles: string }
@@ -154,7 +168,7 @@ export async function loadRoom(code: string): Promise<GameState | null> {
     // joueur vient de vivre, et il ne vient de rien vivre du tout. Recharger un
     // pic vieux de trois jours livrerait une vague sur un donjon endormi.
     state.director = createDirector(state.tick, state.seed)
-    return state
+    return { state, resets: parsed.resets ?? 0 }
   } catch {
     return null
   }

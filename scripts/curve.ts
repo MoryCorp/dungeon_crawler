@@ -32,6 +32,8 @@ import {
   WEAPON_DPS,
   effectiveHp,
   floorScale,
+  monsterCooldownAt,
+  monsterPool,
   playerAttackMult,
   playerMaxHp,
   xpForLevel,
@@ -52,8 +54,13 @@ function playerDps(weaponId: string, level: number): number {
   return (w.damage * playerAttackMult(level)) / secs(w.cooldown)
 }
 
-/** Cycle réel d'un monstre : préparation + récupération, pas la récupération seule. */
-const refCycle = secs(REF.windup + REF.cooldown)
+/**
+ * Cycle réel d'un monstre À CET ÉTAGE : préparation + récupération resserrée
+ * par la profondeur — la même formule que le moteur (`monsterCooldownAt`).
+ * L'audit a montré qu'un cycle constant ici faisait certifier un K constant
+ * alors que le vrai K perd ~un quart entre l'étage 1 et l'étage 20.
+ */
+const refCycleAt = (floor: number) => secs(REF.windup + monsterCooldownAt(floor, REF))
 
 function levelAt(floor: number): number {
   return Math.max(1, Math.round(1 + LEVELS_PER_FLOOR * (floor - 1)))
@@ -80,7 +87,7 @@ for (let f = 1; f <= floors; f++) {
   const level = levelAt(f)
   const hp = playerMaxHp(level)
   const monsterHp = REF.maxHp * floorScale(f, FLOOR_HP_GROWTH)
-  const monsterDps = (PACK * REF.atk * floorScale(f, FLOOR_ATK_GROWTH)) / refCycle
+  const monsterDps = (PACK * REF.atk * floorScale(f, FLOOR_ATK_GROWTH)) / refCycleAt(f)
 
   const ttk = monsterHp / playerDps('sword', level)
   const ttd = effectiveHp(hp) / monsterDps
@@ -100,6 +107,13 @@ for (let f = 1; f <= floors; f++) {
 const drift = (xs: number[]) => Math.max(...xs) / Math.min(...xs)
 console.log(`\n  Dérive de TTK sur ${floors} étages : ×${drift(ttks).toFixed(3)}`)
 console.log(`  Dérive de K   sur ${floors} étages : ×${drift(ks).toFixed(3)}`)
+if (drift(ks) > 1.05) {
+  console.log(
+    '  ⚠ K dérive : le resserrement de récupération des monstres ronge le\n' +
+      '    temps-pour-mourir plus vite que le joueur ne progresse. Constaté et\n' +
+      '    documenté — la décision d\'équilibrage est un chantier à part.',
+  )
+}
 console.log(
   `  TTK moyen ${(ttks.reduce((a, b) => a + b, 0) / ttks.length).toFixed(2)} s ` +
     `(cible ${TARGET_TTK}) · K moyen ${(ks.reduce((a, b) => a + b, 0) / ks.length).toFixed(2)} ` +
@@ -144,8 +158,9 @@ console.log('  Sinon la montée dérivée des monstres ne correspond plus à rie
 function floorXp(floor: number): number {
   const count =
     Math.min(PLACED_MAX_COUNT, PLACED_BASE_COUNT + floor * PLACED_PER_FLOOR) + DIRECTOR_RESERVE
-  // Composition moyenne : on prend la moyenne des espèces disponibles.
-  const pool = Object.values(MONSTERS)
+  // Composition réelle : le pool que cet étage pose vraiment — pas la moyenne
+  // de tout le bestiaire, qui comptait boss et clones jamais présents.
+  const pool = monsterPool(floor).map((sp) => MONSTERS[sp]!)
   const avgXp = pool.reduce((a, m) => a + m.xp, 0) / pool.length
   return Math.round(count * avgXp * floorScale(floor, FLOOR_HP_GROWTH))
 }

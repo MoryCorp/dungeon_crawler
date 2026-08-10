@@ -33,6 +33,17 @@ function bump(tally: Tally, key: string, by = 1): void {
 
 export interface FloorRecord {
   floor: number
+  /**
+   * Index de la run dans la room (0, puis +1 à chaque wipe). Sans lui, les
+   * runs successives — qui repartent toutes à l'étage 1 — fusionnaient leurs
+   * mesures dans les mêmes enregistrements. Absent des vieux relevés : 0.
+   */
+  run?: number
+  /**
+   * La scène du palier de boss : SAS et arène partagent le numéro d'étage,
+   * leurs mesures ne doivent jamais se confondre avec un étage ordinaire.
+   */
+  scene?: 'sas' | 'boss'
   /** Ticks écoulés dans l'étage. La durée est ce qui trahit un ventre mou. */
   ticks: number
   /**
@@ -298,6 +309,8 @@ export interface RunRecord {
   floors: FloorRecord[]
   /** Descentes terminées par un wipe dans cette room (runs chaînées). */
   wipes?: number
+  /** Index de la run en cours — repris au boot pour ne jamais fusionner. */
+  runs?: number
 }
 
 /** Sous ce seuil de PV, on considère que le joueur est en danger réel. */
@@ -305,9 +318,16 @@ const DANGER_HP_RATIO = 0.35
 /** L'espèce des héros, telle que l'engine la nomme dans ses événements. */
 const PLAYER_SPECIES = 'hero'
 
-function emptyFloor(floor: number, level: number): FloorRecord {
+function emptyFloor(
+  floor: number,
+  level: number,
+  run: number,
+  scene?: 'sas' | 'boss',
+): FloorRecord {
   return {
     floor,
+    run,
+    ...(scene ? { scene } : {}),
     ticks: 0,
     spawned: 0,
     pursuers: 0,
@@ -361,20 +381,38 @@ export class RunTelemetry {
 
   /** Wipes cumulés sur cette room, repris d'une run précédente. */
   wipes = 0
+  /** Index de la run courante — chaque wipe ou état neuf en ouvre une. */
+  readonly run: number
 
   constructor(
     readonly room: string,
     state: GameState,
     previous?: RunRecord | null,
+    run = previous?.runs ?? 0,
   ) {
     this.wipes = previous?.wipes ?? 0
+    this.run = run
     if (previous?.floors?.length) this.floors.push(...previous.floors)
-    const resumed = this.floors.find((f) => f.floor === state.floor)
-    this.current = resumed ?? emptyFloor(state.floor, this.levelOf(state))
+    // On ne reprend un enregistrement que si c'est exactement là où la
+    // sauvegarde s'est arrêtée : LE DERNIER, même run, même étage, même
+    // scène. L'ancien `find()` sur le seul numéro d'étage recollait la
+    // nouvelle run sur l'étage 1 de la précédente — les relevés fusionnaient.
+    const last = this.floors[this.floors.length - 1]
+    const resumed =
+      last !== undefined &&
+      (last.run ?? 0) === this.run &&
+      last.floor === state.floor &&
+      last.scene === state.scene
+        ? last
+        : undefined
+    this.current = resumed ?? emptyFloor(state.floor, this.levelOf(state), this.run, state.scene)
     if (!resumed) this.floors.push(this.current)
     // Sur une reprise, le recensement d'origine est déjà dans le relevé : le
     // refaire ne compterait que les survivants et effacerait la vraie valeur.
+    // Et le compteur de danger repart de sa valeur d'origine, sinon le ratio
+    // recalculé divise d'anciens ticks par un compteur remis à zéro.
     this.needsCensus = !resumed
+    if (resumed) this.dangerTicks = Math.round(resumed.dangerRatio * resumed.ticks)
   }
 
   private levelOf(state: GameState): number {
@@ -510,8 +548,15 @@ export class RunTelemetry {
       this.xpSeen = xp
     }
 
-    // Instantané des profils : réécrit chaque tick, le relevé de l'étage garde
-    // donc l'état de fin d'étage. Coût nul à quatre joueurs.
+  }
+
+  /**
+   * Instantanés de fin d'étage : profils de style et mémoire du bandit.
+   * Pris au changement d'étage et à la sauvegarde — les reconstruire à chaque
+   * tick (l'ancien code) allouait deux objets 30 fois par seconde pour ne
+   * garder que la dernière valeur.
+   */
+  private snapshot(state: GameState): void {
     const profiles: NonNullable<FloorRecord['profiles']> = {}
     for (const a of Object.values(state.actors)) {
       if (a.kind !== 'player') continue
@@ -529,7 +574,6 @@ export class RunTelemetry {
     }
     if (Object.keys(profiles).length > 0) this.current.profiles = profiles
 
-    // Même principe pour la mémoire du bandit : instantané de fin d'étage.
     const bandit: NonNullable<FloorRecord['bandit']> = {}
     for (const [playerId, arms] of Object.entries(state.bandit ?? {})) {
       const out: Record<string, { n: number; mean: number }> = {}
@@ -641,8 +685,13 @@ export class RunTelemetry {
         // L'usure est cumulative : mesurée en changeant d'étage, elle vaut
         // aussi pour l'étage qu'on vient de quitter, à un tick près.
         this.current.strainOut = Math.round(slowStrain(state) * 100) / 100
+        // Les instantanés de fin d'étage (profils, bandit) se prennent ici,
+        // une fois — plus jamais 30 fois par seconde dans observe().
+        this.snapshot(state)
         const level = this.current.levelOut
-        this.current = emptyFloor(ev.floor, level)
+        // `state.scene` est déjà celle du NOUVEL étage : descend() l'a posée
+        // avant d'émettre l'événement.
+        this.current = emptyFloor(ev.floor, level, this.run, state.scene)
         this.floors.push(this.current)
         this.dangerTicks = 0
         this.needsCensus = true
@@ -675,8 +724,19 @@ export class RunTelemetry {
     }
   }
 
-  toRecord(seed: number, now: string): RunRecord {
-    return { room: this.room, seed, updatedAt: now, floors: this.floors, wipes: this.wipes }
+  toRecord(seed: number, now: string, state?: GameState): RunRecord {
+    // L'instantané de l'étage en cours part avec la sauvegarde ; et le record
+    // rendu copie les enregistrements — la référence partagée faisait qu'une
+    // nouvelle RunTelemetry et l'ancienne écrivaient dans les mêmes objets.
+    if (state) this.snapshot(state)
+    return {
+      room: this.room,
+      seed,
+      updatedAt: now,
+      floors: this.floors.map((f) => ({ ...f })),
+      wipes: this.wipes,
+      runs: this.run,
+    }
   }
 }
 
