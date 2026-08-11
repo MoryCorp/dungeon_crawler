@@ -2,11 +2,11 @@ import { Application } from 'pixi.js'
 import {
   BLEED_OUT_TICKS,
   DT,
-  PICKUP_RANGE,
   ROLL_MIN_STAMINA,
   ROLL_SPEED,
   SPRINT_MIN_START,
   STARTING_WEAPON,
+  TAKE_REACH,
   TICK_RATE,
   WEAPONS,
   fromBase64,
@@ -404,17 +404,17 @@ async function main(): Promise<void> {
     const dt = Math.min(0.1, ticker.deltaMS / 1000)
 
     const hover = renderer.takeableUnderCursor(input.mouseX, input.mouseY)
-    // Le coffre se prend d'un poil plus loin que le reste, comme dans le moteur.
-    const hoverRange = hover?.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
+    // Même portée que dans le moteur : ce qu'on vise et qu'on tient une
+    // seconde se prend de loin, sans avoir à marcher dessus.
     const hoverInRange =
-      hover !== null && Math.hypot(hover.x - local.x, hover.y - local.y) <= hoverRange
+      hover !== null && Math.hypot(hover.x - local.x, hover.y - local.y) <= TAKE_REACH
     if (!input.rightHeld) takeFired = false
     if (hover && input.rightHeld && hoverInRange && !takeFired && alive && !downed) {
       if (takeHoldId !== hover.id) takeHoldS = 0
       takeHoldId = hover.id
       takeHoldS += dt
       if (takeHoldS >= TAKE_HOLD_S) {
-        input.queueTake()
+        input.queueTake(hover.id)
         takeFired = true
         takeHoldS = 0
       }

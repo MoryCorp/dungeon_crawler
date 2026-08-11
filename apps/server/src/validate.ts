@@ -40,7 +40,15 @@ export function sanitizeInput(raw: unknown): PlayerInput | null {
   }
   if (r.drink === true) input.drink = true
   if (r.roll === true) input.roll = true
-  if (r.take === true) input.take = true
+  if (r.take === true) {
+    input.take = true
+    // Le nom de l'objet visé vient du serveur ; un client qui en invente un
+    // ne gagne rien (portée et éligibilité restent vérifiées), mais on ne
+    // laisse pas entrer une chaîne de taille libre.
+    if (typeof r.takeId === 'string' && r.takeId.length > 0 && r.takeId.length <= 24) {
+      input.takeId = r.takeId
+    }
+  }
   return input
 }
 

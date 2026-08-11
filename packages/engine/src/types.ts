@@ -1068,6 +1068,13 @@ export interface Actor {
   rollWantAt?: number
   /** Dernier tick où le joueur a demandé à ramasser. Voir PlayerInput.take. */
   takeAt?: number
+  /**
+   * Objet nommé par la dernière demande. Une prise visée porte loin (TAKE_REACH)
+   * et plusieurs articles d'étal tiennent dans ce rayon : sans le nom, rien ne
+   * dirait lequel on montre du doigt. Absent = demande aveugle (la manette n'a
+   * pas de curseur) : on retombe alors sur ce qu'on a sous les pieds.
+   */
+  takeId?: string
 
   /** Monstres. */
   elite?: boolean
@@ -1169,6 +1176,15 @@ export const PICKUP_RANGE = 0.75
  * de la voir partir un chouïa trop tôt.
  */
 export const TAKE_BUFFER = ticks(0.25)
+/**
+ * Portée d'une prise demandée : curseur sur l'objet, clic droit maintenu une
+ * seconde. Elle n'a aucune raison d'être celle du ramassage automatique. Trois
+ * quarts de carreau, c'est trente-six pixels à l'écran : il fallait se tenir
+ * *sur* l'arme, et à un carreau — visuellement collé — le geste n'avait aucun
+ * effet ni aucun retour. La distance de PICKUP_RANGE protège d'un ramassage
+ * accidentel ; ici l'accident est impossible, on a visé et attendu.
+ */
+export const TAKE_REACH = 2
 export const XP_MAGNET_RANGE = 3.0
 export const XP_MAGNET_SPEED = 6
 
@@ -1192,6 +1208,8 @@ export interface PlayerInput {
    * venait d'abandonner, sans rien demander à personne.
    */
   take?: boolean
+  /** Objet visé par la prise. Voir `Actor.takeId`. */
+  takeId?: string
 }
 
 export const NEUTRAL_INPUT: PlayerInput = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }

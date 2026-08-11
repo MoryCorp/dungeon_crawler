@@ -8,7 +8,7 @@
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 import type { ActorView, Decor, GameEvent, ItemView, ProjectileView, Room, Scene } from '@dc/engine'
 import {
-  MONSTERS, MONSTER_HALF_ARC, PICKUP_RANGE, ROLL_TICKS, TICK_RATE, WEAPONS, biomeOf, chestPrice,
+  MONSTERS, MONSTER_HALF_ARC, ROLL_TICKS, TAKE_REACH, TICK_RATE, WEAPONS, biomeOf, chestPrice,
 } from '@dc/engine'
 import { Tile } from '@dc/engine'
 import {
@@ -758,7 +758,7 @@ export class Renderer {
       ? items.find((i) => i.id === this.takeHoverId && this.needsIntent(i)) ?? null
       : null
     if (!best && px !== undefined && py !== undefined) {
-      let bestD = PICKUP_RANGE
+      let bestD = TAKE_REACH
       for (const item of items) {
         if (!this.needsIntent(item)) continue
         const d = Math.hypot(item.x - px, item.y - py)
@@ -785,7 +785,7 @@ export class Renderer {
     }
     const inRange =
       px !== undefined && py !== undefined &&
-      Math.hypot(best.x - px, best.y - py) <= PICKUP_RANGE
+      Math.hypot(best.x - px, best.y - py) <= TAKE_REACH
     const label = ITEM_LABELS[best.kind] ?? WEAPONS[best.weapon ?? '']?.label ?? 'arme'
     this.takeTag.text = `clic droit · ${label}`
     this.takeTag.alpha = inRange ? 1 : 0.5
@@ -839,7 +839,7 @@ export class Renderer {
     const px = this.predicted?.x ?? this.entities.get(this.selfId)?.view.x
     const py = this.predicted?.y ?? this.entities.get(this.selfId)?.view.y
     if (px === undefined || py === undefined) return null
-    let nearD = PICKUP_RANGE + 0.2
+    let nearD = TAKE_REACH
     for (const item of this.lastItems) {
       if (!this.needsIntent(item)) continue
       const d = Math.hypot(item.x - px, item.y - py)

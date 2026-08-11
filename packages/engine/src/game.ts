@@ -120,6 +120,7 @@ import {
   BODY_HEIGHT,
   PROJECTILE_RADIUS,
   TAKE_BUFFER,
+  TAKE_REACH,
   PURSUE_MAX,
   PURSUE_STRIKE_GRACE,
   RECIPE_FAR_MIN,
@@ -2122,9 +2123,6 @@ function stepItems(state: GameState, rng: Rng): void {
       item.y += Math.sin(ang) * XP_MAGNET_SPEED * DT
     }
 
-    const range = item.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
-    if (Math.hypot(nearest.x - item.x, nearest.y - item.y) > range) continue
-
     // Ce qui a un prix ne se prend que si l'équipe peut payer. Pas de message
     // d'erreur côté engine : le prix est affiché au-dessus de l'objet, un
     // objet qui reste au sol est une information, pas une panne.
@@ -2138,7 +2136,38 @@ function stepItems(state: GameState, rng: Rng): void {
     // Et la bourse est commune : personne ne doit pouvoir la vider en
     // traversant l'étal, il faut avoir voulu dépenser l'os des autres.
     const deliberate = item.kind === 'weapon' || price > 0
-    if (deliberate && state.tick - (nearest.takeAt ?? -TAKE_BUFFER - 1) > TAKE_BUFFER) continue
+
+    // Ce qui se ramasse en marchant va au plus proche. Ce qui se demande va au
+    // plus proche *parmi ceux qui l'ont demandé* : sinon un coéquipier planté
+    // à côté de l'arme absorbe la prise de celui qui vise, dont le clic droit
+    // n'a alors ni effet ni explication.
+    if (deliberate) {
+      let asker: Actor | null = null
+      let askerD = Infinity
+      for (const p of players) {
+        if (state.tick - (p.takeAt ?? -TAKE_BUFFER - 1) > TAKE_BUFFER) continue
+        // Une demande qui nomme son objet ne prend que celui-là, et porte
+        // loin : on l'a visé et tenu une seconde, l'accident est impossible.
+        // Une demande aveugle garde la portée du ramassage automatique, seule
+        // façon de savoir sans ambiguïté ce qu'elle désigne.
+        if (p.takeId !== undefined && p.takeId !== item.id) continue
+        const reach = p.takeId !== undefined
+          ? TAKE_REACH
+          : item.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
+        const d = Math.hypot(p.x - item.x, p.y - item.y)
+        if (d > reach) continue
+        if (d < askerD) {
+          askerD = d
+          asker = p
+        }
+      }
+      if (!asker) continue
+      nearest = asker
+    } else {
+      const range = item.kind === 'chest' ? PICKUP_RANGE + 0.2 : PICKUP_RANGE
+      if (Math.hypot(nearest.x - item.x, nearest.y - item.y) > range) continue
+    }
+    if (!nearest) continue
 
     // À l'étal, on n'achète pas l'inutile en passant : un soin à pleine vie,
     // un plafond déjà au maximum, une fiole sans fente libre restent posés.
@@ -2149,7 +2178,10 @@ function stepItems(state: GameState, rng: Rng): void {
     // L'intention n'est consommée qu'ici : un objet écarté juste au-dessus
     // (trop cher, inutile) ne doit pas manger la prise, sinon deux objets côte
     // à côte à l'étal rendent la seconde d'appui inopérante une fois sur deux.
-    if (deliberate) delete nearest.takeAt
+    if (deliberate) {
+      delete nearest.takeAt
+      delete nearest.takeId
+    }
 
     if (price > 0) {
       state.bones -= price
@@ -2363,7 +2395,11 @@ export function step(
     }
 
     actor.aim = input.aim
-    if (input.take === true) actor.takeAt = state.tick
+    if (input.take === true) {
+      actor.takeAt = state.tick
+      if (input.takeId !== undefined) actor.takeId = input.takeId
+      else delete actor.takeId
+    }
 
     // Roulade : elle consomme le tick entier — ni coup, ni fiole, ni sprint
     // tant qu'on roule. Le recul est écrasé (le verbe reprend le contrôle du

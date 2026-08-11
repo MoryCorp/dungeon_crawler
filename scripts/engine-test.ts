@@ -21,6 +21,8 @@ import {
   capPrice,
   playerSpeed,
   NEUTRAL_INPUT,
+  PICKUP_RANGE,
+  TAKE_REACH,
   STARTING_WEAPON,
   ENTRY_WEAPONS,
   HEART_HEAL_RATIO,
@@ -487,6 +489,53 @@ console.log('\nTests engine\n')
   // une seule pression ne doit pas faire l'aller-retour.
   step(s, { p_t: { ...idle, take: true } })
   check('une pression ne rééquipe pas l\'ancienne dans la foulée', hero.weapon === 'axe')
+
+  // Une prise demandée porte plus loin que le ramassage automatique. Tant
+  // qu'elle partageait PICKUP_RANGE, il fallait se tenir *sur* l'arme : à un
+  // carreau — collée à l'écran — la seconde d'appui ne produisait rien, et
+  // rien ne disait pourquoi.
+  {
+    const loin = createGame(909)
+    clearMonsters(loin)
+    const bras = addPlayer(loin, 'p_l', 'Bras long')
+    bras.weapon = 'sword'
+    loin.items.push({
+      id: 'it_far', kind: 'weapon', weapon: 'axe',
+      x: bras.x + PICKUP_RANGE + 0.5, y: bras.y,
+    })
+    for (let i = 0; i < 5; i++) step(loin, { p_l: idle })
+    check('hors du ramassage automatique, l\'arme reste au sol', bras.weapon === 'sword')
+    step(loin, { p_l: { ...idle, take: true } })
+    check('une demande aveugle ne va pas la chercher', bras.weapon === 'sword')
+    step(loin, { p_l: { ...idle, take: true, takeId: 'it_far' } })
+    check('mais la demande qui la vise l\'attrape à distance', bras.weapon === 'axe')
+
+    const trop = createGame(909)
+    clearMonsters(trop)
+    const court = addPlayer(trop, 'p_c', 'Bras court')
+    court.weapon = 'sword'
+    trop.items.push({
+      id: 'it_hors', kind: 'weapon', weapon: 'axe',
+      x: court.x + TAKE_REACH + 0.5, y: court.y,
+    })
+    step(trop, { p_c: { ...idle, take: true, takeId: 'it_hors' } })
+    check('au-delà de la portée, la demande ne traverse pas la pièce',
+      court.weapon === 'sword')
+
+    // Deux articles dans le même rayon : c'est le nom qui tranche, pas
+    // l'ordre du tableau. Sans ça, viser la fiole achetait le soin d'à côté.
+    const etal = createGame(909)
+    clearMonsters(etal)
+    const client = addPlayer(etal, 'p_e', 'Client')
+    client.weapon = 'sword'
+    etal.items.push(
+      { id: 'it_g', kind: 'weapon', weapon: 'axe', x: client.x - 1, y: client.y },
+      { id: 'it_d', kind: 'weapon', weapon: 'spear', x: client.x + 1, y: client.y },
+    )
+    step(etal, { p_e: { ...idle, take: true, takeId: 'it_d' } })
+    check('la prise visée prend l\'objet visé, pas son voisin',
+      client.weapon === 'spear', client.weapon)
+  }
 
   const soin = createGame(4242)
   clearMonsters(soin)

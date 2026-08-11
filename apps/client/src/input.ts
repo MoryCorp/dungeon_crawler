@@ -51,6 +51,8 @@ export class InputManager {
   private drinkQueued = false
   private rollQueued = false
   private takeQueued = false
+  /** Objet visé par la prise en attente — voir `queueTake`. */
+  private takeQueuedId: string | undefined
   private padRollHeld = false
   private padTakeHeld = false
   private mouseDown = false
@@ -62,8 +64,9 @@ export class InputManager {
   gamepadConnected = false
 
   /** Déclenche l'impulsion de ramassage (jauge remplie, ou Y à la manette). */
-  queueTake(): void {
+  queueTake(id?: string): void {
     this.takeQueued = true
+    this.takeQueuedId = id
   }
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -210,8 +213,10 @@ export class InputManager {
     const roll = this.rollQueued
     this.rollQueued = false
     const take = this.takeQueued
+    const takeId = this.takeQueuedId
     this.takeQueued = false
-    return { mx, my, aim: this.aim, attack, sprint, drink, roll, take }
+    this.takeQueuedId = undefined
+    return { mx, my, aim: this.aim, attack, sprint, drink, roll, take, takeId }
   }
 }
 
@@ -225,6 +230,7 @@ export function sameInput(a: PlayerInput, b: PlayerInput): boolean {
     a.drink === b.drink &&
     a.roll === b.roll &&
     a.take === b.take &&
+    a.takeId === b.takeId &&
     Math.abs(a.aim - b.aim) < 0.02
   )
 }
