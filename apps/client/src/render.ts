@@ -36,6 +36,13 @@ import {
   whiteTexture,
 } from './atlas.js'
 
+/**
+ * Rayon, en carreaux, dans lequel le curseur attrape un objet. Un sprite fait
+ * un carreau : viser au demi-carreau près demandait une précision de bureau,
+ * pas de jeu. À un carreau, on désigne ce qu'on regarde.
+ */
+const CURSOR_GRAB = 1
+
 interface Entity {
   sprite: Sprite
   shadow: Sprite
@@ -814,12 +821,30 @@ export class Renderer {
     const wx = local.x / TILE
     const wy = local.y / TILE
     let best: ItemView | null = null
-    let bestD = 0.6
+    let bestD = CURSOR_GRAB
     for (const item of this.lastItems) {
       if (!this.needsIntent(item)) continue
       const d = Math.hypot(item.x - wx, item.y - wy)
       if (d <= bestD) {
         bestD = d
+        best = item
+      }
+    }
+    if (best) return best
+
+    // Le curseur ne désigne rien : on retombe sur le plus proche à portée,
+    // exactement comme l'invite qui vient de s'afficher. Sans ça le jeu
+    // annonçait une prise possible que le clic droit refusait de faire, faute
+    // d'un pointeur posé au demi-carreau près sur le sprite.
+    const px = this.predicted?.x ?? this.entities.get(this.selfId)?.view.x
+    const py = this.predicted?.y ?? this.entities.get(this.selfId)?.view.y
+    if (px === undefined || py === undefined) return null
+    let nearD = PICKUP_RANGE + 0.2
+    for (const item of this.lastItems) {
+      if (!this.needsIntent(item)) continue
+      const d = Math.hypot(item.x - px, item.y - py)
+      if (d <= nearD) {
+        nearD = d
         best = item
       }
     }

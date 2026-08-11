@@ -418,6 +418,14 @@ async function main(): Promise<void> {
         takeFired = true
         takeHoldS = 0
       }
+    } else if (input.rightHeld && !takeFired && takeHoldS > 0) {
+      // Le clic tient toujours mais la visée a glissé une fraction de seconde
+      // (on bouge, l'objet sort du rayon). Remettre la jauge à zéro pour ça
+      // rendait la seconde d'appui presque impossible à finir : elle redescend
+      // au lieu de s'effacer, et un retour rapide sur l'objet la reprend où
+      // elle en était.
+      takeHoldS = Math.max(0, takeHoldS - dt * 2)
+      if (takeHoldS === 0) takeHoldId = hover?.id ?? null
     } else {
       takeHoldId = hover?.id ?? null
       takeHoldS = 0
