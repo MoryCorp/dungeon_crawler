@@ -91,183 +91,189 @@
         font-style: normal;
       }
 
-      /* ── HUD wrapper */
-      #hud { display: contents; }
+      /* ── HUD : plaques de pierre et laiton, posé au bord du champ de jeu. */
+      #hud { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
 
-      /* ── Capsule run (haut-gauche) */
+      /* ── Cartouche de progression (haut-gauche) */
       #run-pill {
-        position: fixed; left: var(--edge); top: var(--edge);
-        display: inline-flex; align-items: center;
-        padding: 8px 16px; pointer-events: none;
-        font-size: 13px; color: var(--muted);
-        text-transform: uppercase; letter-spacing: .08em;
+        position: absolute; left: var(--edge); top: var(--edge);
+        display: grid; grid-template-columns: auto auto auto;
+        min-width: 302px; padding: 9px 12px 8px;
       }
-      #run-pill .run-floor { font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: .1em; }
-      #run-pill b { color: var(--text); }
-      #run-pill .run-floor b { color: var(--accent); }
-      /* ── Minicarte (sous la pastille de run)
-         Elle ne montre que l'exploré. Discrète au repos, elle doit se lire
-         d'un coup d'œil sans jamais disputer l'attention au combat. */
+      .run-stat { min-width: 72px; padding: 0 11px; border-left: 1px solid var(--line); }
+      .run-stat:first-child { padding-left: 2px; border-left: 0; }
+      .run-kicker {
+        display: block; margin-bottom: 3px;
+        color: var(--faint); font-size: 8px; font-weight: 700;
+        letter-spacing: .16em; text-transform: uppercase;
+      }
+      .run-stat strong { color: var(--text); font-size: 13px; letter-spacing: .08em; }
+      .run-floor strong { color: var(--accent); font-size: 15px; }
+      .run-bones strong::before { content: "◆"; margin-right: 6px; color: var(--muted); font-size: 9px; }
+
+      /* ── Minicarte : un feuillet séparé, clairement titré. */
       #map-panel {
-        position: fixed; left: var(--edge); top: calc(var(--edge) + 46px);
-        padding: 6px; pointer-events: none; opacity: .82;
+        position: absolute; left: var(--edge); top: 78px;
+        padding: 7px; opacity: .9;
+      }
+      .panel-title {
+        padding: 2px 3px 6px; color: var(--faint);
+        font-size: 8px; font-weight: 700; letter-spacing: .16em;
+        text-align: center; text-transform: uppercase;
       }
       #minimap {
         display: block; width: 128px; height: 128px;
-        image-rendering: pixelated;
-      }
-      @media (max-height: 760px) {
-        #map-panel { padding: 4px; }
-        #minimap { width: 96px; height: 96px; }
-      }
-      .sep { width: 1px; height: 14px; background: var(--line); margin: 0 10px; }
-      .bone-ico {
-        display: inline-block; width: 9px; height: 9px; margin-right: 6px;
-        background: var(--muted);
-        clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+        background: #07070b; outline: 1px solid var(--line);
         image-rendering: pixelated;
       }
 
-      /* ── Objectif + poursuite (haut-centre, capsules empilées) */
+      /* ── Mission et menace : au centre, ordre de lecture immédiat. */
       #objective {
-        position: fixed; left: 50%; top: var(--edge); transform: translateX(-50%);
-        padding: 8px 18px; pointer-events: none;
-        font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
-        color: var(--accent); text-shadow: var(--ink-shadow);
-        max-width: min(52vw, calc(100vw - 2 * 380px)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        background: linear-gradient(var(--panel-hi), var(--panel-lo));
-        box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim);
-        clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px),
-          calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+        position: absolute; left: 50%; top: var(--edge); transform: translateX(-50%);
+        width: min(620px, calc(100vw - 650px)); min-width: 300px;
+        padding: 10px 20px;
+        color: var(--accent); font-size: 12px; font-weight: 700;
+        letter-spacing: .1em; text-align: center; text-shadow: var(--ink-shadow);
+        text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        background: linear-gradient(180deg, rgba(31,28,40,.96), rgba(12,11,17,.94));
+        box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim-gold);
+        clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px),
+          calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
       }
+      #objective::before { content: "OBJECTIF  ·  "; color: var(--faint); font-size: 9px; }
       #objective.done { color: var(--ok); }
       #chase {
-        position: fixed; left: 50%; top: 58px; transform: translateX(-50%);
-        padding: 6px 16px; pointer-events: none;
-        font-size: 13px; font-weight: 700; letter-spacing: .04em;
-        color: var(--danger); text-shadow: var(--ink-shadow); white-space: nowrap;
-        background: rgba(45, 10, 13, .85);
-        box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--danger-line);
+        position: absolute; left: 50%; top: 62px; transform: translateX(-50%);
+        padding: 7px 16px;
+        color: #ff8b87; font-size: 11px; font-weight: 700;
+        letter-spacing: .06em; text-shadow: var(--ink-shadow); white-space: nowrap;
+        background: rgba(45, 10, 13, .92);
+        border-left: 3px solid var(--danger); border-right: 3px solid var(--danger);
+        box-shadow: 0 0 0 2px var(--ink), 0 0 18px rgba(168,58,64,.22);
         animation: rim-pulse 1.1s ease-in-out infinite;
       }
 
-      /* ── Socle vitals (bas-centre) */
+      /* ── Socle de combat : les ressources vitales dominent l'équipement. */
       #vitals {
-        position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
-        width: clamp(480px, 44vw, 680px);
-        display: grid; grid-template-columns: 72px 1fr 72px; gap: 14px;
-        align-items: end; pointer-events: none;
+        position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+        width: min(680px, calc(100vw - 32px));
+        display: grid; grid-template-columns: 82px 1fr 82px; gap: 12px;
+        align-items: center; padding: 10px 12px;
       }
-      .slot { width: 72px; }
+      .slot { min-width: 0; text-align: center; }
       .slot-face {
-        height: 72px; display: grid; place-items: center;
-        font-size: 24px; font-weight: 700; color: var(--text);
-        text-shadow: var(--shadow-bitmap);
+        height: 52px; display: grid; place-items: center;
+        background: #100f16; font-size: 22px; font-weight: 700;
+        color: var(--text); text-shadow: var(--shadow-bitmap);
+      }
+      .slot-kicker, .resource-head span:first-child {
+        color: var(--faint); font-size: 8px; font-weight: 700;
+        letter-spacing: .15em; text-transform: uppercase;
       }
       .slot-label {
-        margin-top: 4px; text-align: center;
-        font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-        color: var(--text); text-shadow: var(--ink-shadow);
-        background: rgba(10, 9, 16, .7); padding: 2px 4px;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        margin-top: 4px; color: var(--text); font-size: 10px;
+        font-weight: 700; letter-spacing: .05em; text-shadow: var(--ink-shadow);
+        text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
-      #potion-row.empty { opacity: .35; }
-      #potion-row.empty .slot-face { box-shadow: none; border: 2px dashed var(--line); background: rgba(15,14,21,.5); clip-path: none; }
+      #potion-row.empty { opacity: .38; }
+      #potion-row.empty .slot-face { box-shadow: inset 0 0 0 2px var(--ink); background: #0d0c12; }
 
-      .bars { display: grid; gap: 6px; }
-      .hp-row { display: flex; align-items: center; gap: 10px; }
+      .bars { min-width: 0; display: grid; gap: 6px; }
+      .vital-head { display: flex; align-items: end; justify-content: space-between; gap: 10px; }
       .level-badge {
-        width: 34px; height: 34px; flex: none;
-        display: grid; place-items: center; grid-auto-flow: column;
-        font-size: 12px; font-weight: 700; color: var(--accent);
+        display: flex; align-items: baseline; gap: 5px;
+        color: var(--faint); font-size: 8px; font-weight: 700;
+        letter-spacing: .12em; text-transform: uppercase;
       }
-      #hp-track { flex: 1; height: 26px; }
+      .level-badge b { color: var(--accent); font-size: 17px; }
+      .resource-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+      #hp { color: var(--text); font-size: 13px; font-weight: 700; text-shadow: var(--ink-shadow); }
+      #hp-track { height: 19px; }
       #hp-fill { width: 100%; background: var(--hp); transition: width 120ms linear; }
       #hp-fill.warn { background: var(--hp-warn); }
       #hp-fill.crit { background: var(--hp-crit); animation: hp-pulse 1s ease-in-out infinite; }
-      /* Le plafond de soin : au-delà de ce trait, les cœurs ne remontent plus.
-         Visible seulement quand le plafond est entamé (sous 100 %). */
-      #hp-cap { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.55); display: none; }
+      /* Le plafond de soin : ce qui dépasse le trait ne peut plus être soigné. */
+      #hp-cap { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,.72); display: none; }
       @keyframes hp-pulse { 50% { filter: brightness(1.4); } }
-      #hp {
-        position: absolute; inset: 0; display: grid; place-items: center;
-        font-size: 16px; font-weight: 700;
-        text-shadow: 0 1px 2px #000, 0 0 4px #000;
-      }
-      #stamina-track { height: 10px; }
-      #stamina-track::after {           /* seuil de relance : SPRINT_MIN_START = 0.5 */
+      #stamina-track { height: 8px; }
+      #stamina-track::after {
         content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px;
-        width: 2px; background: var(--faint);
+        width: 1px; background: var(--faint);
       }
-      /* Souffle : AUCUNE transition — une jauge qui traîne derrière la course
-         ne dit plus quand on peut relancer. */
+      /* Sans transition : la jauge doit donner le vrai instant de relance. */
       #stamina-fill { width: 100%; background: var(--stamina); }
       #stamina-fill.spent {
         background: var(--stamina-spent);
         background-image: repeating-linear-gradient(45deg, transparent 0 4px, rgba(0,0,0,.35) 4px 8px);
       }
-      /* Roulade refusée faute de souffle : la jauge cogne une fois. Le joueur
-         doit pouvoir distinguer « la commande a été refusée » de « la commande
-         ne marche pas ». */
       #stamina-track.denied { animation: denied 260ms ease-out; }
       @keyframes denied {
         0%   { box-shadow: 0 0 0 0 rgba(216,120,110,.9); }
         40%  { box-shadow: 0 0 0 3px rgba(216,120,110,.55); }
         100% { box-shadow: 0 0 0 0 rgba(216,120,110,0); }
       }
-      @media (prefers-reduced-motion: reduce) {
-        #stamina-track.denied { animation: none; }
-      }
-      #xp-track { height: 4px; }
+      #xp-track { height: 5px; }
       #xp-fill { width: 0%; background: var(--xp); transition: width 120ms linear; }
       #vitals.downed #hp-fill { background: #5a4444; animation: none; }
 
       /* ── Équipe (haut-droite) */
       #party {
-        position: fixed; right: var(--edge); top: var(--edge);
-        width: 210px; display: grid; gap: 6px; pointer-events: none;
+        position: absolute; right: var(--edge); top: var(--edge);
+        width: 226px; display: grid; gap: 5px;
       }
       .pcard {
-        padding: 6px 10px;
-        background: linear-gradient(var(--panel-hi), var(--panel-lo));
+        padding: 8px 10px 7px;
+        background: linear-gradient(180deg, rgba(26,24,36,.96), rgba(12,11,17,.94));
         box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim);
+        clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
       }
       .pcard.self { box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--rim-gold); }
-      .pcard.down { box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--danger-line);
-                    animation: rim-pulse 1.1s ease-in-out infinite; }
-      .pcard.dead { opacity: .5; }
-      .prow { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
-      .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-               text-transform: uppercase; letter-spacing: .04em; }
+      .pcard.down { box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 3px var(--danger-line); animation: rim-pulse 1.1s ease-in-out infinite; }
+      .pcard.dead { opacity: .48; }
+      .prow { display: flex; gap: 8px; align-items: baseline; font-size: 11px; }
+      .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
       .pcard.self .pname { color: var(--accent); }
-      .pcard.dead .pname { text-decoration: line-through; color: var(--faint); }
-      .plvl { font-size: 10px; color: var(--faint); }
-      .pstate { font-size: 11px; color: var(--muted); font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+      .pcard.dead .pname { color: var(--faint); text-decoration: line-through; }
+      .plvl { color: var(--faint); font-size: 9px; }
+      .pstate { color: var(--muted); font-family: var(--font-num); font-size: 10px; font-variant-numeric: tabular-nums; }
       .pcard.down .pstate { color: var(--danger); font-weight: 700; }
-      .pbar { height: 5px; margin-top: 4px; background: var(--well);
-              border: 1px solid var(--line); overflow: hidden; }
+      .pbar { height: 4px; margin-top: 6px; background: var(--well); border: 1px solid var(--line); overflow: hidden; }
       .pbar-fill { height: 100%; background: var(--hp); }
       .pcard.down .pbar-fill { background: var(--hp-crit); }
 
       /* ── À terre */
-      #downed {
-        position: fixed; left: 50%; bottom: 30%; transform: translateX(-50%);
-        text-align: center; pointer-events: none;
-      }
-      #downed .big {
-        font-size: 40px; font-weight: 700; letter-spacing: .18em; padding-left: .18em;
-        color: var(--danger);
-        text-shadow: 3px 3px 0 var(--ink), 0 0 24px rgba(210,60,60,.55);
-      }
-      #downed .sub { margin-top: 8px; font-size: 14px; color: var(--text); text-shadow: var(--ink-shadow); }
+      #downed { position: absolute; left: 50%; bottom: 30%; transform: translateX(-50%); text-align: center; }
+      #downed .big { color: var(--danger); font-size: 40px; font-weight: 700; letter-spacing: .18em; padding-left: .18em; text-shadow: 3px 3px 0 var(--ink), 0 0 24px rgba(210,60,60,.55); }
+      #downed .sub { margin-top: 8px; color: var(--text); font-size: 14px; text-shadow: var(--ink-shadow); }
 
-      /* ── Contrôles (bas-gauche) */
+      /* ── Aide secondaire, volontairement plus discrète que le combat. */
       #hint {
-        position: fixed; left: var(--edge); bottom: 12px; pointer-events: none;
-        max-width: calc((100vw - clamp(480px, 44vw, 680px)) / 2 - 2 * var(--edge));
-        font-size: 11px; line-height: 2.1;
-        color: var(--muted); text-shadow: var(--ink-shadow);
-        background: rgba(10, 9, 16, .55); padding: 6px 10px;
+        position: absolute; left: var(--edge); bottom: 14px;
+        width: min(310px, calc((100vw - 720px) / 2 - 28px));
+        padding: 7px 9px; background: rgba(8,7,12,.76);
+        border-left: 2px solid var(--rim); color: var(--muted);
+        font-size: 10px; line-height: 1.9; text-shadow: var(--ink-shadow);
+      }
+      @media (max-width: 1080px) {
+        #objective { top: 76px; width: min(560px, calc(100vw - 300px)); }
+        #chase { top: 124px; }
+        #hint { display: none; }
+      }
+      @media (max-width: 720px) {
+        #run-pill { min-width: 0; right: var(--edge); grid-template-columns: repeat(3, 1fr); }
+        #party { top: 86px; width: 190px; }
+        #objective { top: auto; bottom: 124px; width: calc(100vw - 32px); min-width: 0; }
+        #chase { top: auto; bottom: 166px; }
+        #map-panel { top: 86px; }
+        #vitals { grid-template-columns: 62px 1fr 62px; gap: 8px; }
+        .slot-face { height: 44px; }
+      }
+      @media (max-height: 700px) {
+        #map-panel { padding: 5px; }
+        #minimap { width: 96px; height: 96px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #stamina-track.denied, .pcard.down, #chase { animation: none; }
       }
 
       /* ── Lobby (z 10) */
@@ -357,54 +363,72 @@
     </div>
 
     <div id="hud" class="hidden">
-
       <div id="run-pill" class="panel">
-        <span class="run-floor">ÉTAGE <b id="floor" class="num">1</b></span>
-        <span class="sep"></span>
-        <span class="run-room num" id="room-label">—</span>
-        <span class="sep"></span>
-        <span class="run-bones"><i class="bone-ico"></i><b id="bones" class="num">0</b></span>
+        <div class="run-stat run-floor">
+          <span class="run-kicker">Profondeur</span>
+          <strong id="floor" class="num">1</strong>
+        </div>
+        <div class="run-stat run-room">
+          <span class="run-kicker">Expédition</span>
+          <strong id="room-label" class="num">—</strong>
+        </div>
+        <div class="run-stat run-bones">
+          <span class="run-kicker">Ossements</span>
+          <strong id="bones" class="num">0</strong>
+        </div>
       </div>
       <div id="map-panel" class="panel">
+        <div class="panel-title">Carte explorée</div>
         <canvas id="minimap" width="128" height="128"></canvas>
       </div>
 
-      <div id="vitals">
+      <div id="objective" class="hidden"></div>
+      <div id="chase" class="hidden"></div>
+
+      <div id="vitals" class="panel panel--gold">
         <div class="slot">
           <div class="slot-face panel panel--gold" id="weapon-glyph">—</div>
+          <div class="slot-kicker">Arme</div>
           <div class="slot-label" id="weapon">—</div>
         </div>
         <div class="bars">
-          <div class="hp-row">
-            <div class="level-badge panel">N<b id="level" class="num">1</b></div>
-            <div id="hp-track" class="gauge"><div id="hp-fill"></div><div id="hp-cap"></div><span id="hp" class="num">—</span></div>
+          <div class="vital-head">
+            <div class="level-badge">Niveau <b id="level" class="num">1</b></div>
+            <span class="slot-kicker">État du rôdeur</span>
           </div>
-          <div id="stamina-track" class="gauge"><div id="stamina-fill"></div></div>
-          <div id="xp-track" class="gauge"><div id="xp-fill"></div></div>
+          <div class="resource">
+            <div class="resource-head"><span>Vie</span><span id="hp" class="num">—</span></div>
+            <div id="hp-track" class="gauge"><div id="hp-fill"></div><div id="hp-cap"></div></div>
+          </div>
+          <div class="resource">
+            <div class="resource-head"><span>Souffle</span></div>
+            <div id="stamina-track" class="gauge"><div id="stamina-fill"></div></div>
+          </div>
+          <div class="resource">
+            <div class="resource-head"><span>Expérience</span></div>
+            <div id="xp-track" class="gauge"><div id="xp-fill"></div></div>
+          </div>
         </div>
         <div class="slot" id="potion-row">
           <div class="slot-face panel panel--gold"><kbd class="keycap">R</kbd></div>
+          <div class="slot-kicker">Fiole</div>
           <div class="slot-label" id="potion">—</div>
         </div>
       </div>
 
       <div id="hint">
         <kbd class="keycap">ZQSD</kbd> déplacer · <kbd class="keycap">CLIC G</kbd> attaquer ·
-        <kbd class="keycap">R</kbd> fiole · rester près d'un allié à terre le relève ·
-        manette : stick droit pour viser
+        <kbd class="keycap">CLIC D</kbd> maintenir pour prendre · <kbd class="keycap">R</kbd> fiole ·
+        rester près d'un allié à terre le relève
       </div>
 
+      <div id="downed" class="hidden">
+        <div class="big">À TERRE</div>
+        <div class="sub num" id="downed-sub"></div>
+      </div>
+
+      <div id="party" class="hidden"></div>
     </div>
-
-    <div id="objective" class="hidden"></div>
-    <div id="chase" class="hidden"></div>
-
-    <div id="downed" class="hidden">
-      <div class="big">À TERRE</div>
-      <div class="sub num" id="downed-sub"></div>
-    </div>
-
-    <div id="party" class="hidden"></div>
 
     <div id="gameover">
       <div class="go-title">GAME OVER</div>

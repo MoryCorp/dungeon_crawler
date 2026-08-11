@@ -141,6 +141,39 @@ const ITEM_LABELS: Record<string, string> = {
   fiole_vitesse: 'fiole de vitesse',
 }
 
+/**
+ * Style commun aux indications posées dans le monde.
+ *
+ * Le monde est agrandi trois fois (`SCALE`) : sans une texture de texte à la
+ * même résolution, Pixi étire un canevas de 7 ou 8 pixels et les glyphes se
+ * brouillent. La taille logique reste assez compacte pour ne pas masquer le
+ * combat, tandis que résolution, graisse, contour et ombre survivent au fond
+ * très contrasté du pixel art.
+ */
+const WORLD_TEXT_STYLE = {
+  fontFamily: '"DejaVu Sans Mono", "Liberation Mono", ui-monospace, monospace',
+  fontSize: 9,
+  fontWeight: '700' as const,
+  letterSpacing: 0.15,
+  stroke: { color: 0x07060a, width: 1.25 },
+  dropShadow: {
+    color: 0x000000,
+    alpha: 0.9,
+    angle: Math.PI / 2,
+    blur: 0,
+    distance: 1,
+  },
+}
+
+function makeWorldText(text: string, fill: number): Text {
+  return new Text({
+    text,
+    resolution: SCALE,
+    roundPixels: true,
+    style: { ...WORLD_TEXT_STYLE, fill },
+  })
+}
+
 /** Rémanence de la visée sur l'orientation, en secondes. */
 const AIM_HOLD = 1
 /** En deçà, la composante horizontale est trop faible pour changer de profil. */
@@ -650,15 +683,7 @@ export class Renderer {
   }
 
   private spawnFloater(label: string, x: number, y: number, color: number): void {
-    const text = new Text({
-      text: label,
-      style: {
-        fontFamily: 'ui-monospace, monospace',
-        fontSize: 8,
-        fill: color,
-        stroke: { color: 0x000000, width: 2 },
-      },
-    })
+    const text = makeWorldText(label, color)
     text.anchor.set(0.5, 1)
     text.x = x * TILE
     text.y = y * TILE - TILE / 2
@@ -692,15 +717,7 @@ export class Renderer {
       seen.add(item.id)
       let tag = this.priceTags.get(item.id)
       if (!tag) {
-        tag = new Text({
-          text: '',
-          style: {
-            fontFamily: 'ui-monospace, monospace',
-            fontSize: 7,
-            fill: 0xffffff,
-            stroke: { color: 0x000000, width: 2 },
-          },
-        })
+        tag = makeWorldText('', 0xffffff)
         tag.anchor.set(0.5, 1)
         this.fxLayer.addChild(tag)
         this.priceTags.set(item.id, tag)
@@ -751,15 +768,7 @@ export class Renderer {
       return
     }
     if (!this.takeTag) {
-      this.takeTag = new Text({
-        text: '',
-        style: {
-          fontFamily: 'ui-monospace, monospace',
-          fontSize: 7,
-          fill: 0xf0e6d2,
-          stroke: { color: 0x000000, width: 2 },
-        },
-      })
+      this.takeTag = makeWorldText('', 0xf0e6d2)
       this.takeTag.anchor.set(0.5, 1)
       this.fxLayer.addChild(this.takeTag)
     }

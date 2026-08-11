@@ -183,7 +183,23 @@ export class Room {
 
   setInput(ws: WebSocket, input: PlayerInput | null): void {
     const client = this.clients.get(ws)
-    if (client) client.input = input
+    if (!client) return
+    if (!input) {
+      client.input = null
+      return
+    }
+
+    // Déplacement, visée et attaque sont des états : le paquet le plus récent
+    // gagne. Boire, rouler et ramasser sont des impulsions d'une frame. À
+    // 60 Hz côté client face aux 30 Hz de la simulation, leur paquet `true`
+    // puis leur paquet `false` peuvent tous deux arriver entre deux ticks. Si
+    // on ne gardait que le dernier, le serveur ne verrait jamais la commande.
+    // On les accumule donc jusqu'au prochain tick, qui les consomme une fois.
+    const pending = client.input
+    client.input = { ...input }
+    if (pending?.drink === true || input.drink === true) client.input.drink = true
+    if (pending?.roll === true || input.roll === true) client.input.roll = true
+    if (pending?.take === true || input.take === true) client.input.take = true
   }
 
   private floorMsg(): ServerMsg {
@@ -208,6 +224,14 @@ export class Room {
     const floorBefore = this.state.floor
     const sceneBefore = this.state.scene
     const { visible } = step(this.state, inputs, this.scratch)
+    // Les impulsions mises en réserve ci-dessus ont maintenant été présentées
+    // au moteur. Les états continus restent en place jusqu'au prochain paquet.
+    for (const c of this.clients.values()) {
+      if (!c.input) continue
+      delete c.input.drink
+      delete c.input.roll
+      delete c.input.take
+    }
     if (this.state.floor !== floorBefore || this.state.scene !== sceneBefore) {
       this.floorDirty = true
     }

@@ -183,6 +183,20 @@ const asWs = (w: FakeWs) => w as unknown as import('ws').WebSocket
     w1.sent.some((p) => JSON.parse(p).t === 'welcome'))
   check('un joueur connecté est dans le monde', room.state.actors.p_alice?.offline === undefined)
 
+  // Une impulsion ne dure qu'une frame client. Son retour à faux peut donc
+  // arriver avant le tick serveur qui devait la lire : la room doit la garder
+  // en réserve, puis la consommer exactement une fois.
+  room.state.items.length = 0
+  const repos = { mx: 0, my: 0, aim: 0, attack: false, sprint: false }
+  room.setInput(asWs(w1), { ...repos, take: true })
+  room.setInput(asWs(w1), repos)
+  room.tick()
+  const takeAt = room.state.actors.p_alice?.takeAt
+  check('une impulsion brève survit à son paquet de relâchement', takeAt === room.state.tick)
+  room.tick()
+  check('une impulsion mise en réserve n\'est consommée qu\'une fois',
+    room.state.actors.p_alice?.takeAt === takeAt && takeAt !== room.state.tick)
+
   room.leave(asWs(w1))
   check('fermer l\'onglet sort le personnage du monde sans le supprimer',
     room.state.actors.p_alice?.offline === true)
